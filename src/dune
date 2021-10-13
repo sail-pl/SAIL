@@ -1,0 +1,7 @@
+(executable
+        (libraries core fmt)
+        (preprocess (pps ppx_jane -allow-unannotated-ignores))
+        (name sail))
+(ocamllex lexer)
+(menhir
+ (modules parser))
