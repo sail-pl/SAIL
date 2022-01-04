@@ -55,8 +55,6 @@ rule read_token = parse
   | "&&" { AND }
   | "||" { OR }
   | "!" { NOT }
-  | "<" {LT}
-  | ">" {GT}
   | "<=" {LE}
   | ">="  {GE}
   | "!=" { NEQ }
@@ -76,7 +74,9 @@ rule read_token = parse
   | "return" { RETURN }
   | "await" { AWAIT }
   | "emit" { EMIT }
+  | "when" {WHEN}
   | "watching" { WATCHING }
+  | "mut" {MUT}
   | uid { UID (Lexing.lexeme lexbuf) }
   | whitespace { read_token lexbuf }
   | "//" { read_single_line_comment lexbuf }

@@ -17,19 +17,21 @@
 %token STRUCT ENUM
 %token VAR SIGNAL 
 %token IF ELSE WHILE RETURN
-%token AWAIT EMIT WATCHING
+%token AWAIT EMIT WATCHING WHEN
 %token TRUE FALSE
 %token PLUS MINUS MUL DIV REM
-%token LE LT GE GT EQ NEQ
+%token LE GE EQ NEQ
 %token AND OR NOT
 %token CASE
 %token REF
+%token MUT
 %token EOF
 
 %left PLUS MINUS
 %left MUL DIV REM
-%left LT LE GT GE EQ  NEQ
+%left LE GE EQ  NEQ   
 %left AND OR
+%nonassoc LANGLE RANGLE
 %nonassoc UNARY
 %nonassoc RPAREN
 %nonassoc ELSE
@@ -99,12 +101,13 @@ expression :
 | MUL e= expression %prec UNARY {Deref e}
 | e1=expression o=binOp e2=expression {BinOp (o,e1,e2)}
 | el = delimited (LSQBRACE, separated_list(SEMICOLON, expression), RSQBRACE) {ArrayStatic(el)}
-| l = delimited (LBRACE, separated_list(SEMICOLON, id_colon(expression)), RBRACE) {StructAlloc(l)} 
+| l = delimited (LBRACE, separated_list(SEMICOLON, id_colon(expression)), RBRACE) {StructAlloc(l)}
+| id = UID {EnumAlloc(id, [])}
 | id = UID l = delimited (LPAREN, separated_list(COMMA, expression), RPAREN) {EnumAlloc(id, l)}
 | id = ID params = delimited (LPAREN, separated_list (COMMA, expression), RPAREN) {MethodCall (id,params)}
 
 id_colon(X):
-  | id=ID COLON x=X {(id,x)};
+  | id=ID COLON x=X {(id,x)}; 
 
 literal :
   | TRUE {LBool(true) }
@@ -121,9 +124,9 @@ literal :
 | MUL {Mul}
 | DIV {Div}
 | REM {Rem}
-| LT {Lt}
+| LANGLE {Lt}
 | LE {Le}
-| GT {Gt}
+| RANGLE {Gt}
 | GE {Ge}
 | EQ {Eq}
 | NEQ {NEq}
@@ -132,7 +135,7 @@ literal :
 ;
 
 declaration :
-  | VAR id = ID COLON typ=sailtype ASSIGN e = expression {VariableDeclaration(id,typ,e)}
+  | VAR b = mut id = ID COLON typ=sailtype ASSIGN e = expression {VariableDeclaration(b,id,typ,e)}
   | SIGNAL id = ID {SignalDeclaration(id)}
   ;
 
@@ -144,7 +147,7 @@ lhs :
 
 seq :
 | l = list(statement) 
-  {if List.length l > 1 then Seq l else List.hd l}
+  {if List.length l <> 1 then Seq l else List.hd l}
 
 parl :
 | s1 = statement OR s2 = statement {[s1;s2]}
@@ -158,13 +161,14 @@ statement :
 | IF e = delimited(LPAREN, expression, RPAREN) s1 = statement  {If(e, s1, None)}
 | IF e = delimited(LPAREN, expression, RPAREN) s1 = statement ELSE s2 = statement {If(e, s1, Some s2)}
 | WHILE e = delimited(LPAREN, expression, RPAREN) s = statement {While(e, s)}
-| CASE e = delimited(LPAREN, expression, RPAREN) l = delimited(LBRACE, separated_list(COMMA, case), RBRACE) {Case(e,l)}
+| CASE e = delimited(LPAREN, expression, RPAREN) l = delimited(LBRACE, list( case), RBRACE) {Case(e,l)}
 | id = ID LPAREN p = separated_list(COMMA, expression) RPAREN SEMICOLON {Invoke(None, id, p)}
 | RETURN e = option(expression) SEMICOLON {Return e}
 | id = UID params=delimited(LPAREN, separated_list(COMMA, expression), RPAREN) SEMICOLON {Run (id, params)}
 | EMIT id = delimited(LPAREN, ID, RPAREN) SEMICOLON {Emit(id)}
 | AWAIT id = delimited(LPAREN,ID,RPAREN) SEMICOLON {Await(id)}
 | WATCHING id = delimited(LPAREN, ID, RPAREN) s = statement {Watching(id, s)}
+| WHEN id = delimited(LPAREN, ID, RPAREN) s = statement {When(id, s)}
 ;
 
 case :
@@ -186,6 +190,12 @@ sailtype:
   | LSQBRACE typ = sailtype RSQBRACE {ArrayType (typ)}
   | id = ID params=instance {CompoundType(id,params)}
   | name = UID {GenericType(name)}
+  | REF b=mut t = sailtype {Ref(t,b)}
+  ;
+
+mut:
+  | MUT {true}
+  | {false}
   ;
 
 instance:

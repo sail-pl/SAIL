@@ -6,6 +6,8 @@ type sailtype =
   | String
   | ArrayType of sailtype
   | CompoundType of string * sailtype list
+  | Box of sailtype
+  | Ref of sailtype * bool
   | GenericType of string
 
 type literal =
@@ -41,7 +43,7 @@ type lhs =
   | LHSArray of lhs * expression
 
 type declaration =
-  | VariableDeclaration of string * sailtype * expression
+  | VariableDeclaration of bool * string * sailtype * expression
   | SignalDeclaration of string
 
 type pattern =
@@ -62,6 +64,7 @@ type statement =
   | Loop of statement
   | Emit of string
   | Await of string
+  | When of string * statement
   | Watching of string * statement
 
 type struct_defn = 
