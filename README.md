@@ -40,7 +40,9 @@ id/uid respectively stand for identifier starting with lower/upper capital lette
 >         | string  
 >         | [type]  
 >         | id [[<type,...,type>]]  
->         | box<type>  
+>         | box<type>  
+>         | &type  
+>         | &mut type  
 >         | A  
 
 -- A program is a sequence of definitions
@@ -62,7 +64,7 @@ id/uid respectively stand for identifier starting with lower/upper capital lette
 The execution of SAIL programs proceeds in successive steps called instants.
 Parallel composition allows the concurrent execution of several processes.
 At each instant signals may be present or absent. A signal is present either
-because it is produces by the environment 
+because it is produced by the environment or because it is emitted by the program.
 An instant terminates when all
 processes are blocked, waiting for an absent signal. Signals are handled by the following
 primitives :
@@ -78,8 +80,8 @@ by the expression.
   
 
 > stmt :=  
->         | var id = expr;                             (declaration of a variable)  
->         | signal id;                                 (declaration of a signal)  
+>         | var [mut, &mut] id : type = expr;          (declaration of a variable)  
+>         | signal id;                                 (declaration of a signal)  
 >         | lhs = expr;                                (assignment)  
 >         | {stmt; ... stmt;}                          (sequence)  
 >         | {stmt || ... || stmt}                      (parallel composition)  
@@ -88,9 +90,9 @@ by the expression.
 >         | case (expr) {pat:stmt, ..., pat:stmt}      (pattern matching)  
 >         | id(expr, ..., expr);                       (call)  
 >         | uid(expr, ..., expr);                      (macro)  
->         | return [[expr]];                           (return statement)  
->         | emit(id);                                  (emission of a signal)  
->         | await(id);                                 (blocking primitive, waiting for a signal)  
+>         | return [[expr]];                           (return statement)  
+>         | emit(s);                                   (emission of a signal)  
+>         | when(s) stmt                               (blocking primitive, waiting for a signal)  
 >         | watching(s) stmt                           (preemption)  
 
 > expr :=  
@@ -98,7 +100,7 @@ by the expression.
 >         | lit                                        (literal)   
 >         | expr [expr]                                (read access in an array)  
 >         | e.id                                       (read access in a structure)  
->         | (e)                                        (parenthesed expression) 
+>         | (e)                                        (parenthesed expression)   
 >         | - e                                        (usual unary operators)  
 >         | e * e                                      (usual binary operator)  
 >         | &e                                         (reference)  
