@@ -1,0 +1,58 @@
+program := defn ... defn
+
+type :=
+     | bool
+     | int
+     | float
+     | char
+     | string
+     | [type]
+     | id [[<type,...,type>]]
+     | A
+
+defn :=
+     | struct id<A,...,A> {id:type,...,id:type}
+     | enum uid<A,...,A> {id:(type,...,type),...,id:(type,...,type)}
+     | method id<A,...,A> [[:type]] stmt; .... stmt;
+     | process uid<A,...,A> (var id:type,...,id:type; signal id,...,id) (*)
+       stmt; ...; stmt
+
+expr :=
+     | uid
+     | lit
+     | expr [expr]
+     | e.id
+     | (e)
+     | - e 
+     | e * e
+     | &e
+     | *e
+     | [e;...;e]
+     | {id : e; ...; id : e}
+     | id(e,...,e)
+     | uid(e,...,e)
+
+lhs :=
+    | id
+    | lhs.id
+    | lhs[expr]
+
+pat :=
+    | id
+    | uid [[(pat, ..., pat)]]
+
+stmt :=
+     	 | var id = expr;
+     	 | signal id;
+     	 | lhs = expr;
+     	 | {stmt; ...; stmt}
+     	 | {stmt || ... || stmt}
+     	 | if (expr) stmt [[else stmt]]
+	 | while (expr) stmt
+	 | case (expr) {pat:stmt, ..., pat:stmt}
+	 | id(expr, ..., expr);
+	 | uid(expr, ..., expr);
+	 | return [[expr]];
+	 | emit(id);
+	 | await(id);
+	 | watching(s) stmt

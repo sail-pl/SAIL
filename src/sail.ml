@@ -25,12 +25,12 @@ let get_file_extension (filename : string) : string =
 
 let real_file =
   let error_not_file filename =
-    eprintf "'%s' is not a real file. Hint: use the .real extension\n%!" filename ;
+    eprintf "'%s' is not a sl file. Hint: use the .sl extension\n%!" filename ;
     exit 1 in
   Command.Spec.Arg_type.create (fun filename ->
       match Sys.is_file filename with
       | `Yes ->
-          if String.equal (get_file_extension filename) "rea" then filename
+          if String.equal (get_file_extension filename) "sl" then filename
           else error_not_file filename
       | `No | `Unknown -> error_not_file filename)
 

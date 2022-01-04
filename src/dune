@@ -4,4 +4,5 @@
         (name sail))
 (ocamllex lexer)
 (menhir
+ (flags (--explain))
  (modules parser))

@@ -1,64 +1,38 @@
 struct point {
 x : int;
-y : int;
-};
-
-struct patchwork {
-x : float;
-y : bool;
-z : char;
-t : int[10][10];
-u : point;
-v : point<A>;
-w : &int;
-s : &mut int; 
-};
+y : int
+}
 
 enum option <A> {
- none : null ;
- some : A ;
-};
+ none ;
+ some (A) 
+}
 
 struct node <A> {
  elem : A;
- tail : option <node <A>>;
-};
+ tail : option <node <A>>
+}
   
 struct list <A> {
- head : option <node<A>>;
-};
+ head : option <node<A>>
+}
 
-struct pair <A,B> {
- a : A;
- b : B;
-};
-
-struct tree <A> {
- value : A;
- left : tree <A>;
- right : tree <A>;
-};
-
-method length (l : list<int>) : int {
-  /*case (l){
-    cons h t { 
-      return;
-    }
-    nil {
-      return;
-    }
-    }*/
+method length (l : list<int>) : int is
+{
+  case l of 
+  { cons(h) => return }
+  { nil (x) => return };
   var x : int = 1;
-  sig s;
+  signal s;
   x = x;
-  if x {return 1};
-  while x {return x};
+  if x then if x then return else return 1;
+  while x do return x;
   return
 }
 
-method cons() {
-  /*  n = {elem = 1; next = nil};
-      l = {head = n;};*/
+method cons() is {
+  n = {elem : 1; next : 1};
+  l = {head : n};
   return;
   return
 }

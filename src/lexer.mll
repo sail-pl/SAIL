@@ -1,7 +1,4 @@
 {
-  (* Inside these curly braces we define helper functions that are    
-     exposed to our OCaml source code
-   *)
 
   open Lexing
   open Parser
@@ -16,63 +13,59 @@
       }
 }
 
-(* Helper regexes *)
 let digit = ['0'-'9']
 let alpha = ['a'-'z' 'A'-'Z']
+let frac = '.' digit*
+let exp = ['e' 'E'] ['-' '+']? digit+
 
-(* Regexes for tokens *)
 let int = '-'? digit+
+let float = digit* frac? exp?
 let id = (alpha) (alpha|digit|'_')*
-let generic_type_param =  ['A' -'Z']
+let uid = (['A'-'Z']) (alpha|digit|'_')*
+let generic_type_param =  (['A'-'Z']) (alpha|digit|'_')*
 
 let whitespace = [' ' '\t']+
 let newline = '\r' | '\n' | "\r\n"
 
-(* Lexer Rules
- * To disambiguate prefixes, Ocamllex applies:
- *   1) Longest match
- *   2) Match first rule (hence id is listed after keywords) 
- *)
-
 rule read_token = parse 
+  | "bool" { TYPE_BOOL }
+  | "int" { TYPE_INT }
+  | "float" { TYPE_FLOAT }
+  | "char" { TYPE_CHAR}
+  | "string" { TYPE_STRING}
   | "(" { LPAREN }
   | ")" { RPAREN }
   | "{" { LBRACE }
   | "}" { RBRACE }
   | "[" { LSQBRACE}
   | "]" { RSQBRACE}
+  | "<" { LANGLE }
+  | ">" { RANGLE }
   | "," { COMMA }
   | "." { DOT }
   | ":" { COLON }
   | ";" { SEMICOLON }
-  | "=" { EQUAL }
+  | "=" { ASSIGN }
   | "+" { PLUS }
   | "-" { MINUS }
-  | "*" { MULT } 
+  | "*" { MUL } 
   | "/" { DIV }
   | "%" { REM }
-  | "<" { LANGLE }
-  | ">" { RANGLE }
+  | "&"  {REF}
   | "&&" { AND }
   | "||" { OR }
-  | "!" { EXCLAMATION_MARK }
-  | "&" { AMPERSAND }
-  | "*" { STAR }
-  | "!=" { NEQUAL }
-  | ":=" { COLONEQ }
-  | "=>" { RARROW }
-  | "mut" { MUT }
+  | "!" { NOT }
+  | "<" {LT}
+  | ">" {GT}
+  | "<=" {LE}
+  | ">="  {GE}
+  | "!=" { NEQ }
+  | "==" { EQ }
   | "var" { VAR }
-  | "sig" { SIG}
-  | "int" { TYPE_INT }
-  | "float" { TYPE_FLOAT }
-  | "bool" { TYPE_BOOL }
-  | "str" { TYPE_STRING}
-  | "char" { TYPE_CHAR}
-  | "void" { TYPE_VOID }
+  | "case" {CASE}
+  | "signal" { SIGNAL}
   | "struct" { STRUCT }
   | "enum " { ENUM }
-  | "mut" { MUT }
   | "process" { PROCESS }
   | "method" { METHOD }
   | "true" { TRUE }
@@ -81,21 +74,18 @@ rule read_token = parse
   | "if" { IF }
   | "else" { ELSE }
   | "return" { RETURN }
-  
   | "await" { AWAIT }
   | "emit" { EMIT }
-  | "when" { WHEN }
-  | "watch" { WATCH }
-  | "spawn" { SPAWN }
-  | "join" { JOIN }
-  | "null" { TYPE_VOID }
-  | generic_type_param {GENERIC_TYPE (Lexing.lexeme lexbuf)}
+  | "watching" { WATCHING }
+  | uid { UID (Lexing.lexeme lexbuf) }
   | whitespace { read_token lexbuf }
   | "//" { read_single_line_comment lexbuf }
   | "/*" { read_multi_line_comment lexbuf } 
   | int { INT (int_of_string (Lexing.lexeme lexbuf))}
   | id { ID (Lexing.lexeme lexbuf) }
-    | '"'      { read_string (Buffer.create 17) lexbuf }
+  | '"'      { read_string (Buffer.create 17) lexbuf }
+  | "'" {QUOTE}
+  | alpha {CHAR (String.get (Lexing.lexeme lexbuf) 0)}
   | newline { next_line lexbuf; read_token lexbuf }
   | eof { EOF }
   | _ {raise (SyntaxError ("Lexer - Illegal character: " ^ Lexing.lexeme lexbuf)) }

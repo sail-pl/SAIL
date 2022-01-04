@@ -1,32 +1,92 @@
-(setq sail-font-lock-keywords
-      (let* (
-	     ;; define several category of keywords
-             (x-keywords '("if" "else" "return" "while"))
-	     (x-types '("float" "int" "string" "char" "bool" "null"))
-	     (x-decls '("struct" "enum" "var" "sig" "mut" "method" "process"))
-	     (x-coops '("await" "emit" "when" "watch" "spawn" "join"))
-	     ;; generate regex string for each category of keywords
-             (x-keywords-regexp (regexp-opt x-keywords 'words))
-             (x-types-regexp (regexp-opt x-types 'words))
-	     (x-decls-regexp (regexp-opt x-decls 'words))
-	     (x-coops-regexp (regexp-opt x-coops 'words))
-	     )
-        `(
-          (,x-types-regexp . 'font-lock-type-face)
-          (,x-keywords-regexp . 'font-lock-keyword-face)
-	  (,x-decls-regexp . 'font-lock-function-name-face)
-	  (,x-coops-regexp . 'font-lock-builtin-face)
-          )))
+(defconst sail-keywords-regex
+  (regexp-opt '("if" "then" "else" "return" "while" "await" "emit" "watching" "run" "and" "signal" "var" "global" "when" "watching" "case") 'words))
+
+(defconst sail-types-regex
+  (regexp-opt '("float" "int" "string" "char" "bool") 'words))
+
+(defconst sail-decls-regex
+  (regexp-opt '("struct" "enum" "method" "module" "process" "where" "with" "as") 'words))
+
+(defconst sail-constant-regex
+  (regexp-opt '( "true" "false") 'words))
+
+
+(defconst sail-font-lock-keywords
+  (list
+   (cons sail-keywords-regex 'font-lock-keyword-face)
+   (cons sail-types-regex 'font-lock-type-face)
+   (cons sail-decls-regex 'font-lock-function-name-face)
+   (cons sail-constant-regex 'font-lock-constant-face)
+   ))
+
+
+(setq-default tab-width 4)
+
+(setq starter (concat "^[ \t]*"(regexp-opt '("struct" "enum" "method" "module") t)))
+
+(defun next-indent()
+  (let ((counter 0))
+    (save-excursion
+      (beginning-of-line)
+      (if (looking-at "^[ \t]*}") (incf counter))
+      (while (< (point) (line-end-position))
+        (when (looking-at (rx "{"))
+          (incf counter))
+        (when (looking-at (rx "}"))
+          (decf counter))
+        (forward-char 1)))
+    counter
+    )
+  )
+
+(defun sail-indent-line ()
+  "Indent current line as SAIL code"
+  (interactive)
+  (beginning-of-line)
+  (if (or (bobp) (looking-at starter))(indent-line-to 0)
+    (let ((cur-indent 0))  
+      (save-excursion
+        (forward-line -1)
+        (setq cur-indent (+ (current-indentation)
+                            (* (next-indent) tab-width))))
+      (beginning-of-line)
+      (if (looking-at "^[ \t]*}")
+          (setq cur-indent (- cur-indent tab-width)))
+      (if (< cur-indent 0) (setq cur-indent 0))
+      (indent-line-to cur-indent)
+      )))
+
+
 
 ;;;###autoload
-(define-derived-mode rea-mode c-mode "read mode"
-  "Major mode for editing SAIL files"
-  
-  ;; code for syntax highlighting
-  (setq font-lock-defaults '((sail-font-lock-keywords))))
+(add-to-list 'auto-mode-alist '("\\.sl\\'" . sail-mode))
 
-;; add the mode to the `features' list
+(define-derived-mode sail-mode fundamental-mode "SAIL"
+  "Major mode for editing SAIL files."
+  (set (make-local-variable 'font-lock-defaults) '(sail-font-lock-keywords))
+  (set (make-local-variable 'indent-line-function) 'sail-indent-line)
+  )
+
 (provide 'sail-mode)
+
+;; (defvar sail-mode-syntax-table
+;;   (let ((table (make-syntax-table)))
+;; 	(modify-syntax-entry ?\{ "(} " table)
+;; 	(modify-syntax-entry ?\} "){ " table)
+;; 	(modify-syntax-entry ?\( "() " table)
+;; 	(modify-syntax-entry ?\) ")( " table)
+;; 	(modify-syntax-entry ?\[ "(] " table)
+;;     (modify-syntax-entry ?\] ")[ " table)
+;; 	(modify-syntax-entry ?< "." table)
+;; 	(modify-syntax-entry ?> "." table)
+;; 	(modify-syntax-entry ?* "." table)
+;; 	(modify-syntax-entry ?/ "." table)
+;;     (modify-syntax-entry ?+ "." table)
+;;     (modify-syntax-entry ?- "." table)
+;; 	(modify-syntax-entry ?% "." table)
+	
+;; 	table)
+;;   "Syntax table for sail-mode")
 
 ;;; sail-mode.el ends here
  
