@@ -31,6 +31,8 @@
 %left MUL DIV REM
 %left LE GE EQ  NEQ   
 %left AND OR
+%nonassoc DOT
+%nonassoc LSQBRACE
 %nonassoc LANGLE RANGLE
 %nonassoc UNARY
 %nonassoc RPAREN
@@ -98,7 +100,7 @@ expression :
 | MINUS e = expression %prec UNARY {UnOp(Neg, e)}
 | NOT e=expression %prec UNARY {UnOp(Not, e)}
 | REF e = expression %prec UNARY {Ref e}
-| MUL e= expression %prec UNARY {Deref e}
+| MUL e = expression %prec UNARY {Deref e}
 | e1=expression o=binOp e2=expression {BinOp (o,e1,e2)}
 | el = delimited (LSQBRACE, separated_list(SEMICOLON, expression), RSQBRACE) {ArrayStatic(el)}
 | l = delimited (LBRACE, separated_list(SEMICOLON, id_colon(expression)), RBRACE) {StructAlloc(l)}
@@ -143,6 +145,7 @@ lhs :
   | id = ID {LHSVar(id)}
   | l = lhs DOT id = ID {LHSField(l, id)}
   | l = lhs e = delimited(LSQBRACE, expression, RSQBRACE) {LHSArray(l,e)}
+  | MUL e = lhs {LHSDeref(e)}
   ;
 
 seq :
@@ -190,7 +193,7 @@ sailtype:
   | LSQBRACE typ = sailtype RSQBRACE {ArrayType (typ)}
   | id = ID params=instance {CompoundType(id,params)}
   | name = UID {GenericType(name)}
-  | REF b=mut t = sailtype {Ref(t,b)}
+  | REF b=mut t = sailtype {RefType(t,b)}
   ;
 
 mut:

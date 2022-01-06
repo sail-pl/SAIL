@@ -7,7 +7,7 @@ type sailtype =
   | ArrayType of sailtype
   | CompoundType of string * sailtype list
   | Box of sailtype
-  | Ref of sailtype * bool
+  | RefType of sailtype * bool
   | GenericType of string
 
 type literal =
@@ -41,6 +41,7 @@ type lhs =
     LHSVar of string 
   | LHSField of lhs * string 
   | LHSArray of lhs * expression
+  | LHSDeref of lhs
 
 type declaration =
   | VariableDeclaration of bool * string * sailtype * expression

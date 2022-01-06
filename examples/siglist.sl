@@ -39,7 +39,10 @@ process M(var x : &mut list<int>, y : &int ; signal s1,s2){
 process N(var x : &mut list<int>, y : &mut int; signal s1, s2){
 	var i : int = 0;
 	while(i < 10){
-		emit(s1); i = i +1; *y = i; Pause();
+		emit(s1); 
+		i = i + 1; 
+		*y = i; 
+		Pause();
 	}
 	emit(s2);
 }
