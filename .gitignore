@@ -1,3 +1,7 @@
+*.opam
+*#*
+*~
+
 *.annot
 *.cmo
 *.cma

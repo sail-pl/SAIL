@@ -1,8 +1,14 @@
 (executable
-        (libraries core fmt)
-        (preprocess (pps ppx_jane -allow-unannotated-ignores))
-        (name sail))
+ (libraries core fmt)
+ (preprocess (pps ppx_jane -allow-unannotated-ignores))
+ (name sail))
 (ocamllex lexer)
 (menhir
  (flags (--explain))
  (modules parser))
+
+(install
+ (section bin)
+ (package sail-pl)
+ (files
+  (sail.exe as sail-pl)))
