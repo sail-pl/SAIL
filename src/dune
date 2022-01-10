@@ -11,4 +11,4 @@
  (section bin)
  (package sail-pl)
  (files
-  (sail.exe as sail-pl)))
+  (sail.exe as sailc)))
