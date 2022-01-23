@@ -15,6 +15,7 @@
   (synopsis "SAIL: Safe Interactive Language")
   (description "SAIL means Safe Interactive Language.")
   (depends 
+    (ocaml (>= 4.13.1))
     (dune (>= 2.9))
     (core (>= 0.14.1))
     (fmt  (>= 0.9.0))
