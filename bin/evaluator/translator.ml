@@ -1,6 +1,5 @@
 open Ast
 open Intermediate
-open Saillib.Env
 
 let cpt = ref 0
 let inc () = 
@@ -62,9 +61,22 @@ let seq_oflist (l : Intermediate.command list) : Intermediate.command =
 
 let resvar = "_res"
 
+let rec normalize (c : command) : command =
+  match c with 
+    | Seq(Seq(c1, c2), c3) ->  normalize (Seq (c1, Seq (c2, c3)))
+    | _ -> c
+
+    (* il faut descendre normalize dans les sous termes, sauf si seq_of_list suffit*)
 let rec translate  (t : Ast.statement) : Intermediate.command = 
   match t with 
-      | Ast.DeclVar (b,x,t) -> Intermediate.DeclVar(b,x,t)
+      | Ast.DeclVar (b,x,t,e) -> 
+        begin match e with 
+            None -> Intermediate.DeclVar(b,x,t)
+          | Some e -> 
+            let (e,l) = removeCalls e in
+            let n = List.concat (List.map mkcall l) in
+            seq_oflist (n@[Intermediate.DeclVar(b,x,t); Intermediate.Assign(Intermediate.Var x, e)])
+        end
       | Ast.DeclSignal (s) -> Intermediate.DeclSignal(s)
       | Ast.Assign (e1, e2) ->
         let (e1, l1) = removeCalls e1 in 
@@ -75,7 +87,7 @@ let rec translate  (t : Ast.statement) : Intermediate.command =
       | Ast.Seq (h::t) -> 
           let h = translate  h
           and t = List.map (translate) t in
-          List.fold_left (fun x y -> Seq (x, y)) h t
+          normalize(List.fold_left (fun x y -> Seq (x, y)) h t)
       | Ast.If(e, t1, t2) -> 
           let t1 = translate t1 in
           let t2 = begin match t2 with None -> Intermediate.Skip | Some t2 -> translate t2 end in            
@@ -113,15 +125,15 @@ let rec translate  (t : Ast.statement) : Intermediate.command =
         Intermediate.While (Literal (Common.LBool true), translate c)
       | Run _ -> failwith "processes not supported yet"
       | Ast.Emit(s) -> Intermediate.Emit(s)
-      | When (s, c) -> Intermediate.When(s, translate c, Env.emptyFrame)
-      | Watching (s, c) -> Intermediate.Watching(s, translate c, Env.emptyFrame)
-      | Await (s) -> Intermediate.When(s, Skip,Env.emptyFrame) 
+      | When (s, c) -> Intermediate.When(s, translate c, SailEnv.emptyFrame)
+      | Watching (s, c) -> Intermediate.Watching(s, translate c, SailEnv.emptyFrame)
+      | Await (s) -> Intermediate.When(s, Skip,SailEnv.emptyFrame) 
       | Par (c) -> 
           begin match List.map translate c with 
             []-> Intermediate.Skip
             |[c] -> c
             |c1::c2::t -> 
-              List.fold_left (fun x y -> Intermediate.Par (x,Env.emptyFrame,y,Env.emptyFrame)) c1 (c2::t)
+              List.fold_left (fun x y -> Intermediate.Par (x,SailEnv.emptyFrame,y,SailEnv.emptyFrame)) c1 (c2::t)
           end 
 
 let method_translator (m : Ast.statement Common.method_defn) : Intermediate.command Common.method_defn =

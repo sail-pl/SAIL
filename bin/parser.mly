@@ -26,13 +26,14 @@
 %token CASE
 %token REF
 %token MUT
+%token ARRAY
 %token EOF
 
+%left AND OR
+%left RANGLE LANGLE LE GE EQ NEQ
 %left PLUS MINUS
 %left MUL DIV REM
-%left LE GE EQ  NEQ   
-%left AND OR
-%nonassoc LANGLE RANGLE
+
 %nonassoc UNARY
 %nonassoc RPAREN
 %nonassoc ELSE
@@ -100,8 +101,8 @@ expression :
 | REF e = expression %prec UNARY {Ref (false,e)}
 | MUL e = expression %prec UNARY {Deref e}
 | e1=expression o=binOp e2=expression {BinOp (o,e1,e2)}
-| el = delimited (LSQBRACE, separated_list(SEMICOLON, expression), RSQBRACE) {ArrayStatic(el)}
-| l = delimited (LBRACE, separated_nonempty_list(SEMICOLON, id_colon(expression)), RBRACE) {StructAlloc(l)}
+| el = delimited (LSQBRACE, separated_list(COMMA, expression), RSQBRACE) {ArrayStatic(el)}
+| l = delimited (LBRACE, separated_nonempty_list(COMMA, id_colon(expression)), RBRACE) {StructAlloc(l)}
 | id = UID {EnumAlloc(id, [])}
 | id = UID l = delimited (LPAREN, separated_list(COMMA, expression), RPAREN) {EnumAlloc(id, l)}
 | id = ID params = delimited (LPAREN, separated_list (COMMA, expression), RPAREN) {MethodCall (id,params)}
@@ -120,8 +121,8 @@ literal :
 
 %inline binOp :
 | PLUS {Plus}
-| MINUS {Minus}
-| MUL {Mul}
+ | MINUS {Minus}
+ | MUL {Mul}
 | DIV {Div}
 | REM {Rem}
 | LANGLE {Lt}
@@ -130,8 +131,9 @@ literal :
 | GE {Ge}
 | EQ {Eq}
 | NEQ {NEq}
- |AND {And} 
-| OR {Or}
+| AND {And} 
+ | OR {Or}
+
 ;
 
 seq :
@@ -143,7 +145,8 @@ parl :
 | s1 = statement OR p = parl {s1::p};
 
 statement :
-| VAR b = mut id = ID COLON typ=sailtype SEMICOLON {DeclVar(b,id,typ)}
+| VAR b = mut id = ID COLON typ=sailtype SEMICOLON {DeclVar(b,id,typ,None)}
+| VAR b = mut id = ID COLON typ=sailtype ASSIGN e = expression SEMICOLON {DeclVar(b,id,typ,Some e)}
 | SIGNAL id = ID {DeclSignal(id)}
 | l = expression ASSIGN e = expression SEMICOLON {Assign(l, e)}
 | s = delimited(LBRACE,seq, RBRACE) option(SEMICOLON){s}
@@ -177,7 +180,7 @@ sailtype:
   | TYPE_FLOAT {Float}
   | TYPE_CHAR {Char}
   | TYPE_STRING {String}
-  | LSQBRACE typ = sailtype RSQBRACE {ArrayType (typ)}
+  | ARRAY LANGLE typ = sailtype RANGLE {ArrayType (typ)}
   | id = ID params=instance {CompoundType(id,params)}
   | name = UID {GenericType(name)}
   | REF b=mut t = sailtype {RefType(t,b)}

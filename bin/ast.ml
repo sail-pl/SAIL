@@ -16,12 +16,9 @@ type expression =
   | MethodCall of string * expression list
       
 
-type declaration =
-  | VariableDeclaration of bool * string * sailtype * expression
-  | SignalDeclaration of string
 
 type statement =
-  | DeclVar of bool * string * sailtype
+  | DeclVar of bool * string * sailtype * expression option 
   | DeclSignal of string
   | Assign of expression * expression
   | Seq of statement list

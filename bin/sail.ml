@@ -49,6 +49,8 @@ let verbose_param =
   flag "-verbose" (optional verbose_type) 
     ~doc:"set verbose level : 'app' 'error' 'warning' 'info' or 'debug'"
 
+
+
 let command = 
   Command.basic ~summary:"sail interpreter" 
     Command.Let_syntax.( 

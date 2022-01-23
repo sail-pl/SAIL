@@ -1,41 +1,45 @@
-module type Value = sig 
-  type t 
-  val pp_t : Format.formatter -> t -> unit
-end
+open MyUtil
 
 module type Env = sig 
 
-  type 'a t  
-  
-  type 'a frame
-  val empty : 'a t
+  type elt 
 
-  val emptyFrame : 'a frame
+  type t  
 
-  val top : 'a t -> 'a frame option
+  type frame
+  val empty : t
 
-  val singleton : string -> 'a -> 'a frame 
-  val record : 'a t -> string * 'a -> 'a t option
-  val fetchLoc : 'a t -> string -> 'a option
+  val emptyFrame : frame
 
-  val activate : 'a t -> 'a frame -> 'a t
+  val top : t -> (frame * t) option
 
-  val merge : 'a frame -> 'a frame -> 'a frame
-  val allValues : 'a frame -> 'a list
+  val singleton : string -> elt -> frame 
+  val record : t -> string * elt -> t option
+  val fetchLoc :  t -> string -> elt option
 
-  val deactivate : 'a t -> ('a list *  'a t) option
+  val activate : t -> frame -> t
 
-  val concat : 'a t -> 'a t -> 'a t
+  val push : t -> frame -> t option
+  val merge : frame -> frame -> frame
+  val allValues : frame -> elt list
+
+  val deactivate : t -> (elt list *  t) option
+
+  val concat : t -> t -> t
+
+  val pp_t : Format.formatter -> t  -> unit
 end
 
-module Env : Env = struct 
+module Env (V : Value): Env  with type elt = V.t = struct 
 
   module S = Map.Make (String)
 
-  type 'a t = 'a S.t list
+  type elt = V.t 
 
-  type 'a frame = 'a S.t
-  let empty = [S.empty]
+  type t = elt S.t list
+
+  type frame = elt S.t
+  let empty = []
   let emptyFrame = S.empty
 
   let singleton = S.singleton
@@ -47,48 +51,50 @@ module Env : Env = struct
       "["^(String.concat "," (List.map fst (S.bindings fr)))^"]"^
       (varsOf env) *)
 
-  let pp_pair (pp_a : Format.formatter -> 'a -> unit) (pf : Format.formatter) ((x, v) : string * 'a) : unit =
-    Format.fprintf pf "(%s:%a)" x pp_a v
+  let pp_pair (pf : Format.formatter) ((x, v) : string * 'a) : unit =
+    Format.fprintf pf "(%s:%a)" x V.pp_t v
     
-  let pp_frame (pp_a : Format.formatter -> 'a -> unit) (pf : Format.formatter) (fr : 'a frame) : unit = 
-    Format.fprintf pf "[%a]" (Format.pp_print_list (pp_pair pp_a)) (S.bindings fr)
+  let pp_frame (pf : Format.formatter) (fr : frame) : unit = 
+    Format.fprintf pf "[%a]" (Format.pp_print_list pp_pair) (S.bindings fr)
 
-  let pp_env (pp_a : Format.formatter -> 'a -> unit) (pf : Format.formatter) (env : 'a t) : unit =
-      Format.fprintf pf "%a" (Format.pp_print_list (pp_frame pp_a)) env
+  let pp_t (pf : Format.formatter) (env : t) : unit =
+      Format.fprintf pf "%a" (Format.pp_print_list pp_frame) env 
 
-  let top env = match env with [] -> None | h ::_ -> Some h
+  let top env = match env with [] -> None | h ::t -> Some (h,t)
   (* [record env (x,a)] : augment env with a mapping from a with x *)
   (* it is undefined if x is already defined in env or if env is empty *)
-  let record (env : 'a t) ((x,a) : string * 'a)  : 'a t option =
+  let record (env : t) ((x,a) : string * elt)  : t option =
   match env with
     | [] -> None
     | h :: t ->
         if S.exists (fun y _ -> x = y) h then None
         else Some (S.add x a h :: t)
 
-  let pp_fake (pf : Format.formatter) (_ : 'a) : unit = 
-    Format.fprintf pf "V"
-
   (** [fetchLoc env x] : returns the memory H.address associated with a variable *)
   (* it returns the value mapped by the first element of env defining x *)
-  let fetchLoc (env : 'a t) (x : string) : 'a option =
-    Logs.debug (fun m -> m "fetch env : %a\n" (pp_env pp_fake) env);
-    let rec aux (env : 'a t) =
+  let fetchLoc (env : t) (x : string) : elt option =
+    let rec aux (env : t) =
       match env with
       | [] -> None
       | blockvar :: env -> (
           match S.find_opt x blockvar with None -> aux env | _ as x -> x)
     in aux env
 
-  let allValues (e : 'a frame) : 'a list = 
+  let allValues (e : frame) : elt list = 
       S.fold (fun _ x y -> x::y) e [] 
 
-  let activate (e : 'a t) (fr : 'a frame)=
+  let activate (e : t) (fr : frame) =
     fr :: e 
 
-  let merge fr1 fr2 = S.union (fun _ _ y -> Some y) fr1 fr2
+let merge (fr1 : frame) (fr2 : frame) : frame = 
+    S.union (fun _ _ y -> Some y) fr1 fr2
 
-  let deactivate (e :'a t) : ('a list * 'a t) option = 
+  let push (e : t) (fr : frame) : t option =
+    match e with 
+      | [] -> None 
+      | fr'::e' -> Some (S.union (fun _ _ y -> Some y) fr fr' :: e')
+
+  let deactivate (e :'t) : (elt list *  t) option = 
     match e with 
       [] -> None 
       | h::t -> Some (S.fold (fun _ x y -> x::y) h [], t)

@@ -77,6 +77,7 @@ rule read_token = parse
   | "when" {WHEN}
   | "watching" { WATCHING }
   | "mut" {MUT}
+  | "array" {ARRAY}
   | uid { UID (Lexing.lexeme lexbuf) }
   | whitespace { read_token lexbuf }
   | "//" { read_single_line_comment lexbuf }

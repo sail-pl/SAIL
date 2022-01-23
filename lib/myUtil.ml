@@ -68,3 +68,19 @@ let rec listMapM (f : 'a -> 'b option) (l : 'a list) : 'b list option =
       let inr (v : ('a, 'b) sum) : 'b option =
         match v with Inr x -> Some x | _ -> None
       
+module type Value = sig 
+  type t 
+  val pp_t : Format.formatter -> t -> unit
+end
+
+module type OrderedValue = sig 
+  include Map.OrderedType 
+  val pp_t : Format.formatter -> t -> unit
+  val bottom : t
+  val next : t -> t
+end
+
+
+let pp_pair (pp_a : Format.formatter -> 'a -> unit) (pp_b : Format.formatter -> 'b -> unit)
+            (pf : Format.formatter) ((x, v) : 'a * 'b) : unit =
+  Format.fprintf pf "(%a:%a)" pp_a x pp_b v
