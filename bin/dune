@@ -1,0 +1,16 @@
+(copy_files# evaluator/*.ml)
+
+(executable
+ (libraries core fmt fmt.tty sail-pl  logs logs.fmt mtime mtime.clock.os)
+ (preprocess (pps ppx_let ppx_jane -allow-unannotated-ignores -allow-let-operators))
+ (public_name sail))
+(ocamllex lexer)
+(menhir
+ (flags (--explain))
+ (modules parser))
+
+(install
+ (section bin)
+ (package sail-pl)
+ (files
+  (sail.exe as sailc)))

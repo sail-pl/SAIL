@@ -1,0 +1,5 @@
+(library
+ (libraries logs logs.fmt)
+ (preprocess (pps ppx_let ppx_jane -allow-unannotated-ignores -allow-let-operators))
+ (name saillib)
+ (public_name sail-pl))

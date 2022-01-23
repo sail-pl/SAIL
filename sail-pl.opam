@@ -9,6 +9,7 @@ license: "GPL"
 homepage: "https://sail-pl.github.io"
 bug-reports: "https://sail-pl.github.io"
 depends: [
+  "ocaml" {>= "4.13.1"}
   "dune" {>= "2.9" & >= "2.9"}
   "core" {>= "0.14.1"}
   "fmt" {>= "0.9.0"}
