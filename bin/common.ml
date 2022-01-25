@@ -1,3 +1,25 @@
+(**************************************************************************)
+(*                                                                        *)
+(*                                 SAIL                                   *)
+(*                                                                        *)
+(*             Frédéric Dabrowski, LMV, Orléans University                *)
+(*                                                                        *)
+(* Copyright (C) 2022 Frédéric Dabrowski                                  *)
+(*                                                                        *)
+(* This program is free software: you can redistribute it and/or modify   *)
+(* it under the terms of the GNU General Public License as published by   *)
+(* the Free Software Foundation, either version 3 of the License, or      *)
+(* (at your option) any later version.                                    *)
+(*                                                                        *)
+(* This program is distributed in the hope that it will be useful,        *)
+(* but WITHOUT ANY WARRANTY; without even the implied warranty of         *)
+(* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the          *)
+(* GNU General Public License for more details.                           *)
+(*                                                                        *)
+(* You should have received a copy of the GNU General Public License      *)
+(* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
+(**************************************************************************)
+
 open Format
 
 type sailtype =
@@ -67,27 +89,28 @@ type 'a method_defn =
     processes : 'a process_defn list
   }
 
+  
+
   let pp_comma (pf : formatter) (() : unit) : unit = Format.fprintf pf "," 
   let pp_field (pp_a : formatter -> 'a -> unit) (pf : formatter) ((x,y) : string * 'a) = 
     Format.fprintf pf "%s:%a" x pp_a y
 
+let rec pp_pattern pf p = 
+  match p with 
+    | PVar x -> Format.pp_print_string pf x
+    | PCons (c, pl) -> Format.fprintf pf "%s(%a)" c (Format.pp_print_list ~pp_sep:pp_comma pp_pattern) pl
     
-let string_of_unop u = match u with Neg -> "-" | Not -> "~"
+let pp_unop pf u =
+  let u = match u with Neg -> "-" | Not -> "~" in
+  Format.pp_print_string pf  u 
 
-let string_of_binop b = match b with 
-  | Plus -> "+" 
-  | Mul -> "*"
-  | Div -> "/"
-  | Minus -> "-"
-  | Rem -> "%"
-  | Lt -> "<"
-  | Le -> "<="
-  | Gt -> ">"
-  | Ge -> ">="
-  | Eq -> "=="
-  | NEq -> "!="
-  | And -> "&&"
-  | Or -> "||"
+let pp_binop pf b = 
+  let b = 
+    match b with 
+    | Plus -> "+" | Mul -> "*" | Div -> "/" | Minus -> "-" | Rem -> "%"
+    | Lt -> "<" | Le -> "<=" | Gt -> ">" | Ge -> ">=" | Eq -> "==" | NEq -> "!="
+    | And -> "&&" | Or -> "||"
+  in Format.pp_print_string pf b
 
   let pp_literal (pf : formatter) (c : literal) : unit = 
     match c with 

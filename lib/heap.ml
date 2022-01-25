@@ -1,72 +1,81 @@
-open MyUtil
+(**************************************************************************)
+(*                                                                        *)
+(*                                 SAIL                                   *)
+(*                                                                        *)
+(*             Frédéric Dabrowski, LMV, Orléans University                *)
+(*                                                                        *)
+(* Copyright (C) 2022 Frédéric Dabrowski                                  *)
+(*                                                                        *)
+(* This program is free software: you can redistribute it and/or modify   *)
+(* it under the terms of the GNU General Public License as published by   *)
+(* the Free Software Foundation, either version 3 of the License, or      *)
+(* (at your option) any later version.                                    *)
+(*                                                                        *)
+(* This program is distributed in the hope that it will be useful,        *)
+(* but WITHOUT ANY WARRANTY; without even the implied warranty of         *)
+(* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the          *)
+(* GNU General Public License for more details.                           *)
+(*                                                                        *)
+(* You should have received a copy of the GNU General Public License      *)
+(* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
+(**************************************************************************)
+
+open Pp_util
  
 module type Heap = sig 
   (* the type of addresses *)
   type address
-
-  type elt
   (* the type of heaps *)
-  type t
+  type 'a t
   (* fetch the value at some address *)
-  val empty : t
-  val fetch : t -> address -> elt option option 
+  val empty : 'a t
+  val fetch : 'a t -> address -> 'a option option 
   (* update the value at some address *)
-  val update : t -> (address * elt) -> t option 
+  val update : 'a t -> (address * 'a ) -> 'a t option 
   (* allocate fresh address *)
-  val fresh : t -> address * t
+  val fresh : 'a t -> address * 'a t
   (* *)
-  val free : t -> address -> t option
+  val free : 'a t -> address -> 'a t option
 
-  val pp_address : Format.formatter -> address -> unit
-  val pp_t : Format.formatter -> t -> unit
+  val pp_address : Format.formatter -> address -> unit 
+  val pp_t : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a t -> unit
 end
 
+module Heap  : Heap = struct 
 
-module Heap (Addr : OrderedValue) (Val : Value) : Heap with type elt = Val.t and type address = Addr.t = struct 
-
-  module M  = Map.Make(Addr)
+  module M  = Map.Make(Int64)
 
   type address = M.key
 
-  type elt = Val.t
-
-  type t = {
-    map : elt option M.t;
+  type 'a t = {
+    map : 'a option M.t;
     freelist : address list;
     next : address;
   }
+  let pp_address pf a =  Format.fprintf pf "%Ld" a
   
-  let pp_address (f : Format.formatter) (a : address) = Format.fprintf f "%a"  Addr.pp_t a
+  let empty = {map = M.empty; freelist=[];next=Int64.zero}
 
-  let empty = {map = M.empty; freelist=[];next=Addr.bottom}
-
-  let pp_option (pp_a : Format.formatter -> 'a -> unit) (pf : Format.formatter) (x : 'a option) : unit =
-    match x with 
-        None -> Format.fprintf pf "_"
-      |  Some x -> pp_a pf x
-
-  let pp_t (pf : Format.formatter) (h : t) : unit =
+  let pp_t (pp_a : Format.formatter -> 'a -> unit) (pf : Format.formatter) (h : 'a t) : unit =
     Format.fprintf pf "{%a}"  
-      (Format.pp_print_list (pp_pair Addr.pp_t (pp_option Val.pp_t))) (M.bindings h.map)
+      (Format.pp_print_list (pp_print_pair pp_address (pp_print_option pp_a))) (M.bindings h.map)
 
-  (** [fetch ]*)
-  let fetch (h : t) (l : address) : elt option option =
+  let fetch (h : 'a t) (l : address) : 'a option option =
     M.find_opt l h.map
    
-  let update (h : t) ((l,v) : address * elt) :  t option =
+  let update (h : 'a t) ((l,v) : address * 'a) :  'a t option =
     Some
       { map = M.update l (fun _ -> Some (Some v)) h.map;
         freelist = h.freelist;
         next = h.next;}
   
-  let fresh (h : t) : address *  t =
+  let fresh (h : 'a t) : address *  'a t =
     match h.freelist with
     | [] ->
-      
         ( h.next,
           { map = M.add h.next None h.map;
             freelist = [];
-            next = Addr.next h.next;
+            next = Int64.succ h.next;
           } )
     | l :: t -> 
       (l, { map = M.add l None h.map; freelist = t; next = h.next })
@@ -75,6 +84,7 @@ module Heap (Addr : OrderedValue) (Val : Value) : Heap with type elt = Val.t and
     if M.mem l h.map then 
       Some {map = M.remove l h.map; freelist = l::h.freelist; next = h.next} 
     else None *)
-  let free (h : t) (_l: address) : t option = Some h
+  let free (h : 'a t) (_l: address) : 'a t option = 
+    Logs.warn (fun m-> m "Free not implemented yet");Some h
 end
 
