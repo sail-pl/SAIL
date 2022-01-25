@@ -1,3 +1,25 @@
+(**************************************************************************)
+(*                                                                        *)
+(*                                 SAIL                                   *)
+(*                                                                        *)
+(*             Frédéric Dabrowski, LMV, Orléans University                *)
+(*                                                                        *)
+(* Copyright (C) 2022 Frédéric Dabrowski                                  *)
+(*                                                                        *)
+(* This program is free software: you can redistribute it and/or modify   *)
+(* it under the terms of the GNU General Public License as published by   *)
+(* the Free Software Foundation, either version 3 of the License, or      *)
+(* (at your option) any later version.                                    *)
+(*                                                                        *)
+(* This program is distributed in the hope that it will be useful,        *)
+(* but WITHOUT ANY WARRANTY; without even the implied warranty of         *)
+(* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the          *)
+(* GNU General Public License for more details.                           *)
+(*                                                                        *)
+(* You should have received a copy of the GNU General Public License      *)
+(* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
+(**************************************************************************)
+
 %{
     open Common
     open Ast
@@ -147,7 +169,7 @@ parl :
 statement :
 | VAR b = mut id = ID COLON typ=sailtype SEMICOLON {DeclVar(b,id,typ,None)}
 | VAR b = mut id = ID COLON typ=sailtype ASSIGN e = expression SEMICOLON {DeclVar(b,id,typ,Some e)}
-| SIGNAL id = ID {DeclSignal(id)}
+| SIGNAL id = ID SEMICOLON {DeclSignal(id)}
 | l = expression ASSIGN e = expression SEMICOLON {Assign(l, e)}
 | s = delimited(LBRACE,seq, RBRACE) option(SEMICOLON){s}
 | s = delimited(LBRACE,parl,RBRACE) {Par s}

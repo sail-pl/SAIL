@@ -1,44 +1,63 @@
-open MyUtil
+(**************************************************************************)
+(*                                                                        *)
+(*                                 SAIL                                   *)
+(*                                                                        *)
+(*             Frédéric Dabrowski, LMV, Orléans University                *)
+(*                                                                        *)
+(* Copyright (C) 2022 Frédéric Dabrowski                                  *)
+(*                                                                        *)
+(* This program is free software: you can redistribute it and/or modify   *)
+(* it under the terms of the GNU General Public License as published by   *)
+(* the Free Software Foundation, either version 3 of the License, or      *)
+(* (at your option) any later version.                                    *)
+(*                                                                        *)
+(* This program is distributed in the hope that it will be useful,        *)
+(* but WITHOUT ANY WARRANTY; without even the implied warranty of         *)
+(* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the          *)
+(* GNU General Public License for more details.                           *)
+(*                                                                        *)
+(* You should have received a copy of the GNU General Public License      *)
+(* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
+(**************************************************************************)
+
+open Pp_util
 
 module type Env = sig 
 
-  type elt 
+  type 'a t  
 
-  type t  
+  type 'a frame
 
-  type frame
-  val empty : t
+  val empty : 'a t
 
-  val emptyFrame : frame
+  val emptyFrame : 'a frame
 
-  val top : t -> (frame * t) option
+  val top : 'a t -> ('a frame * 'a t) option
 
-  val singleton : string -> elt -> frame 
-  val record : t -> string * elt -> t option
-  val fetchLoc :  t -> string -> elt option
+  val singleton : string -> 'a -> 'a frame 
+  val record : 'a t -> string * 'a -> 'a t option
+  val fetchLoc :  'a t -> string -> 'a option
 
-  val activate : t -> frame -> t
+  val activate : 'a t -> 'a frame -> 'a t
 
-  val push : t -> frame -> t option
-  val merge : frame -> frame -> frame
-  val allValues : frame -> elt list
+  val push : 'a t -> 'a frame -> 'a t option
+  val merge : 'a frame -> 'a frame -> 'a frame
+  val allValues : 'a frame -> 'a list
 
-  val deactivate : t -> (elt list *  t) option
+  val deactivate : 'a t -> ('a list *  'a t) option
 
-  val concat : t -> t -> t
+  val concat : 'a t -> 'a t -> 'a t
 
-  val pp_t : Format.formatter -> t  -> unit
+  val pp_t : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a t  -> unit
 end
 
-module Env (V : Value): Env  with type elt = V.t = struct 
+module Env : Env = struct 
 
   module S = Map.Make (String)
 
-  type elt = V.t 
+  type 'a t = 'a S.t list
 
-  type t = elt S.t list
-
-  type frame = elt S.t
+  type 'a frame = 'a S.t
   let empty = []
   let emptyFrame = S.empty
 
@@ -50,20 +69,20 @@ module Env (V : Value): Env  with type elt = V.t = struct
     | fr::env -> 
       "["^(String.concat "," (List.map fst (S.bindings fr)))^"]"^
       (varsOf env) *)
-
+(* 
   let pp_pair (pf : Format.formatter) ((x, v) : string * 'a) : unit =
-    Format.fprintf pf "(%s:%a)" x V.pp_t v
+    Format.fprintf pf "(%s:%a)" x V.pp_t v *)
     
-  let pp_frame (pf : Format.formatter) (fr : frame) : unit = 
-    Format.fprintf pf "[%a]" (Format.pp_print_list pp_pair) (S.bindings fr)
+  let pp_frame (pp_a :Format.formatter -> 'a -> unit) (pf : Format.formatter) (fr : 'a frame) : unit = 
+    Format.fprintf pf "[%a]" (Format.pp_print_list (pp_print_pair Format.pp_print_string pp_a)) (S.bindings fr)
 
-  let pp_t (pf : Format.formatter) (env : t) : unit =
-      Format.fprintf pf "%a" (Format.pp_print_list pp_frame) env 
+  let pp_t (pp_a :Format.formatter -> 'a -> unit) (pf : Format.formatter) (env : 'a t) : unit =
+      Format.fprintf pf "%a" (Format.pp_print_list (pp_frame pp_a)) env 
 
   let top env = match env with [] -> None | h ::t -> Some (h,t)
   (* [record env (x,a)] : augment env with a mapping from a with x *)
   (* it is undefined if x is already defined in env or if env is empty *)
-  let record (env : t) ((x,a) : string * elt)  : t option =
+  let record (env : 'a t) ((x,a) : string * 'a)  : 'a t option =
   match env with
     | [] -> None
     | h :: t ->
@@ -72,29 +91,29 @@ module Env (V : Value): Env  with type elt = V.t = struct
 
   (** [fetchLoc env x] : returns the memory H.address associated with a variable *)
   (* it returns the value mapped by the first element of env defining x *)
-  let fetchLoc (env : t) (x : string) : elt option =
-    let rec aux (env : t) =
+  let fetchLoc (env : 'a t) (x : string) : 'a option =
+    let rec aux (env : 'a t) =
       match env with
       | [] -> None
       | blockvar :: env -> (
           match S.find_opt x blockvar with None -> aux env | _ as x -> x)
     in aux env
 
-  let allValues (e : frame) : elt list = 
+  let allValues (e : 'a frame) : 'a list = 
       S.fold (fun _ x y -> x::y) e [] 
 
-  let activate (e : t) (fr : frame) =
+  let activate (e : 'a t) (fr : 'a frame) =
     fr :: e 
 
-let merge (fr1 : frame) (fr2 : frame) : frame = 
+let merge (fr1 : 'a frame) (fr2 : 'a frame) : 'a frame = 
     S.union (fun _ _ y -> Some y) fr1 fr2
 
-  let push (e : t) (fr : frame) : t option =
+  let push (e : 'a t) (fr : 'a frame) :'a t option =
     match e with 
       | [] -> None 
       | fr'::e' -> Some (S.union (fun _ _ y -> Some y) fr fr' :: e')
 
-  let deactivate (e :'t) : (elt list *  t) option = 
+  let deactivate (e :'t) : ('a list *  'a t) option = 
     match e with 
       [] -> None 
       | h::t -> Some (S.fold (fun _ x y -> x::y) h [], t)

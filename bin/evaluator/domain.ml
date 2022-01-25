@@ -20,34 +20,54 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Domain
+open Saillib.Env
+open Saillib.Heap
+open Saillib.Monad
 
-type expression =
-  | Var of string
-  | Literal of Common.literal
-  | UnOp of Common.unOp * expression
-  | BinOp of Common.binOp * expression * expression
-  | ArrayAlloc of expression list
-  | ArrayRead of expression * expression
-  | StructAlloc of expression FieldMap.t
-  | StructRead of expression * string
-  | EnumAlloc of string * expression list
-  | Ref of bool * expression
-  | Deref of expression
+open MonadOption
+open MonadSyntax(MonadOption)
 
-type command =
-  | DeclVar of bool * string * Common.sailtype 
-  | DeclSignal of string
-  | Skip
-  | Assign of expression * expression
-  | Seq of command * command
-  | Block of command * frame
-  | If of expression * command * command
-  | While of expression * command
-  | Case of expression * (Common.pattern * command) list
-  | Invoke of string * expression list
-  | Return
-  | Emit of string
-  | When of string * command * frame
-  | Watching of string * command * frame
-  | Par of command * frame * command * frame
+type tag = Field of string | Indice of int
+type offset = tag list
+type location = Heap.address * offset
+
+module FieldMap = Map.Make (String)
+
+type value =
+  | VBool of bool
+  | VInt of int
+  | VFloat of float
+  | VChar of char
+  | VString of string
+  | VArray of value list
+  | VStruct of value FieldMap.t
+  | VEnum of string * value list
+  | VLoc of location
+
+type frame = Heap.address Env.frame
+type env = Heap.address Env.t
+type heap = (value, bool) Either.t Heap.t
+
+type 'a result = Continue | Ret | Suspend of 'a
+
+let locationOfAddress (a : Heap.address) : location = (a, [])
+
+let rec readValue (v : value) (o : offset) : value option =
+  match (v, o) with
+  | _, [] -> Some v
+  | VStruct m, Field f :: o' -> FieldMap.find_opt f m >>= (Fun.flip readValue) o'
+  | VArray a, Indice n :: o' -> List.nth_opt a n >>= (Fun.flip readValue) o'
+  | _ -> None
+
+let rec updateValue (v : value) (o : offset) (w : value) : value option =
+  match (v, o) with
+  | _, [] -> Some w
+  | VStruct m, Field f :: o' ->
+      let* vf = FieldMap.find_opt f m in
+      let* v' = updateValue vf o' w in
+      Some (VStruct (FieldMap.update f (fun _ -> Some v') m))
+  | VArray a, Indice n :: o' ->
+      let* vn = List.nth_opt a n in
+      let* v' = updateValue vn o' w in
+      Some (VArray (List.mapi (fun i x -> if i = n then v' else x) a))
+  | _ -> None

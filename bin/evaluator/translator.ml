@@ -1,51 +1,79 @@
+(**************************************************************************)
+(*                                                                        *)
+(*                                 SAIL                                   *)
+(*                                                                        *)
+(*             Frédéric Dabrowski, LMV, Orléans University                *)
+(*                                                                        *)
+(* Copyright (C) 2022 Frédéric Dabrowski                                  *)
+(*                                                                        *)
+(* This program is free software: you can redistribute it and/or modify   *)
+(* it under the terms of the GNU General Public License as published by   *)
+(* the Free Software Foundation, either version 3 of the License, or      *)
+(* (at your option) any later version.                                    *)
+(*                                                                        *)
+(* This program is distributed in the hope that it will be useful,        *)
+(* but WITHOUT ANY WARRANTY; without even the implied warranty of         *)
+(* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the          *)
+(* GNU General Public License for more details.                           *)
+(*                                                                        *)
+(* You should have received a copy of the GNU General Public License      *)
+(* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
+(**************************************************************************)
+
 open Ast
 open Intermediate
+open Saillib.Env
+open Saillib.Monad
+open Common
+open Domain
+
+module M : Writer.Writer with type 'a t = 'a * (string * string * Intermediate.expression list) list  
+  and type elt = (string * string * Intermediate.expression list) list = 
+  Writer.Make(MonoidList(struct type  t = (string * string * Intermediate.expression list) end))
 
 let cpt = ref 0
-let inc () = 
+let freshVar () = 
   let x = !cpt in 
   let _ = cpt := !cpt +1 in 
-  x
+  "_x"^(string_of_int x)
 
 let removeCalls (e : Ast.expression) : Intermediate.expression *  (string * string * Intermediate.expression list) list = 
-  let rec aux e : Intermediate.expression *  (string * string * Intermediate.expression list) list = 
+  let open M in
+  let open MonadSyntax(M) in
+  let open MonadFunctions(M) in
+    let rec aux e = 
   match e with 
-    | Ast.Variable x -> Intermediate.Var x, []
-    | Ast.Literal c -> Intermediate.Literal c, [] 
-    | Ast.UnOp(u, e) -> let (e, l) = aux e in Intermediate.UnOp(u, e), l
-    | Ast.BinOp(n, e1, e2) -> let (e1,l1) = aux e1 in let (e2, l2) = aux e2 in Intermediate.BinOp(n,e1,e2),l1@l2
-    | Ast.Ref(b,e) -> let (e,l) = aux e in Intermediate.Ref(b,e), l
-    | Ast.Deref(e) -> let (e,l) = aux e in Intermediate.Deref(e), l
+    | Ast.Variable x -> return (Intermediate.Var x)
+    | Ast.Literal c -> return (Intermediate.Literal c)
+    | Ast.UnOp(o, e) -> 
+      let* x = aux e in return (Intermediate.UnOp(o,x))
+    | Ast.BinOp(o, e1, e2) -> 
+      let* e1 = aux e1 and* e2 = aux e2 in 
+        return (Intermediate.BinOp(o,e1,e2))
+    | Ast.Ref(b,e) ->
+        let* e = aux e in return (Intermediate.Ref(b,e))
+    | Ast.Deref(e) ->
+        let* e = aux e in return (Intermediate.Deref(e))
     | Ast.ArrayRead (e1, e2) -> 
-      let (e1,l1) = aux e1 in 
-      let (e2,l2) = aux e2 in
-        Intermediate.ArrayRead (e1, e2), l1 @ l2
+      let* e1 = aux e1 and* e2 = aux e2 in
+        return (Intermediate.ArrayRead (e1, e2))
     | Ast.ArrayStatic (el) -> 
-        let l = (List.map aux el) in
-        let el = List.map fst l in
-        let l2 = List.fold_left (fun x (_,y) -> x@y) [] l in 
-        Intermediate.ArrayAlloc el, l2
+        let* el = listMapM aux el in 
+        return (Intermediate.ArrayAlloc el)
     | Ast.StructRead (e,f) -> 
-        let (e,l) = aux e in Intermediate.StructRead(e,f), l
-    | Ast.StructAlloc (fel) -> 
-        let m = List.map fst fel in
-        let n = List.map snd fel in 
-        let l = (List.map aux n) in
-        let el = List.map fst l in
-        let l2 = List.fold_left (fun x (_,y) -> x@y) [] l in
-        let s = List.fold_left (fun x (y,e) -> Store.add y e x) Store.empty (List.combine m el) in
-        Intermediate.StructAlloc(s), l2
+        let* e = aux e in return (Intermediate.StructRead(e,f))
+    | Ast.StructAlloc (fel) -> (* change to map in AST *)
+        let* el = listMapM (pairMap2 aux) fel in
+        let m = List.fold_left (fun x (y,e) -> FieldMap.add y e x) FieldMap.empty el in
+        return (Intermediate.StructAlloc(m)) 
     | Ast.EnumAlloc (x,el) ->
-      let l = (List.map aux el) in
-      let el = List.map fst l in
-      let l2 = List.fold_left (fun x (_,y) -> x@y) [] l in 
-        Intermediate.EnumAlloc(x, el), l2
-    | Ast.MethodCall (x, el) ->
-      let l = (List.map aux el) in
-      let el = List.map fst l in
-      let l2 = List.fold_left (fun x y -> x@y) [] (List.map snd l) in 
-      let var = "_x"^(string_of_int (inc ())) in 
-        (Intermediate.Var var), l2@[(var, x, el)]
+        let* el = listMapM aux el in 
+          return (Intermediate.EnumAlloc(x, el))
+    | Ast.MethodCall (id, el) ->
+      let var = freshVar () in
+      let* el = listMapM aux el in 
+      let* _ = write [(var, id, el)] in
+      return (Intermediate.Var var)
     in aux e
 
 let mkcall ((x,m,el) : string * string * Intermediate.expression list) =
@@ -66,8 +94,15 @@ let rec normalize (c : command) : command =
     | Seq(Seq(c1, c2), c3) ->  normalize (Seq (c1, Seq (c2, c3)))
     | _ -> c
 
+
+let fetch_rtype (p : Ast.statement Common.program) (id : string) : Common.sailtype option =
+  let open MonadSyntax(MonadOption) in
+  let* m = List.find_opt (fun m -> m.m_name = id) p.methods in 
+  m.m_rtype
+(* A refaire avec la signature *)
     (* il faut descendre normalize dans les sous termes, sauf si seq_of_list suffit*)
-let rec translate  (t : Ast.statement) : Intermediate.command = 
+let translate (p : Ast.statement Common.program) (t : Ast.statement) : Intermediate.command = 
+  let rec aux t = 
   match t with 
       | Ast.DeclVar (b,x,t,e) -> 
         begin match e with 
@@ -85,58 +120,67 @@ let rec translate  (t : Ast.statement) : Intermediate.command =
         seq_oflist (n@[Intermediate.Assign(e1,e2)])
       | Ast.Seq [] -> Intermediate.Skip
       | Ast.Seq (h::t) -> 
-          let h = translate  h
-          and t = List.map (translate) t in
+          let h = aux  h
+          and t = List.map (aux) t in
           normalize(List.fold_left (fun x y -> Seq (x, y)) h t)
       | Ast.If(e, t1, t2) -> 
-          let t1 = translate t1 in
-          let t2 = begin match t2 with None -> Intermediate.Skip | Some t2 -> translate t2 end in            
+          let t1 = aux t1 in
+          let t2 = begin match t2 with None -> Intermediate.Skip | Some t2 -> aux t2 end in            
           let (e, l) = removeCalls e in 
           let m = List.concat (List.map mkcall l) in
           seq_oflist (m @ [Intermediate.If(e, t1, t2)])
       | Ast.While (e, t) -> 
-          let t = translate t in 
+          let t = aux t in 
           let (e, l) = removeCalls e in 
           let m = List.concat (List.map mkcall l) in
           seq_oflist (m @ [Intermediate.While(e, t)])
       | Ast.Case(e, pl) -> 
           let (e,l) = removeCalls e in 
           let m = List.concat (List.map mkcall l) in
-            let pl = (List.map (fun (x,y) -> (x, translate  y)) pl) in
+            let pl = (List.map (fun (x,y) -> (x, aux  y)) pl) in
             seq_oflist (m @ [Intermediate.Case(e,pl)])
-      | Ast.Invoke(Some x, m, el) -> 
+      | Ast.Invoke(target, m, el) -> 
+        Logs.debug (fun m -> m "Here 0"); 
         let l = List.map removeCalls el in 
         let l1 = List.map fst l in 
         let l2 = List.concat (List.map snd l) in 
         let n = List.concat (List.map mkcall l2) in
-        seq_oflist (n @ [Intermediate.Invoke (m, l1@[Intermediate.Ref (true, Intermediate.Var x)])])
-      | Ast.Invoke(None, m ,el ) -> 
-        let l = List.map removeCalls el in 
-        let l1 = List.map fst l in 
-        let l2 = List.concat (List.map snd l) in 
-        let n = List.concat (List.map mkcall l2) in
-        seq_oflist (n @ [Intermediate.Invoke (m, l1)])
+        begin match fetch_rtype p m with 
+            Some t -> 
+              let backup = Intermediate.DeclVar (true, "_tmp", t) in 
+              let backup_param = begin match target with 
+                Some x -> [Intermediate.Assign(Intermediate.Var x, Intermediate.Var "_tmp")] 
+              | None -> []
+              end in
+              let auxiliary = Intermediate.Ref(true, Intermediate.Var "_tmp") in
+              Logs.debug (fun m -> m "Here 1"); (* si x = récupérer résultat *)
+                seq_oflist (n @ [backup; Intermediate.Invoke (m, l1@[auxiliary])] @ backup_param )
+            | None ->
+                seq_oflist (n @ [Intermediate.Invoke (m, l1)])
+        end
       | Return None -> Intermediate.Return 
       | Return (Some e) -> 
           let (e,l) = removeCalls e in
           let m = List.concat (List.map mkcall l) in 
-          seq_oflist (m @ [Intermediate.Assign(Intermediate.Var resvar, e);Intermediate.Return])
+          seq_oflist (m @ [Intermediate.Assign(Intermediate.Deref(Intermediate.Var resvar), e);Intermediate.Return])
       | Ast.Loop c -> 
-        Intermediate.While (Literal (Common.LBool true), translate c)
+        Intermediate.While (Literal (Common.LBool true), aux c)
       | Run _ -> failwith "processes not supported yet"
       | Ast.Emit(s) -> Intermediate.Emit(s)
-      | When (s, c) -> Intermediate.When(s, translate c, SailEnv.emptyFrame)
-      | Watching (s, c) -> Intermediate.Watching(s, translate c, SailEnv.emptyFrame)
-      | Await (s) -> Intermediate.When(s, Skip,SailEnv.emptyFrame) 
+      | When (s, c) -> Intermediate.When(s, aux c, Env.emptyFrame)
+      | Watching (s, c) -> Intermediate.Watching(s, aux c, Env.emptyFrame)
+      | Await (s) -> Intermediate.When(s, Skip,Env.emptyFrame) 
       | Par (c) -> 
-          begin match List.map translate c with 
+          begin match List.map aux c with 
             []-> Intermediate.Skip
             |[c] -> c
             |c1::c2::t -> 
-              List.fold_left (fun x y -> Intermediate.Par (x,SailEnv.emptyFrame,y,SailEnv.emptyFrame)) c1 (c2::t)
+              List.fold_left (fun x y -> Intermediate.Par (x,Env.emptyFrame,y,Env.emptyFrame)) c1 (c2::t)
           end 
+        in aux t
 
-let method_translator (m : Ast.statement Common.method_defn) : Intermediate.command Common.method_defn =
+(* If the return type is non void, we add a parameter to hold the result *)
+let method_translator (prg : Ast.statement program) (m : Ast.statement Common.method_defn) : Intermediate.command Common.method_defn =
   let params =       
     match m.m_rtype with 
       None -> m.m_params
@@ -147,21 +191,21 @@ let method_translator (m : Ast.statement Common.method_defn) : Intermediate.comm
     m_generics = m.m_generics;
     m_params = params;
     m_rtype = m.m_rtype;
-    m_body = translate m.m_body
+    m_body = translate prg m.m_body
   }
 
-let process_translator (p : Ast.statement Common.process_defn) : Intermediate.command Common.process_defn =
+let process_translator (prg : Ast.statement program)  (p : Ast.statement Common.process_defn) : Intermediate.command Common.process_defn =
   {
   p_name  = p.p_name;
   p_generics = p.p_generics;
   p_interface = p.p_interface;
-  p_body = translate p.p_body
+  p_body = translate prg p.p_body
 }
 
 let program_translate (p : Ast.statement Common.program) : Intermediate.command Common.program = 
   {
     structs = p.structs;
     enums = p.enums;
-    methods = List.map method_translator p.methods;
-    processes = List.map process_translator p.processes
+    methods = List.map (method_translator p) p.methods;
+    processes = List.map (process_translator p) p.processes
   }
