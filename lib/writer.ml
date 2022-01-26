@@ -20,11 +20,29 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-let pp_print_pair (pp_a : Format.formatter -> 'a -> unit)
-(pp_b : Format.formatter -> 'b -> unit) (pf : Format.formatter)
-((x, v) : 'a * 'b) : unit =
-Format.fprintf pf "(%a:%a)" pp_a x pp_b v
+open Monad 
+open Monoid
 
-let pp_print_option (pp_a : Format.formatter -> 'a -> unit) (pf : Format.formatter)
-(x : 'a option) : unit =
-match x with None -> Format.fprintf pf "_" | Some x -> pp_a pf x
+module Writer = struct
+
+  module type Writer = sig 
+    include Monad
+    type elt 
+    val write : elt -> unit t
+  end
+
+  module Make (T : Monoid) : Writer with type 'a t = 'a * T.t and type elt = T.t = struct 
+    type 'a t = 'a * T.t
+
+    type elt = T.t
+
+    let fmap f (x, l) = (f x, l)
+    let pure x = (x,T.mempty)
+
+    let (<*>) (f, l1) (x, l2) = (f x, T.mconcat l1 l2)
+
+    let (>>=) (x, l) f = let (y,l') = f x in (y, T.mconcat l l')
+
+    let write : T.t -> 'a t = fun a  -> ((), a) 
+  end
+end

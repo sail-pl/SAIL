@@ -29,7 +29,7 @@ module type Heap = sig
   type 'a t
   (* fetch the value at some address *)
   val empty : 'a t
-  val fetch : 'a t -> address -> 'a option option 
+  val getLocation : 'a t -> address -> 'a option option 
   (* update the value at some address *)
   val update : 'a t -> (address * 'a ) -> 'a t option 
   (* allocate fresh address *)
@@ -60,7 +60,7 @@ module Heap  : Heap = struct
     Format.fprintf pf "{%a}"  
       (Format.pp_print_list (pp_print_pair pp_address (pp_print_option pp_a))) (M.bindings h.map)
 
-  let fetch (h : 'a t) (l : address) : 'a option option =
+  let getLocation (h : 'a t) (l : address) : 'a option option =
     M.find_opt l h.map
    
   let update (h : 'a t) ((l,v) : address * 'a) :  'a t option =

@@ -20,34 +20,16 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Domain
+open Type
 
-type expression =
-  | Var of string
-  | Literal of Common.literal
-  | UnOp of Common.unOp * expression
-  | BinOp of Common.binOp * expression * expression
-  | ArrayAlloc of expression list
-  | ArrayRead of expression * expression
-  | StructAlloc of expression FieldMap.t
-  | StructRead of expression * string
-  | EnumAlloc of string * expression list
-  | Ref of bool * expression
-  | Deref of expression
+module type Monoid = sig 
+  type t 
+  val mempty : t
+  val mconcat : t -> t -> t
+end
 
-type command =
-  | DeclVar of bool * string * Common.sailtype 
-  | DeclSignal of string
-  | Skip
-  | Assign of expression * expression
-  | Seq of command * command
-  | Block of command * frame
-  | If of expression * command * command
-  | While of expression * command
-  | Case of expression * (Common.pattern * command) list
-  | Invoke of string * expression list
-  | Return
-  | Emit of string
-  | When of string * command * frame
-  | Watching of string * command * frame
-  | Par of command * frame * command * frame
+module MonoidList (T : Type) : Monoid with type t = T.t list = struct
+  type t = T.t list
+  let mempty = [] 
+  let mconcat = (@)
+end 

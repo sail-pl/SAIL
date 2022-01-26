@@ -23,6 +23,8 @@
 open Saillib.Env
 open Saillib.Heap
 open Saillib.Monad
+open Saillib.Option
+open Saillib.Error
 
 open MonadOption
 open MonadSyntax(MonadOption)
@@ -48,7 +50,58 @@ type frame = Heap.address Env.frame
 type env = Heap.address Env.t
 type heap = (value, bool) Either.t Heap.t
 
-type 'a result = Continue | Ret | Suspend of 'a
+type 'a status = Continue | Ret | Suspend of 'a
+
+type expression =
+  | Var of string
+  | Literal of Common.literal
+  | UnOp of Common.unOp * expression
+  | BinOp of Common.binOp * expression * expression
+  | ArrayAlloc of expression list
+  | ArrayRead of expression * expression
+  | StructAlloc of expression FieldMap.t
+  | StructRead of expression * string
+  | EnumAlloc of string * expression list
+  | Ref of bool * expression
+  | Deref of expression
+
+type command =
+  | DeclVar of bool * string * Common.sailtype 
+  | DeclSignal of string
+  | Skip
+  | Assign of expression * expression
+  | Seq of command * command
+  | Block of command * frame
+  | If of expression * command * command
+  | While of expression * command
+  | Case of expression * (Common.pattern * command) list
+  | Invoke of string * expression list
+  | Return
+  | Emit of string
+  | When of string * command * frame
+  | Watching of string * command * frame
+  | Par of command * frame * command * frame
+
+type error = 
+  | TypingError 
+  | UnknownMethod of string
+  | UnknownVariable of string
+  | UnknownField of string 
+  | UnknownSignal of string
+  | UndefinedOffset of value * offset
+  | UnitializedAddress of Heap.address
+  | UndefinedAddress of Heap.address
+  | OutOfBounds of int
+  | IncompletePatternMatching of value
+  | MissingReturnStatement
+  | ReturnStatementInProcess
+  | NotASignalState
+  | InvalidStack
+  | NotALeftValue
+  | NotAValue
+  | Division_by_zero
+
+module Result = ErrorMonadEither.Make(struct type t = error end)
 
 let locationOfAddress (a : Heap.address) : location = (a, [])
 
