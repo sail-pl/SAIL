@@ -26,6 +26,6 @@ The language propose the following features
   - spawn new processes
 
 For now, the language is interpreted. The command is run by
-	sail.exe input files
+- sailc input files
 input files have the extension .sl, some examples are given in the examples directory
-	type sail.exe --help for more options
+- type sailc --help for more options
