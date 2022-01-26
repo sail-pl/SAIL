@@ -14,6 +14,8 @@ depends: [
   "core" {>= "0.14.1"}
   "fmt" {>= "0.9.0"}
   "menhir" {>= "2.0"}
+  "logs" {>= "0.7"}
+  "mtime" {>= "1.3.0"}
   "odoc" {with-doc}
 ]
 build: [
