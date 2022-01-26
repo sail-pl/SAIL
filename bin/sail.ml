@@ -23,7 +23,6 @@ let parse_program lexbuf =
 let get_file_extension (filename : string) : string =
   String.split_on_chars filename ~on:['.'] |> List.last |> Option.value ~default:""
 
-
 let sailfile_type =
   let error_not_file filename =
     Format.printf  "'%s' is not a sail file. Hint: use the .sl extension\n%!" filename ;
@@ -33,7 +32,9 @@ let sailfile_type =
       | `Yes ->
           if String.equal (get_file_extension filename) "sl" then filename
           else error_not_file filename
-      | `No | `Unknown -> error_not_file filename)
+      | `No | `Unknown -> Format.printf  "'%s' No such file\n%!" filename ;
+              exit 1
+      )
 
 let verbose_type =
   let error_not_level level = 
@@ -48,7 +49,6 @@ let verbose_param =
   let open Command.Param in
   flag "-verbose" (optional verbose_type) 
     ~doc:"set verbose level : 'app' 'error' 'warning' 'info' or 'debug'"
-
 
 
 let command = 
@@ -75,8 +75,7 @@ let command =
                   let c = List.find p'.processes ~f:(fun x -> String.equal x.p_name "Main") in
                     begin match c with 
                       None -> failwith "no main process "
-                    | Some c -> let _ = Evaluator.run p'.methods c.p_body in
-                    ()
+                    | Some c -> let _ = Evaluator.start p'.methods c.p_body in ()
                end
                | Error(e) -> Error.raise e
              )

@@ -36,7 +36,7 @@ module type Env = sig
 
   val singleton : string -> 'a -> 'a frame 
   val record : 'a t -> string * 'a -> 'a t option
-  val fetchLoc :  'a t -> string -> 'a option
+  val getVariable :  'a t -> string -> 'a option
 
   val activate : 'a t -> 'a frame -> 'a t
 
@@ -91,7 +91,7 @@ module Env : Env = struct
 
   (** [fetchLoc env x] : returns the memory H.address associated with a variable *)
   (* it returns the value mapped by the first element of env defining x *)
-  let fetchLoc (env : 'a t) (x : string) : 'a option =
+  let getVariable (env : 'a t) (x : string) : 'a option =
     let rec aux (env : 'a t) =
       match env with
       | [] -> None

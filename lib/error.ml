@@ -20,11 +20,43 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-let pp_print_pair (pp_a : Format.formatter -> 'a -> unit)
-(pp_b : Format.formatter -> 'b -> unit) (pf : Format.formatter)
-((x, v) : 'a * 'b) : unit =
-Format.fprintf pf "(%a:%a)" pp_a x pp_b v
+open Monad
+open Option 
+open Type
 
-let pp_print_option (pp_a : Format.formatter -> 'a -> unit) (pf : Format.formatter)
-(x : 'a option) : unit =
-match x with None -> Format.fprintf pf "_" | Some x -> pp_a pf x
+module type ErrorMonad  = sig 
+  include Monad 
+
+  type error
+  val throwError : error -> 'a t
+  val catchError : 'a t -> (error -> 'a t) -> 'a t
+end
+
+module ErrorMonadOption : ErrorMonad with type 'a t = 'a option and type error = unit = struct 
+
+  include MonadOption
+  
+  type error = unit 
+
+  let throwError () = None 
+
+  let catchError x f = match x with Some _ -> x | None -> f () 
+  
+end
+
+
+module ErrorMonadEither = struct
+
+  module Make (T : Type) : ErrorMonad with type 'a t = (T.t, 'a) Either.t and type error = T.t = struct 
+   
+    include MonadEither.Make(T)
+    
+    type error = T.t
+
+    let throwError e = Either.Left e 
+
+    let catchError x f = 
+      match x with Either.Right _ -> x | Either.Left e -> f e 
+
+  end 
+end

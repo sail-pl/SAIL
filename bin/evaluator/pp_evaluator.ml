@@ -2,7 +2,6 @@ open Common
 open Saillib.Pp_util
 open Saillib.Heap
 open Domain
-open Intermediate
 open Format
 
 let pp_print_tag (pf : Format.formatter) (t : Domain.tag) : unit =
@@ -129,8 +128,29 @@ let rec pp_command_short (pf : Format.formatter) (c : command) : unit =
   | Watching (s, _, _) -> Format.fprintf pf "watch %s {...}" s
   | Par (_, _, _, _) -> Format.fprintf pf "_ || _"
 
-let pp_print_result (pf : Format.formatter) (r : command result) : unit =
+let pp_print_result (pf : Format.formatter) (r : command status) : unit =
   match r with
   | Ret -> Format.fprintf pf "ret"
   | Continue -> Format.fprintf pf "continue"
   | Suspend c -> pp_print_command pf c
+
+  let pp_print_error (pf : Format.formatter) (e : Domain.error) : unit =
+    match e with 
+      | TypingError -> Format.pp_print_string pf "Type error"
+      | UnknownMethod (m) -> Format.fprintf pf "Unknown method %s" m
+      | UnknownVariable (x) -> Format.fprintf pf "Unknown variable %s" x
+      | UnknownField (f) -> Format.fprintf pf "Unknown field %s" f
+      | UnknownSignal (s) -> Format.fprintf pf "Unknown signal %s" s
+      | UndefinedOffset (v, o) -> Format.fprintf pf "Unknown field %a in %a" pp_print_offset o pp_print_value v
+      | UndefinedAddress (a) -> Format.fprintf pf "Undefined address %a" Heap.pp_address a
+      | UnitializedAddress (a) -> Format.fprintf pf "Uninitialized address %a" Heap.pp_address a
+      | OutOfBounds (n) -> Format.fprintf pf "Out of bound index %d" n
+      | IncompletePatternMatching (v) -> Format.fprintf pf "Incomplete pattern matching %a" pp_print_value v
+      | MissingReturnStatement -> Format.pp_print_string pf "Missing return statement in method"
+      | ReturnStatementInProcess -> Format.pp_print_string pf "Forbidden return statement in process"
+      | NotASignalState -> Format.pp_print_string pf "Not a signal state"
+      | InvalidStack -> Format.pp_print_string pf "Invalid Stack"
+      | NotALeftValue -> Format.pp_print_string pf "Not A left value"
+      | NotAValue -> Format.pp_print_string pf "Not a value"
+      | Division_by_zero -> Format.pp_print_string pf "Division by zero"
+    

@@ -3,18 +3,21 @@ method sum(x : int , y : int) : int{
 }
 
 method f(x : &int) {
-    *x = 27;
+    *x = sum (8,7);
     return;
 }
 
 process Main(){
-    sum (5, 7);
-    var x : int = sum (8,7);
+    var x : int;
     var y : int;
     var z : int;
     y = & x;
     f(y);
     f(&z);
-    signal s;
+    print_int(x);
+    print_string(" ");
+    print_int(*y);
+    print_string(" ");
+    print_int(z);
     print_newline();
 }

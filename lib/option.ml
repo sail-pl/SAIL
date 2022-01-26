@@ -20,11 +20,21 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-let pp_print_pair (pp_a : Format.formatter -> 'a -> unit)
-(pp_b : Format.formatter -> 'b -> unit) (pf : Format.formatter)
-((x, v) : 'a * 'b) : unit =
-Format.fprintf pf "(%a:%a)" pp_a x pp_b v
+open Monad 
 
-let pp_print_option (pp_a : Format.formatter -> 'a -> unit) (pf : Format.formatter)
-(x : 'a option) : unit =
-match x with None -> Format.fprintf pf "_" | Some x -> pp_a pf x
+module FunctorOption : Functor with type 'a t = 'a option = struct 
+  type 'a t = 'a option
+  let fmap f x = match x with Some x -> Some (f x) | None -> None 
+end 
+
+module ApplicativeOption : Applicative with type 'a t = 'a option = struct 
+  
+  include FunctorOption
+  let pure x = Some x
+  let (<*>) f x = match f with Some f -> fmap f x | _ -> None 
+end 
+
+module MonadOption : Monad with type 'a t = 'a option = struct 
+  include ApplicativeOption
+  let (>>=) x f = match x with Some x -> f x | None -> None 
+end
