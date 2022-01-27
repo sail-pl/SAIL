@@ -25,6 +25,8 @@ open Saillib.Heap
 open Saillib.Monad
 open Saillib.Option
 open Saillib.Error
+open Intermediate
+open Common
 
 open MonadOption
 open MonadSyntax(MonadOption)
@@ -32,8 +34,6 @@ open MonadSyntax(MonadOption)
 type tag = Field of string | Indice of int
 type offset = tag list
 type location = Heap.address * offset
-
-module FieldMap = Map.Make (String)
 
 type value =
   | VBool of bool
@@ -52,7 +52,7 @@ type heap = (value, bool) Either.t Heap.t
 
 type 'a status = Continue | Ret | Suspend of 'a
 
-type expression =
+(* type expression =
   | Var of string
   | Literal of Common.literal
   | UnOp of Common.unOp * expression
@@ -63,7 +63,7 @@ type expression =
   | StructRead of expression * string
   | EnumAlloc of string * expression list
   | Ref of bool * expression
-  | Deref of expression
+  | Deref of expression *)
 
 type command =
   | DeclVar of bool * string * Common.sailtype 
@@ -81,6 +81,24 @@ type command =
   | When of string * command * frame
   | Watching of string * command * frame
   | Par of command * frame * command * frame
+
+  let rec initCommand (c : Intermediate.command) : command = 
+    match c with 
+    | Intermediate.DeclVar (b,x,t) -> DeclVar(b,x,t)
+     | Intermediate.DeclSignal (s) -> DeclSignal(s)
+    | Intermediate.Skip -> Skip
+    | Intermediate.Assign(e1, e2) -> Assign(e1, e2)
+    | Intermediate.Seq (c1, c2) -> Seq(initCommand c1, initCommand c2)
+    | Intermediate.Block(c) -> Block (initCommand c, Env.emptyFrame)
+    | Intermediate.If (e,c1,c2) -> If(e, initCommand c1, initCommand c2)
+    | Intermediate.While (e,c) -> While (e, initCommand c)
+    | Intermediate.Case (e, pl) -> Case(e, List.map (fun (p, c) -> (p, initCommand c)) pl)
+    | Intermediate.Invoke (x,el) -> Invoke(x,el)
+    | Intermediate.Return -> Return
+    | Intermediate.Emit (s) -> Emit(s)
+    | Intermediate.When(s,c) -> When(s, initCommand c, Env.emptyFrame)
+    | Intermediate.Watching(s,c) -> Watching(s, initCommand c, Env.emptyFrame)
+    | Intermediate.Par (c1, c2) -> Par (initCommand c1, Env.emptyFrame, initCommand c2, Env.emptyFrame) 
 
 type error = 
   | TypingError 

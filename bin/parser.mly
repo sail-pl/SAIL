@@ -60,21 +60,21 @@
 %nonassoc RPAREN
 %nonassoc ELSE
 
-%start program
+%start sailModule
 
 %type <Ast.expression> expression 
 %type <Common.sailtype> sailtype
 %type <Common.literal> literal
 %type <Ast.statement> statement
 %type <Ast.defn> defn
-%type <Ast.statement Common.program> program
+%type <string -> Ast.statement Common.sailModule> sailModule
 
 %% 
 
 (* for {}; each basic instruction is followed by ; *)
 
-program:  
-  | l = list(defn); EOF {mk_program l};
+sailModule:  
+  | l = list(defn); EOF {fun x -> mk_program x l};
             
 defn:
   | STRUCT id = ID g = generic LBRACE f = separated_list(COMMA, id_colon(sailtype)) RBRACE

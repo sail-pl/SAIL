@@ -42,7 +42,7 @@ let pp_print_heapValue pf v =
 let pp_print_expression pf e : unit =
   let rec aux pf e =
     match e with
-    | Var x -> Format.pp_print_string pf x
+    | Intermediate.Variable x -> Format.pp_print_string pf x
     | Literal c -> Format.fprintf pf "%a" Common.pp_literal c
     | UnOp (op, e) -> Format.fprintf pf "%a%a" Common.pp_unop op aux e
     | BinOp (op, e1, e2) ->

@@ -10,7 +10,7 @@ let print_error_position lexbuf =
 
 let parse_program lexbuf =
   try
-    Ok (Parser.program Lexer.read_token lexbuf)
+    Ok (Parser.sailModule Lexer.read_token lexbuf)
   with
   | SyntaxError msg ->
     let error_msg = Fmt.str "%s: %s@." (print_error_position lexbuf) msg in
@@ -64,13 +64,18 @@ let command =
            ~f:(fun x ->
                let lexbuf = Lexing.from_channel x in
                match parse_program lexbuf with
-               | Ok(p) -> 
-                  let p' = Translator.program_translate p in
+               | Ok(p) ->
+                let p = p (Filename.chop_extension (Filename.basename filename)) in
+                let signatures =  [Common.signatureOfModule p; ExternalsInterfaces.exSig] in 
+                  let p' = Translator.program_translate signatures p in
                    let _ = 
                     if intermediate then 
-                      Out_channel.with_file ("sail.intermediate") ~f:(fun y -> 
-                        let output = Format.formatter_of_out_channel y in
-                        Format.fprintf output "%a\n" (Common.pp_program Pp_evaluator.pp_print_command) p'                        
+                      Out_channel.with_file ("sail.intermediate") ~f:(fun _y -> 
+                        (* move printer to intermediate rather that evaluator domain, or define new functions *)
+                        (* also pretty print the intermediate language *)
+                        (Format.print_string "intermediate production deactivated ")
+                        (* let output = Format.formatter_of_out_channel y in *)
+                        (* Format.fprintf output "%a\n" (Common.pp_program Pp_evaluator.pp_print_command) p'                         *)
                       ) in 
                   let c = List.find p'.processes ~f:(fun x -> String.equal x.p_name "Main") in
                     begin match c with 

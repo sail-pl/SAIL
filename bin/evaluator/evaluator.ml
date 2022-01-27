@@ -30,6 +30,7 @@ open Pp_evaluator
 open ErrorOfOption
 
 
+
 let mapM (f : 'a -> 'b Result.t) (s : 'a FieldMap.t) : 'b FieldMap.t Result.t =
   let open Result in
   let open MonadSyntax (Result) in
@@ -122,35 +123,35 @@ let valueOfLiteral c =
   | LChar x -> VChar x
   | LString x -> VString x
 
-let rec evalL (env : env) (h : heap) (e : expression) : location Result.t =
+let rec evalL (env : env) (h : heap) (e : Intermediate.expression) : location Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   Logs.debug (fun m -> m "evaluate left value < %a >" pp_print_expression e);
   match e with
-  | Var x ->
+  | Intermediate.Variable x ->
       let* a = getVariable env x in
       return (locationOfAddress a)
-  | Deref e -> (
+  | Intermediate.Deref e -> (
       let* v = evalR env h e in
       match v with VLoc l -> return l | _ -> throwError TypingError)
-  | StructRead (e, f) ->
+  | Intermediate.StructRead (e, f) ->
       let* a, o = evalL env h e in
       return (a, o @ [ Field f ])
-  | ArrayRead (e1, e2) -> (
+  | Intermediate.ArrayRead (e1, e2) -> (
       let* a, o = evalL env h e1 and* v = evalR env h e2 in
       match v with
       | VInt n -> return (a, o @ [ Indice n ])
       | _ -> throwError TypingError)
   | _ -> throwError NotALeftValue
 
-and evalR (env : env) (h : heap) (e : expression) : value Result.t =
+and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
   let rec aux e =
     Logs.debug (fun m -> m "evaluate right value < %a >" pp_print_expression e);
     match e with
-    | Var x -> (
+    | Intermediate.Variable x -> (
         let* a = getVariable env x in
         let* v = getLocation h a in
         match v with
@@ -224,7 +225,7 @@ let rec freshn (h : heap) n : Heap.address list * heap =
     (a :: l, h'')
   else ([], h)
 
-let reduce (p : command method_defn list) (c : command) (env : env) (h : heap) :
+let reduce (p : Intermediate.command method_defn list) (c : command) (env : env) (h : heap) :
     (command status * frame * heap) Result.t =
   let open Result in
   let open MonadSyntax (Result) in
@@ -309,7 +310,7 @@ let reduce (p : command method_defn list) (c : command) (env : env) (h : heap) :
       let* real_params = listMapM (evalR env h) el in
         match List.find_opt (fun m -> m.m_name = x) p with 
           None -> 
-            let* h' = Extern.extern h x real_params in 
+            let* h' = ExternalsImplementation.extern h x real_params in 
             return (Continue, Env.emptyFrame, h')
         | Some callee -> 
           let formal_params = List.map fst callee.m_params in
@@ -324,7 +325,7 @@ let reduce (p : command method_defn list) (c : command) (env : env) (h : heap) :
               foldLeftM setLocation h' (List.combine l values)
             in
             let w = List.fold_left Env.merge Env.emptyFrame varmap in
-            let c = callee.m_body in
+            let c = Domain.initCommand callee.m_body in
             let* r, w, h = aux (Block (c, w)) Env.empty h'' in
             match r with
             | Ret -> return (Continue, w, h)
@@ -433,7 +434,7 @@ let rec kill (c : command) (env : env) (h : heap) :
   | _ -> return (c, [])
 
 (* AAT NESXT INSTANT *)
-let run m c : unit Result.t =
+let run (m : Intermediate.command method_defn list) c : unit Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
@@ -452,8 +453,8 @@ let run m c : unit Result.t =
   in
   aux (Block (c, Env.emptyFrame)) Heap.empty
 
-let start m c : unit =
-  match run m c with
+let start (m : Intermediate.command method_defn list) (c : Intermediate.command) : unit =
+  match run m (Domain.initCommand c) with
   | Either.Left e ->
       Format.fprintf Format.std_formatter "ERROR : %a\n" pp_print_error e
   | Either.Right () -> ()

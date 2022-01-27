@@ -37,8 +37,6 @@ type expression =
   | EnumAlloc of (string * expression list) 
   | MethodCall of string * expression list
       
-
-
 type statement =
   | DeclVar of bool * string * sailtype * expression option 
   | DeclSignal of string
@@ -57,7 +55,6 @@ type statement =
   | When of string * statement
   | Watching of string * statement
 
-
 (* to sort definitions *)
 
 type defn =
@@ -66,7 +63,7 @@ type defn =
   | Method of statement method_defn
   | Process of statement process_defn
 
-let mk_program l =
+let mk_program name l =
   let rec aux l =
     match l with
       [] -> ([],[],[],[])
@@ -79,7 +76,7 @@ let mk_program l =
           | Process d -> (s,e, m,d::p)
   in 
   let (s,e,m,p) = aux l in 
-    {structs = s; enums =e; methods=m; processes=p}
+    {name = name; structs = s; enums =e; methods=m; processes=p}
 
 
   

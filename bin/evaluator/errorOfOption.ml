@@ -2,6 +2,7 @@ open Domain
 open Saillib.Monad
 open Saillib.Env
 open Saillib.Heap
+open Common
 
 let resultOfOption (e : error) (f : 'a -> 'b option) (x : 'a) : 'b Result.t =
   let open Result in

@@ -22,6 +22,8 @@
 
 open Format
 
+module FieldMap = Map.Make (String)
+
 type sailtype =
   | Bool 
   | Int 
@@ -81,15 +83,25 @@ type 'a method_defn =
     m_body : 'a
   }
 
-  type 'a program =
+  type 'a sailModule =
   {
+    name : string;
     structs : struct_defn list;
     enums : enum_defn list;
     methods : 'a method_defn list ;
     processes : 'a process_defn list
   }
 
-  
+  type moduleSignature = unit sailModule
+
+  let signatureOfModule m =
+    {
+      name = m.name;
+      structs = m.structs;
+      enums = m.enums;
+      methods = List.map (fun m -> {m_name=m.m_name; m_generics=m.m_generics;m_params=m.m_params;m_rtype=m.m_rtype;m_body=()}) m.methods;
+      processes = List.map (fun p-> {p_name=p.p_name; p_generics=p.p_generics;p_interface=p.p_interface;p_body=()}) m.processes
+    }
 
   let pp_comma (pf : formatter) (() : unit) : unit = Format.fprintf pf "," 
   let pp_field (pp_a : formatter -> 'a -> unit) (pf : formatter) ((x,y) : string * 'a) = 
@@ -155,7 +167,7 @@ let pp_method (pp_a : formatter -> 'a -> unit ) (pf : formatter) (m : 'a method_
 let pp_process (pp_a : formatter -> 'a -> unit) (pf : formatter) (p : 'a process_defn) =
   fprintf pf "%a\n" pp_a p.p_body 
 
-let pp_program (pp_a : formatter -> 'a -> unit) ((pf : formatter) : formatter) (p : 'a program) = 
+let pp_program (pp_a : formatter -> 'a -> unit) ((pf : formatter) : formatter) (p : 'a sailModule) = 
   List.iter (pp_method pp_a pf) p.methods;
   List.iter (pp_process pp_a pf) p.processes
       

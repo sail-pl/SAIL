@@ -42,5 +42,7 @@ process Main(){
     var n : int = length(z);
     print_int(n); print_newline();
     var l : list<int> = fromTo(0,10);
+    var u : int = length(l);
+    print_int(u);print_newline();
     print_int(length(l));print_newline();
 }
