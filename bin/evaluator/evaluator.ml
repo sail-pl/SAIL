@@ -126,7 +126,7 @@ let valueOfLiteral c =
 let rec evalL (env : env) (h : heap) (e : Intermediate.expression) : location Result.t =
   let open Result in
   let open MonadSyntax (Result) in
-  Logs.debug (fun m -> m "evaluate left value < %a >" pp_print_expression e);
+  Logs.debug (fun m -> m "evaluate left value < %a >" Intermediate.pp_print_expression e);
   match e with
   | Intermediate.Variable x ->
       let* a = getVariable env x in
@@ -149,7 +149,7 @@ and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t 
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
   let rec aux e =
-    Logs.debug (fun m -> m "evaluate right value < %a >" pp_print_expression e);
+    Logs.debug (fun m -> m "evaluate right value < %a >" Intermediate.pp_print_expression e);
     match e with
     | Intermediate.Variable x -> (
         let* a = getVariable env x in

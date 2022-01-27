@@ -39,35 +39,7 @@ let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
 let pp_print_heapValue pf v =
   match v with Either.Left v -> pp_print_value pf v | Either.Right b -> Format.pp_print_bool pf b
 
-let pp_print_expression pf e : unit =
-  let rec aux pf e =
-    match e with
-    | Intermediate.Variable x -> Format.pp_print_string pf x
-    | Literal c -> Format.fprintf pf "%a" Common.pp_literal c
-    | UnOp (op, e) -> Format.fprintf pf "%a%a" Common.pp_unop op aux e
-    | BinOp (op, e1, e2) ->
-        Format.fprintf pf "(%a %a %a)" aux e1 Common.pp_binop op aux e2
-    | ArrayAlloc el ->
-        Format.fprintf pf "[%a]"
-          (Format.pp_print_list ~pp_sep:Common.pp_comma aux)
-          el
-    | ArrayRead (e1, e2) -> Format.fprintf pf "%a[%a]" aux e1 aux e2
-    | StructAlloc m ->
-        let pp_field pf (x, y) = Format.fprintf pf "%s:%a" x aux y in
-        Format.fprintf pf "{%a}"
-          (Format.pp_print_list ~pp_sep:Common.pp_comma pp_field)
-          (FieldMap.bindings m)
-    | StructRead (e, f) -> Format.fprintf pf "%a.%s" aux e f
-    | EnumAlloc (c, el) ->
-        Format.fprintf pf "%s(%a)" c
-          (Format.pp_print_list ~pp_sep:Common.pp_comma aux)
-          el
-    | Ref (b, e) ->
-        if b then Format.fprintf pf "&mut %a" aux e
-        else Format.fprintf pf "& %a" aux e
-    | Deref e -> Format.fprintf pf "* %a" aux e
-  in
-  aux pf e
+
 
 let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
   match c with
@@ -77,24 +49,24 @@ let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
   | DeclSignal x -> Format.fprintf pf "signal %s;" x
   | Skip -> Format.fprintf pf "skip;"
   | Assign (e1, e2) ->
-      Format.fprintf pf "%a = %a;" pp_print_expression e1 pp_print_expression e2
+      Format.fprintf pf "%a = %a;" Intermediate.pp_print_expression e1 Intermediate.pp_print_expression e2
   | Seq (c1, c2) -> Format.fprintf pf "%a; %a " pp_print_command c1 pp_print_command c2
   | Block (c, _) -> Format.fprintf pf "{%a}" pp_print_command c
   | If (e, c1, c2) ->
-      Format.fprintf pf "if (%a) %a %a" pp_print_expression e pp_print_command c1 pp_print_command
+      Format.fprintf pf "if (%a) %a %a" Intermediate.pp_print_expression e pp_print_command c1 pp_print_command
         c2
   | While (e, c) ->
-      Format.fprintf pf "while (%a) %a" pp_print_expression e pp_print_command c
+      Format.fprintf pf "while (%a) %a" Intermediate.pp_print_expression e pp_print_command c
   | Case (e, pl) ->
       let pp_case (pf : Format.formatter) ((p, c) : Common.pattern * command) =
         Format.fprintf pf "%a:%a" Common.pp_pattern p pp_print_command c
       in
-      Format.fprintf pf "case (%a) {%a}" pp_print_expression e
+      Format.fprintf pf "case (%a) {%a}" Intermediate.pp_print_expression e
         (Format.pp_print_list ~pp_sep:Common.pp_comma pp_case)
         pl
   | Invoke (m, el) ->
       Format.fprintf pf "%s (%a);" m
-        (Format.pp_print_list ~pp_sep:Common.pp_comma pp_print_expression)
+        (Format.pp_print_list ~pp_sep:Common.pp_comma Intermediate.pp_print_expression)
         el
   | Return -> Format.fprintf pf "return;"
   | Emit s -> Format.fprintf pf "emit %s;" s
@@ -112,15 +84,15 @@ let rec pp_command_short (pf : Format.formatter) (c : command) : unit =
   | DeclSignal x -> Format.fprintf pf "signal %s" x
   | Skip -> Format.fprintf pf "skip"
   | Assign (e1, e2) ->
-      Format.fprintf pf "%a := %a" pp_print_expression e1 pp_print_expression e2
+      Format.fprintf pf "%a := %a" Intermediate.pp_print_expression e1 Intermediate.pp_print_expression e2
   | Seq (c1, _) -> Format.fprintf pf "%a; ... " pp_command_short c1
   | Block (_, _) -> Format.fprintf pf "{...}"
-  | If (e, _, _) -> Format.fprintf pf "if %a {...} {...}" pp_print_expression e
-  | While (e, _) -> Format.fprintf pf "while %a {...}" pp_print_expression e
-  | Case (e, _) -> Format.fprintf pf "case %a" pp_print_expression e
+  | If (e, _, _) -> Format.fprintf pf "if %a {...} {...}" Intermediate.pp_print_expression e
+  | While (e, _) -> Format.fprintf pf "while %a {...}" Intermediate.pp_print_expression e
+  | Case (e, _) -> Format.fprintf pf "case %a" Intermediate.pp_print_expression e
   | Invoke (m, el) ->
       Format.fprintf pf "%s (%a)" m
-        (pp_print_list ~pp_sep:Common.pp_comma pp_print_expression)
+        (pp_print_list ~pp_sep:Common.pp_comma Intermediate.pp_print_expression)
         el
   | Return -> Format.fprintf pf "return"
   | Emit s -> Format.fprintf pf "emit %s" s

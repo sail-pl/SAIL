@@ -70,12 +70,9 @@ let command =
                   let p' = Translator.program_translate signatures p in
                    let _ = 
                     if intermediate then 
-                      Out_channel.with_file ("sail.intermediate") ~f:(fun _y -> 
-                        (* move printer to intermediate rather that evaluator domain, or define new functions *)
-                        (* also pretty print the intermediate language *)
-                        (Format.print_string "intermediate production deactivated ")
-                        (* let output = Format.formatter_of_out_channel y in *)
-                        (* Format.fprintf output "%a\n" (Common.pp_program Pp_evaluator.pp_print_command) p'                         *)
+                      Out_channel.with_file ("sail.intermediate") ~f:(fun y -> 
+                        let output = Format.formatter_of_out_channel y in
+                        Format.fprintf output "%a\n" (Common.pp_program Intermediate.pp_print_command) p'                         
                       ) in 
                   let c = List.find p'.processes ~f:(fun x -> String.equal x.p_name "Main") in
                     begin match c with 

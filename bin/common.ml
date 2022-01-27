@@ -150,24 +150,25 @@ let pp_binop pf b =
           else Format.fprintf pf "& %a" pp_type t
       | GenericType(s) -> pp_print_string pf s 
 
-let pp_method (pp_a : formatter -> 'a -> unit ) (pf : formatter) (m : 'a method_defn) =
+let pp_method (pp_a : int -> formatter -> 'a -> unit ) (pf : formatter) (m : 'a method_defn) =
   match m.m_rtype with 
   None -> 
     fprintf pf "method %s (%a) {\n%a\n}\n" 
       m.m_name 
       (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) m.m_params 
-      pp_a m.m_body
+      (pp_a 1) m.m_body
   | Some t -> 
     fprintf pf "method %s (%a):%a {\n%a\n}\n" 
       m.m_name 
       (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) m.m_params 
       pp_type t
-      pp_a m.m_body
+      (pp_a 1) m.m_body
 
-let pp_process (pp_a : formatter -> 'a -> unit) (pf : formatter) (p : 'a process_defn) =
-  fprintf pf "%a\n" pp_a p.p_body 
+let pp_process (pp_a : int -> formatter -> 'a -> unit) (pf : formatter) (p : 'a process_defn) =
+  fprintf pf "process %s (-) {\n%a\n}\n" p.p_name 
+  (pp_a 1) p.p_body 
 
-let pp_program (pp_a : formatter -> 'a -> unit) ((pf : formatter) : formatter) (p : 'a sailModule) = 
+let pp_program (pp_a : int -> formatter -> 'a -> unit) ((pf : formatter) : formatter) (p : 'a sailModule) = 
   List.iter (pp_method pp_a pf) p.methods;
   List.iter (pp_process pp_a pf) p.processes
       
