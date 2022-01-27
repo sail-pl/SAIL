@@ -353,7 +353,7 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         | None -> throwError (UnitializedAddress a)
         | _ -> throwError TypingError)
     | Watching (s, c, w) -> (
-        let* k, w', h' = aux c env h in
+        let* k, w', h' = aux c (Env.activate env w) h in
         match k with
         | Suspend c' ->
             return
@@ -368,7 +368,7 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         | Continue, Continue ->
             (* let  l = Env.allValues (Env.merge w1 (Env.merge w2 (Env.merge w1' w2'))) in *)
             (* let* cleanHeap = drop h' l in *)
-            return (Continue, Env.emptyFrame, h')
+            return (Continue, Env.emptyFrame, h'')
         | Continue, Suspend c ->
             return
               ( Suspend (Par (Skip, Env.merge w1 w1', c, Env.merge w2 w2')),
@@ -386,7 +386,6 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
                 h'' )
         | _ -> throwError ReturnStatementInProcess)
   in
-
   aux c env h
 
 let rec collect (c : command) (env : env) : Heap.address list =
@@ -417,7 +416,7 @@ let rec kill (c : command) (env : env) (h : heap) :
   | Par (c1, w1, c2, w2) ->
       let* c1', l1 = kill c1 (Env.activate env w1) h
       and* c2', l2 = kill c2 (Env.activate env w2) h in
-      return (Par (c1', w1, c2', w1), l1 @ l2)
+      return (Par (c1', w1, c2', w2), l1 @ l2)
   | When (s, c, w) ->
       let* c', l = kill c (Env.activate env w) h in
       return (When (s, c', w), l)
@@ -429,9 +428,10 @@ let rec kill (c : command) (env : env) (h : heap) :
           if b then return (Skip, collect (Watching (s, c, w)) env)
           else
             let* c', l = kill c (Env.activate env w) h in
-            return (When (s, c', w), l)
+            return (Watching (s, c', w), l)
       | _ -> throwError NotASignalState)
   | _ -> return (c, [])
+
 
 (* AAT NESXT INSTANT *)
 let run (m : Intermediate.command method_defn list) c : unit Result.t =
@@ -439,17 +439,27 @@ let run (m : Intermediate.command method_defn list) c : unit Result.t =
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
   let rec aux c h =
-    let* r, _, h' = reduce m c Env.empty h in
-    (* None *)
+    let* kont, _, heapAfterReduce = reduce m c Env.empty h in
     Logs.debug (fun m ->
-        m "Enf of the instant : %a" (Heap.pp_t pp_print_heapValue) h');
-    match r with
+        m "End of micro step : %a" (Heap.pp_t pp_print_heapValue) heapAfterReduce);
+    match kont with
     | Ret -> throwError ReturnStatementInProcess
     | Continue -> return ()
-    | Suspend c ->
-        let* c', _l = kill c Env.empty h in
+    | Suspend suspendedCommand ->
+        if h = heapAfterReduce then 
+      (* if suspend we must do more microsteps if signals were emitted *)
+        let* nextCommand, _l = kill suspendedCommand Env.empty heapAfterReduce in
         (* let* h'' = drop h' l in  *)
-        aux c' h'
+        Logs.debug (fun m ->
+          m "Start a new instant: %a" (Heap.pp_t pp_print_heapValue) heapAfterReduce);
+        aux nextCommand heapAfterReduce
+        else 
+          let _ = 
+            Logs.debug (fun m ->
+              m "Start a new microstep : %a" (Heap.pp_t pp_print_heapValue) heapAfterReduce);
+
+            in
+          aux suspendedCommand heapAfterReduce
   in
   aux (Block (c, Env.emptyFrame)) Heap.empty
 

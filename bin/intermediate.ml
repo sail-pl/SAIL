@@ -89,7 +89,7 @@ let rec pp_print_command (n : int) (pf : Format.formatter) (c : command) : unit 
   | DeclVar (b, x, t) ->
       if b then Format.fprintf pf "%svar mut %s : %a;" (String.make n '\t') x Common.pp_type t
       else Format.fprintf pf "%svar %s : %a;" (String.make n '\t') x Common.pp_type t
-  | DeclSignal x -> Format.fprintf pf "signal %s;" x
+  | DeclSignal x -> Format.fprintf pf "%ssignal %s;"(String.make n '\t') x 
   | Skip -> Format.fprintf pf "%sskip;" (String.make n '\t')
   | Assign (e1, e2) ->
       Format.fprintf pf "%s%a = %a;" (String.make n '\t') pp_print_expression e1 pp_print_expression e2
