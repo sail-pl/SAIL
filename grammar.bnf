@@ -1,0 +1,71 @@
+<<module>> ::= {{ <<declaration>> }}*
+
+<<declaration>> ::= 
+    | <<struct-declaration>> 
+    | <<enum-declaration>> 
+    | <<method-declaration>>
+
+<<struct-declaration>> ::=  
+    | struct lid {{ < {{ <<uid-list>> }}? > }}? { {{ <<lid-type-list>> }}? }
+
+<<enum-declaration>> ::= 
+    | enum lid {{ <<uid-list>> }} ? { {{ <<cons-def-list>> }}? }
+
+<<method-declaration> ::= 
+    | method lid ( {{ <<lid-type-list>> }}? ) { {{ <<statement>> }}? }
+
+<<uid-list>> ::= uid | uid, <<uid-list>>
+
+<<lid-type-list>> ::= lid : <<type>> | lid : <<type>>, <<struct-fields>>
+
+<<type>> ::= bool | int | float | char | string | id<type> | uid
+
+<<cons-def-list>> ::=  <<cons-def>> | <<cons-def>>, <<cons-def-list>>
+
+<<cons-def>> ::= id {{ ( {{ <<type-list>>? }} ) }}?
+
+<<type-list>> ::= <<type>> | <<type>>, <<type-list>>
+
+<<statement>> ::= 
+    | var {{ mut }}? lid : <<type>> {{ = <<expression>> }}? ;
+    | signal lid ;
+    | <<expression>> = <<expression>> ;
+    | <<statement>> << statement>>
+    | <<statement>> || <<statement>>
+    | if ( <<expression>> ) <<statement>> {{ else <<statement>> }}?
+    | while ( <<expression>> ) <<statement>>
+    | case ( <<expression>> ) {<<case-list>>}
+    | lid ( <<expression-list>> ) ;
+    | return {{ <<expression>> }} ? ;
+    | emit (id) ;
+    | when (id) <<statement>> 
+    | watch (id) <<statement>>
+    | { {{ <<statement>> }} ? }
+
+<<pattern>> ::= 
+    | lid 
+    | uid {{ ( {{ <<pattern-list>> }} ? ) }}?
+
+<<pattern-list>> ::= 
+    | <<pattern>> 
+    | <<pattern>>, <<pattern-list>>
+
+<<case-list>> ::= 
+    | <<pattern>> : <<statement>> 
+    | <<pattern>> : <<statement>>, <<case-list>>
+
+<<expression>> ::= 
+    | lid | <<bool>> | <<int>> | <<float>> | <<char>> | <<string>> 
+    | <<expression>>[<<expression>>] | <<expression>>.lid | ( <<expression>> )
+    | <<unop>> <<expression>> | <<expression>> <<binop>> <<expression>> 
+    | & {{ mut }}? <<expression>> | * <<expression>> | [ {{ <<expression-list>> }} ?] 
+    | { {{ <<field-expression-list>> }}? } | Id {{ ( {{ <<expression-list>> }} ? ) }}? 
+    | id ( <<expression-list>>? ) 
+
+<<expression-list>> ::= 
+    | <<expression>> 
+    | <<expression>>, <<expression-list>>
+
+<<field-expression-list>> ::= 
+    | id : <<expression>> 
+    | id : <<expression>> , <<expression-list>>
