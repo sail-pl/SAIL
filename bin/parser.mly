@@ -175,17 +175,17 @@ single_statement :
 | id = ID LPAREN p = separated_list(COMMA, expression) RPAREN  {Invoke(None, id, p)}
 | RETURN e = option(expression)  {Return e}
 | id = UID params=delimited(LPAREN, separated_list(COMMA, expression), RPAREN)  {Run (id, params)}
-| EMIT id = delimited(LPAREN, ID, RPAREN)  {Emit(id)}
-| AWAIT id = delimited(LPAREN,ID,RPAREN)  {Await(id)}
-| WATCHING id = delimited(LPAREN, ID, RPAREN) s = single_statement {Watching(id, s)}
-| WHEN id = delimited(LPAREN, ID, RPAREN) s = single_statement {When(id, s)}
+| EMIT id = ID  {Emit(id)}
+| AWAIT id = ID  {Await(id)}
+| WATCHING id = ID s = single_statement {Watching(id, s)}
+| WHEN id = ID s = single_statement {When(id, s)}
 | s = block {s}
 
 left : 
 | s1 = block {s1}
 | WHILE e = delimited(LPAREN, expression, RPAREN) s = block{While(e, s)}
-| WATCHING id = delimited(LPAREN, ID, RPAREN) s = block {Watching(id, s)}
-| WHEN id = delimited(LPAREN, ID, RPAREN) s = block {When(id, s)}
+| WATCHING id = ID s = block {Watching(id, s)}
+| WHEN id = ID s = block {When(id, s)}
 ;
 
 statement_seq : 

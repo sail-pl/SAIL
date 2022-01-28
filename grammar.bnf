@@ -27,20 +27,27 @@
 <<type-list>> ::= <<type>> | <<type>>, <<type-list>>
 
 <<statement>> ::= 
-    | var {{ mut }}? lid : <<type>> {{ = <<expression>> }}? ;
-    | signal lid ;
-    | <<expression>> = <<expression>> ;
-    | <<statement>> << statement>>
+    | var {{ mut }}? lid : <<type>> {{ = <<expression>> }}?
+    | signal lid
+    | <<expression>> = <<expression>>
+    | <<statement>> ; << statement>>
+    | <<block-statement>> << statement>>
     | <<statement>> || <<statement>>
     | if ( <<expression>> ) <<statement>> {{ else <<statement>> }}?
     | while ( <<expression>> ) <<statement>>
     | case ( <<expression>> ) {<<case-list>>}
-    | lid ( <<expression-list>> ) ;
-    | return {{ <<expression>> }} ? ;
-    | emit (id) ;
+    | lid ( <<expression-list>> )
+    | return {{ <<expression>> }} ?
+    | emit (id)
     | when (id) <<statement>> 
     | watch (id) <<statement>>
     | { {{ <<statement>> }} ? }
+
+<<block-statement>> ::=
+    | { {{ <<statement>> }} ? }
+    | while ( <<expression>> ) <<block-statement>>
+    | when (id) <<block-statement>>  
+    | watch (id) <<block-statement>>
 
 <<pattern>> ::= 
     | lid 

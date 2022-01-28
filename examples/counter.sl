@@ -6,7 +6,7 @@ process Main(){
     while (cpt < 10){
         print_int(cpt); print_newline();
         cpt = cpt + 1;
-        emit(s1);
-        watching(s1) {when (s2){}}
+        emit s1;
+        watching s1 {when s2 {}}
     }
 }
