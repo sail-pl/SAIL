@@ -30,7 +30,8 @@
     | <<statement>> ; << statement>>
     | <<block-statement>> << statement>>
     | <<statement>> || <<statement>>
-    | if ( <<expression>> ) <<statement>> {{ else <<statement>> }}?
+    | if ( <<expression>> ) <<statement>> 
+    | if ( <<expression>> ) <<statement>> else <<statement>>
     | while ( <<expression>> ) <<statement>>
     | case ( <<expression>> ) {<<list(case)>>}
     | lid ( {{ _list(<<listexpression>>) }}? )
@@ -42,6 +43,8 @@
 
 <<block-statement>> ::=
     | { {{ <<statement>> }} ? }
+    | if ( <<expression>> ) { {{ <<statement>> }} ? }
+    | if ( <<expression>> ) <<statement>> else { {{ <<statement>> }} ? }
     | while ( <<expression>> ) { {{ <<statement>> }} ? }
     | when (id) { {{ <<statement>> }} ? }
     | watch (id) { {{ <<statement>> }} ? }
