@@ -3,11 +3,11 @@ method sumTo(n : int) : int{
     var cpt : int = 0;
     while (cpt < 10){
         res = res + cpt;
-        cpt = cpt+1;
+        cpt = cpt+1
     }
-    return res;
+    return res
 }
 
 process Main(){
-    var x : int = sumTo(10);
+    var x : int = sumTo(10)
 }

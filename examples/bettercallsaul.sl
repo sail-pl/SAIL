@@ -1,10 +1,10 @@
 method sum(x : int , y : int) : int{
-    return x + y;
+    return x + y
 }
 
 method f(x : &int) {
     *x = sum (8,7);
-    return;
+    return
 }
 
 process Main(){
@@ -19,5 +19,5 @@ process Main(){
     print_int(*y);
     print_string(" ");
     print_int(z);
-    print_newline();
+    print_newline()
 }

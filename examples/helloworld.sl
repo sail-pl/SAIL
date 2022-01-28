@@ -1,3 +1,3 @@
 process Main(){
-    print_string("Hello World\n"); 
+    print_string("Hello World\n")
 }

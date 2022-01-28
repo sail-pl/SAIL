@@ -17,11 +17,11 @@ method length<A>(l : list<A>) : int {
     var cpt : int = 0;
     while (pt != None){
         case (pt) {
-           None : {};
-           Some (e) : {pt = (*e).next; cpt = cpt+1;} 
+           None : {},
+           Some (e) : {pt = (*e).next; cpt = cpt+1} 
         }
     }
-    return cpt;
+    return cpt
 }
 
 method fromTo(n : int, m : int) : list<int> {
@@ -29,9 +29,9 @@ method fromTo(n : int, m : int) : list<int> {
     var current : int = m;
     while (current >= n) {
         node = Some(box({elem : n, next:node}));
-        current = current - 1;
+        current = current - 1
     }
-    return {head : node};
+    return {head : node}    
 }
 
 process Main(){
@@ -44,5 +44,5 @@ process Main(){
     var l : list<int> = fromTo(0,10);
     var u : int = length(l);
     print_int(u);print_newline();
-    print_int(length(l));print_newline();
+    print_int(length(l));print_newline()
 }

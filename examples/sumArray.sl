@@ -7,8 +7,8 @@ process Main(){
     print_string("Hello\n");
     while (cpt < 10) {
         res = res + a[cpt];
-        cpt = cpt + 1;
+        cpt = cpt + 1
     }
     print_int (res); print_newline();
-    print_string("Hello\n");
+    print_string("Hello\n")
 }
