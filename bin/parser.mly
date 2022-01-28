@@ -74,28 +74,29 @@
 %% 
 
 sailModule:  
-  | l = list(defn); EOF {fun x -> mk_program x l};
+| l = list(defn); EOF {fun x -> mk_program x l};
             
 defn:
-  | STRUCT id = ID g = generic LBRACE f = separated_list(COMMA, id_colon(sailtype)) RBRACE
-      {Struct ({s_name = id; s_generics = g; s_fields = f})}
-  | ENUM name=ID generics=generic LBRACE fields = separated_list(COMMA, enum_elt) RBRACE
-      {Enum {e_name=name; e_generics=generics; e_injections=fields}}
-  | METHOD name=ID generics=generic LPAREN params=separated_list(COMMA, id_colon(sailtype)) 
-    RPAREN rtype=returnType body=block
-      {Method ({m_name=name; m_generics=generics; m_params=params ; m_rtype=rtype; m_body = body})}
-  | PROCESS name = UID generics=generic LPAREN interface=interface RPAREN  body=block
-      {Process ({p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
-  ;
+| STRUCT id = ID g = generic LBRACE f = separated_list(COMMA, id_colon(sailtype)) RBRACE
+    {Struct ({s_name = id; s_generics = g; s_fields = f})}
+| ENUM name=ID generics=generic LBRACE fields = separated_list(COMMA, enum_elt) RBRACE
+    {Enum {e_name=name; e_generics=generics; e_injections=fields}}
+| METHOD name=ID generics=generic LPAREN params=separated_list(COMMA, id_colon(sailtype)) 
+  RPAREN rtype=returnType body=block
+    {Method ({m_name=name; m_generics=generics; m_params=params ; m_rtype=rtype; m_body = body})}
+| PROCESS name = UID generics=generic LPAREN interface=interface RPAREN  body=block
+    {Process ({p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
+;
 
 enum_elt :
-  | id = UID {(id, [])}
-  | id = UID l = delimited(LPAREN, separated_list(COMMA, sailtype), RPAREN) {(id,l)}
+| id = UID {(id, [])}
+| id = UID l = delimited(LPAREN, separated_list(COMMA, sailtype), RPAREN) {(id,l)}
 ; 
+
 generic:
-  | {[]}
-  | LANGLE params=separated_list(COMMA, UID) RANGLE {params}
-  ;
+| {[]}
+| LANGLE params=separated_list(COMMA, UID) RANGLE {params}
+;
 
 returnType:
 |  {None}
@@ -103,10 +104,10 @@ returnType:
 
 
 interface :
-  | {([],[])}
-  | SIGNAL signals = separated_nonempty_list(COMMA, ID) {([], signals)}
-  | VAR global = separated_nonempty_list(COMMA, id_colon(sailtype)) {(global, [])}
-  | VAR globals = separated_nonempty_list(COMMA, id_colon(sailtype)) SEMICOLON SIGNAL signals = separated_nonempty_list(COMMA, ID)  {(globals, signals)};
+| {([],[])}
+| SIGNAL signals = separated_nonempty_list(COMMA, ID) {([], signals)}
+| VAR global = separated_nonempty_list(COMMA, id_colon(sailtype)) {(global, [])}
+| VAR globals = separated_nonempty_list(COMMA, id_colon(sailtype)) SEMICOLON SIGNAL signals = separated_nonempty_list(COMMA, ID)  {(globals, signals)};
 
 simpl_expression :
 | id = ID  {Variable id}
@@ -130,21 +131,21 @@ expression :
 | id = ID params = delimited (LPAREN, separated_list (COMMA, expression), RPAREN) {MethodCall (id,params)}
 
 id_colon(X):
-  | id=ID COLON x=X {(id,x)}; 
+| id=ID COLON x=X {(id,x)}; 
 
 literal :
-  | TRUE {LBool(true) }
-  | FALSE {LBool(false)}
-  | n = INT {LInt n}
-  | f = FLOAT {LFloat f}
-  | QUOTE c = CHAR QUOTE {LChar c}
-  | s = STRING {LString s}
-  ;
+| TRUE {LBool(true) }
+| FALSE {LBool(false)}
+| n = INT {LInt n}
+| f = FLOAT {LFloat f}
+| QUOTE c = CHAR QUOTE {LChar c}
+| s = STRING {LString s}
+;
 
 %inline binOp :
 | PLUS {Plus}
- | MINUS {Minus}
- | MUL {Mul}
+| MINUS {Minus}
+| MUL {Mul}
 | DIV {Div}
 | REM {Rem}
 | LANGLE {Lt}
@@ -181,14 +182,13 @@ single_statement :
 | s = block {s}
 
 left : 
-  | s1 = block {s1}
-  | WHILE e = delimited(LPAREN, expression, RPAREN) s = block{While(e, s)}
-  | WATCHING id = delimited(LPAREN, ID, RPAREN) s = block {Watching(id, s)}
-  | WHEN id = delimited(LPAREN, ID, RPAREN) s = block {When(id, s)}
-
+| s1 = block {s1}
+| WHILE e = delimited(LPAREN, expression, RPAREN) s = block{While(e, s)}
+| WATCHING id = delimited(LPAREN, ID, RPAREN) s = block {Watching(id, s)}
+| WHEN id = delimited(LPAREN, ID, RPAREN) s = block {When(id, s)}
 ;
+
 statement_seq : 
-(* | s1 = statement PAR s2 = statement {Par (s1, s2)}*)
 | s = single_statement {s}
 | s1 = left s2 = statement_seq {Seq(s1, s2)}
 | s1 = single_statement SEMICOLON s2 = statement_seq {Seq(s1,s2)}
@@ -210,22 +210,23 @@ pattern :
 ;
 
 sailtype:
-  | TYPE_BOOL {Bool}
-  | TYPE_INT {Int}
-  | TYPE_FLOAT {Float}
-  | TYPE_CHAR {Char}
-  | TYPE_STRING {String}
-  | ARRAY LANGLE typ = sailtype RANGLE {ArrayType (typ)}
-  | id = ID params=instance {CompoundType(id,params)}
-  | name = UID {GenericType(name)}
-  | REF b=mut t = sailtype {RefType(t,b)}
-  ;
+| TYPE_BOOL {Bool}
+| TYPE_INT {Int}
+| TYPE_FLOAT {Float}
+| TYPE_CHAR {Char}
+| TYPE_STRING {String}
+| ARRAY LANGLE typ = sailtype RANGLE {ArrayType (typ)}
+| id = ID params=instance {CompoundType(id,params)}
+| name = UID {GenericType(name)}
+| REF b=mut t = sailtype {RefType(t,b)}
+;
 
 mut:
-  | MUT {true}
-  | {false}
-  ;
+| MUT {true}
+| {false}
+;
 
 instance:
 | {[]}
 | LANGLE params=separated_list(COMMA, sailtype) RANGLE {params}
+;
