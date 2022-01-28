@@ -7,14 +7,13 @@
     | <<method-declaration>>
 
 <<struct-declaration>> ::=  
-    | struct lid {{ < {{ list(uid) }}? > }}? { {{ list(<<lid-type>>) }}? }
+    | struct lid {{ < {{ _list(uid) }}? > }}? { {{ _list(<<lid-type>>) }}? }
 
 <<enum-declaration>> ::= 
-    | enum lid {{ < {{ list(uid) }}? > }} ? { {{ list(<<cons-def>>) }}? }
+    | enum lid {{ < {{ _list(uid) }}? > }} ? { {{ _list(<<cons-def>>) }}? }
 
 <<method-declaration> ::= 
-    | method lid ( {{ list(<<lid-type>>) }}? ) { {{ <<statement>> }}? }
-
+    | method lid ( {{ _list(<<lid-type>>) }}? ) { {{ <<statement>> }}? }
 
 <<lid-type>> ::= lid : <<type>>
 
@@ -34,7 +33,7 @@
     | if ( <<expression>> ) <<statement>> {{ else <<statement>> }}?
     | while ( <<expression>> ) <<statement>>
     | case ( <<expression>> ) {<<list(case)>>}
-    | lid ( {{ list(<<listexpression>>) }}? )
+    | lid ( {{ _list(<<listexpression>>) }}? )
     | return {{ <<expression>> }} ?
     | emit id
     | when id <<statement>> 
@@ -43,12 +42,12 @@
 
 <<block-statement>> ::=
     | { {{ <<statement>> }} ? }
-    | while ( <<expression>> ) <<block-statement>>
-    | when (id) <<block-statement>>  
-    | watch (id) <<block-statement>>
+    | while ( <<expression>> ) { {{ <<statement>> }} ? }
+    | when (id) { {{ <<statement>> }} ? }
+    | watch (id) { {{ <<statement>> }} ? }
 
 <<pattern>> ::= 
-    lid | uid {{ ( {{ list(<<pattern>>) }} ? ) }}?
+    lid | uid {{ ( {{ _list(<<pattern>>) }} ? ) }}?
 
 <<case>> ::= <<pattern>> : <<statement>>
 
