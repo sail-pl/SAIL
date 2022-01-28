@@ -1,8 +1,7 @@
 # SAIL
 
-SAIL aims at improving safety in Reactive Domain Specific Languages. It is a simple imperative programming language with support for synchronous concurrent processes. By synchronous, we mean that processes share a logical clock as in Esterel like-language. Processes are cooperatives, communicate through shared memory and synchronize by means of broadcasted signals.
-As Esterel and Fairthread/C, SAIL is control oriented. 
-Causality issues are put aside by delaying reaction to absences as in Fairthread/C.
+SAIL aims at improving safety in Reactive Domain Specific Languages. It is a simple imperative programming language with support for synchronous concurrent processes. By synchronous, we mean that processes share a logical clock as in Esterel like-language. Processes are cooperative, communicate through shared memory and synchronize by means of broadcasted signals.
+As Esterel and Fairthread/C, SAIL is control oriented. Causality issues are put aside by delaying reaction to absences as in Fairthread/C.
 
 SAIL stands for SAfe Interactive Language
 
