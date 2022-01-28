@@ -160,7 +160,7 @@ literal :
 
 block :
 | LBRACE RBRACE {Ast.Skip}
-| LBRACE s = statement RBRACE {s}
+| LBRACE s = statement RBRACE {Ast.Block (s)}
 ;
 
 single_statement :
@@ -183,6 +183,8 @@ single_statement :
 
 left : 
 | s1 = block {s1}
+| IF e = delimited(LPAREN, expression, RPAREN) s1 = block  {If(e, s1, None)}
+| IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement ELSE s2 = block {If(e, s1, Some s2)}
 | WHILE e = delimited(LPAREN, expression, RPAREN) s = block{While(e, s)}
 | WATCHING id = ID s = block {Watching(id, s)}
 | WHEN id = ID s = block {When(id, s)}

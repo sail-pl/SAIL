@@ -13,7 +13,7 @@ process Main(){
         while(cpt < n){
             when s2 {print_string("B\n")}
             signal s; watching s {emit s;signal s; when s {}}
-            emit(s1)
+            emit s1
         }
     ||
         while(cpt < n){

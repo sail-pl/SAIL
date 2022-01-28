@@ -33,7 +33,7 @@
     | if ( <<expression>> ) <<statement>> 
     | if ( <<expression>> ) <<statement>> else <<statement>>
     | while ( <<expression>> ) <<statement>>
-    | case ( <<expression>> ) {<<list(case)>>}
+    | case ( <<expression>> ) {_list(<<(case)>)>}
     | lid ( {{ _list(<<listexpression>>) }}? )
     | return {{ <<expression>> }} ?
     | emit id
@@ -69,6 +69,10 @@
     | id ( _list(<<expression-list>>)? ) 
 
 <<field-expression>> ::= id : <<expression>>
+
+<<unop>> ::= - | !
+
+<<binop> ::= + | - | * | / | % | < | > | <= | >= | == | != | and | or 
 
 _list(x) = x | x, <<list>>(x)
 

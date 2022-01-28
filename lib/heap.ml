@@ -84,7 +84,11 @@ module Heap  : Heap = struct
     if M.mem l h.map then 
       Some {map = M.remove l h.map; freelist = l::h.freelist; next = h.next} 
     else None *)
-  let free (h : 'a t) (_l: address) : 'a t option = 
-    Logs.warn (fun m-> m "Free not implemented yet");Some h
+  let free (h : 'a t) (l: address) : 'a t option = 
+    Logs.debug (fun m -> m "free %a\n" pp_address l);
+    if M.mem l h.map then
+      Some {map = M.remove l h.map; freelist = l::h.freelist; next = h.next}
+    else None
+    (* Logs.warn (fun m-> m "Free not implemented yet");Some h *)
 end
 

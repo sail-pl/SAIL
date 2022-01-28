@@ -35,6 +35,9 @@ type tag = Field of string | Indice of int
 type offset = tag list
 type location = Heap.address * offset
 
+type kind = Owned | Borrowed
+type mutability = Mutable | UnMutable 
+
 type value =
   | VBool of bool
   | VInt of int
@@ -44,29 +47,16 @@ type value =
   | VArray of value list
   | VStruct of value FieldMap.t
   | VEnum of string * value list
-  | VLoc of location
+  | VLoc of location * kind * mutability 
 
-type frame = Heap.address Env.frame
-type env = Heap.address Env.t
+type frame = (Heap.address * mutability) Env.frame
+type env = (Heap.address * mutability) Env.t
 type heap = (value, bool) Either.t Heap.t
 
 type 'a status = Continue | Ret | Suspend of 'a
 
-(* type expression =
-  | Var of string
-  | Literal of Common.literal
-  | UnOp of Common.unOp * expression
-  | BinOp of Common.binOp * expression * expression
-  | ArrayAlloc of expression list
-  | ArrayRead of expression * expression
-  | StructAlloc of expression FieldMap.t
-  | StructRead of expression * string
-  | EnumAlloc of string * expression list
-  | Ref of bool * expression
-  | Deref of expression *)
-
 type command =
-  | DeclVar of bool * string * Common.sailtype 
+  | DeclVar of bool * string * Common.sailtype * expression option
   | DeclSignal of string
   | Skip
   | Assign of expression * expression
@@ -84,7 +74,7 @@ type command =
 
   let rec initCommand (c : Intermediate.command) : command = 
     match c with 
-    | Intermediate.DeclVar (b,x,t) -> DeclVar(b,x,t)
+    | Intermediate.DeclVar (b,x,t,e) -> DeclVar(b,x,t,e)
      | Intermediate.DeclSignal (s) -> DeclSignal(s)
     | Intermediate.Skip -> Skip
     | Intermediate.Assign(e1, e2) -> Assign(e1, e2)
@@ -117,11 +107,12 @@ type error =
   | InvalidStack
   | NotALeftValue
   | NotAValue
+  | UnMutableLocation of Heap.address
   | Division_by_zero
 
 module Result = ErrorMonadEither.Make(struct type t = error end)
 
-let locationOfAddress (a : Heap.address) : location = (a, [])
+let locationOfAddress (a : Heap.address)  : location = (a, [])
 
 let rec readValue (v : value) (o : offset) : value option =
   match (v, o) with

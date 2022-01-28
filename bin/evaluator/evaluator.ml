@@ -29,8 +29,6 @@ open Domain
 open Pp_evaluator
 open ErrorOfOption
 
-
-
 let mapM (f : 'a -> 'b Result.t) (s : 'a FieldMap.t) : 'b FieldMap.t Result.t =
   let open Result in
   let open MonadSyntax (Result) in
@@ -51,16 +49,14 @@ let mapM (f : 'a -> 'b Result.t) (s : 'a FieldMap.t) : 'b FieldMap.t Result.t =
 (* Semantics domain *)
 
 let rec locationsOfValue (v : value) : Heap.address list =
-  let vl =
     match v with
-    | VArray vl -> vl
-    | VStruct m -> List.map snd (FieldMap.bindings m)
-    | VEnum (_, vl) -> vl
+    | VLoc((a,_), Owned, _) -> [a]
+    | VArray vl -> List.concat_map locationsOfValue vl
+    | VStruct m -> List.concat_map locationsOfValue (List.map snd (FieldMap.bindings m))
+    | VEnum (_, vl) -> List.concat_map locationsOfValue vl
     | _ -> []
-  in
-  List.concat_map locationsOfValue vl
 
-let _collect (h : heap) (l : Heap.address list) : Heap.address list Result.t =
+let collect (h : heap) (l : Heap.address list) : Heap.address list Result.t =
   let open MonadSyntax (Result) in
   let rec aux h l acc : Heap.address list Result.t =
     match l with
@@ -115,7 +111,6 @@ let evalBinop (b : binOp) (v1 : value) (v2 : value) : value Result.t =
   | _ -> throwError TypingError
 
 let valueOfLiteral c =
-  (* inline  *)
   match c with
   | LBool x -> VBool x
   | LInt x -> VInt x
@@ -123,24 +118,24 @@ let valueOfLiteral c =
   | LChar x -> VChar x
   | LString x -> VString x
 
-let rec evalL (env : env) (h : heap) (e : Intermediate.expression) : location Result.t =
+let rec evalL (env : env) (h : heap) (e : Intermediate.expression) : (location * mutability) Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   Logs.debug (fun m -> m "evaluate left value < %a >" Intermediate.pp_print_expression e);
   match e with
   | Intermediate.Variable x ->
-      let* a = getVariable env x in
-      return (locationOfAddress a)
+      let* (a, m) = getVariable env x in
+      return (locationOfAddress a, m)
   | Intermediate.Deref e -> (
       let* v = evalR env h e in
-      match v with VLoc l -> return l | _ -> throwError TypingError)
+      match v with VLoc (l,_,m) -> return (l,m) | _ -> throwError TypingError)
   | Intermediate.StructRead (e, f) ->
-      let* a, o = evalL env h e in
-      return (a, o @ [ Field f ])
+      let* (a, o), m = evalL env h e in
+      return ((a, o @ [ Field f ]),m)
   | Intermediate.ArrayRead (e1, e2) -> (
-      let* a, o = evalL env h e1 and* v = evalR env h e2 in
+      let* (a, o),m = evalL env h e1 and* v = evalR env h e2 in
       match v with
-      | VInt n -> return (a, o @ [ Indice n ])
+      | VInt n -> return ((a, o @ [ Indice n ]), m)
       | _ -> throwError TypingError)
   | _ -> throwError NotALeftValue
 
@@ -152,7 +147,7 @@ and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t 
     Logs.debug (fun m -> m "evaluate right value < %a >" Intermediate.pp_print_expression e);
     match e with
     | Intermediate.Variable x -> (
-        let* a = getVariable env x in
+        let* (a,_) = getVariable env x in
         let* v = getLocation h a in
         match v with
         | Some (Either.Left v) -> return v
@@ -177,14 +172,13 @@ and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t 
     | EnumAlloc (c, es) ->
         let* vs = sequence (List.map aux es) in
         return (VEnum (c, vs))
-    | Ref (_, e) ->
-        (* Enforce that mutability is respected *)
-        let* a = evalL env h e in
-        return (VLoc a)
+    | Ref (mut, e) ->
+        let* (l, _) = evalL env h e in
+        return (VLoc (l, Borrowed, if mut then Mutable else UnMutable))
     | Deref e -> (
         let* v = aux e in
         match v with
-        | VLoc (a, o) -> (
+        | VLoc ((a, o), _,_) -> (
             let* a' = getLocation h a in
             match a' with
             | None -> throwError TypingError
@@ -203,21 +197,6 @@ let rec filter ((v, p) : value * pattern) : (string * value) list option =
       listMapM filter (List.combine l m) >>= fun l -> Some (List.concat l)
   | _ -> None
 
-let rec buildEnv (l : (value * sailtype) list) (h : heap) :
-    (location list * heap) option =
-  let open MonadSyntax (MonadOption) in
-  match l with
-  | [] -> Some ([], h)
-  | (VLoc l, RefType _) :: m ->
-      let* n, h' = buildEnv m h in
-      Some (l :: n, h')
-  | (_, RefType _) :: _ -> None
-  | (v, _) :: m ->
-      let a, h' = Heap.fresh h in
-      let* h' = Heap.update h' (a, Either.Left v) in
-      let* n, h'' = buildEnv m h' in
-      Some ((a, []) :: n, h'')
-
 let rec freshn (h : heap) n : Heap.address list * heap =
   if n > 0 then
     let a, h' = Heap.fresh h in
@@ -225,35 +204,45 @@ let rec freshn (h : heap) n : Heap.address list * heap =
     (a :: l, h'')
   else ([], h)
 
+let pp_eloc (pf : Format.formatter) ((l,m) : Heap.address * mutability) : unit =
+  Format.fprintf pf "%a,%a" Heap.pp_address l pp_mutability m
+
 let reduce (p : Intermediate.command method_defn list) (c : command) (env : env) (h : heap) :
     (command status * frame * heap) Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
-  let rec aux c env h : (command status * frame * heap) Result.t =
+  let rec aux c (env : env) h : (command status * frame * heap) Result.t =
     Logs.debug (fun m -> m "evaluate command < %a> " pp_command_short c);
     Logs.debug (fun m ->
-        m "current environment: %a" (Env.pp_t Heap.pp_address) env);
+        m "current environment: %a" (Env.pp_t pp_eloc) env);
     Logs.debug (fun m -> m "current heap: %a" (Heap.pp_t pp_print_heapValue) h);
     match c with
-    | DeclVar (_, x, _) ->
+    | DeclVar (b, x, _, None) ->
+      let m = if b then Mutable else UnMutable in
         let a, h0 = Heap.fresh h in
-        return (Continue, Env.singleton x a, h0)
+        return (Continue, Env.singleton x (a,m), h0)
+    | DeclVar (b, x, _, Some e) ->
+      let* v = evalR env h e in
+        let m = if b then Mutable else UnMutable in
+          let a, h0 = Heap.fresh h in
+          let* h' = setLocation h0 (a, Either.Left v) in
+          return (Continue, Env.singleton x (a,m), h')
     | DeclSignal s ->
         let a, h0 = Heap.fresh h in
         let* h1 = setLocation h0 (a, Either.Right false) in
-        return (Continue, Env.singleton s a, h1)
+        return (Continue, Env.singleton s (a, Mutable), h1)
     | Skip -> return (Continue, Env.emptyFrame, h)
     | Assign (e1, e2) -> (
-        let* a, o = evalL env h e1 in
+        let* (a, o), m = evalL env h e1 in
+        if m = UnMutable then throwError (UnMutableLocation a)
+        else
         let* v = evalR env h e2 in
         let* u = getLocation h a in
         match u with
         | None ->
             let* h' = setLocation h (a, Either.Left v) in
-            (* plutot faire un filtrage sur le chemin et mettre à jour direct si vide*)
             return (Continue, Env.emptyFrame, h')
-            (* dans ce cas update value prend un chemin non vide *)
         | Some u ->
             let* v0 = resultOfOption TypingError Either.find_left u in
             let* v' = setOffset v0 o v in
@@ -273,7 +262,11 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         match k with
         | Suspend c' ->
             return (Suspend (Block (c', Env.merge w w')), Env.emptyFrame, h')
-        | _ -> return (k, Env.emptyFrame, h'))
+        | _ ->
+          let  l = List.map fst (Env.allValues (Env.merge w w')) in 
+          let* l' = collect h' l in
+          let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
+          return (k, Env.emptyFrame, cleanHeap))
     | If (e, c1, c2) -> (
         let* v = evalR env h e in
         match v with
@@ -299,7 +292,8 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             let vars = List.map fst s in
             let vals = List.map (fun x -> Either.Left (snd x)) s in
             let varmap =
-              List.map (fun (x, y) -> Env.singleton x y) (List.combine vars l)
+              let l' = List.map (fun a -> (a, UnMutable)) l in
+              List.map (fun (x, y) -> Env.singleton x y) (List.combine vars l')
             in
             let w = List.fold_left Env.merge Env.emptyFrame varmap in
             let locmap = List.combine l vals in
@@ -315,10 +309,11 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         | Some callee -> 
           let formal_params = List.map fst callee.m_params in
             let l, h' = freshn h (List.length real_params) in
+            let l' = List.map (fun a -> (a, UnMutable)) l in
             let varmap =
               List.map
                 (fun (x, y) -> Env.singleton x y)
-                (List.combine formal_params l)
+                (List.combine formal_params l')
             in
             let* h'' =
               let values = List.map (fun x -> Either.Left x) real_params in
@@ -332,11 +327,11 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             | _ -> throwError MissingReturnStatement)
     | Return -> return (Ret, Env.emptyFrame, h)
     | Emit s ->
-        let* a = getVariable env s in
+        let* (a,_) = getVariable env s in
         let* h' = setLocation h (a, Either.Right true) in
         return (Continue, Env.emptyFrame, h')
     | When (s, c, w) -> (
-        let* a = getVariable env s in
+        let* (a, _) = getVariable env s in
         let* v = getLocation h a in
         match v with
         | Some (Either.Right false) ->
@@ -347,9 +342,12 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             | Suspend c' ->
                 return
                   (Suspend (When (s, c', Env.merge w w')), Env.emptyFrame, h')
-            | _ -> return (k, Env.emptyFrame, h')
-            (* let  l = Env.allValues (Env.merge w w') in *)
-            (* let* cleanHeap = drop h' l in *))
+            | _ -> 
+              let  l = Env.allValues (Env.merge w w') in 
+              let* l' = collect h' (List.map fst l) in
+              let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
+                return (k, Env.emptyFrame, cleanHeap)
+            )
         | None -> throwError (UnitializedAddress a)
         | _ -> throwError TypingError)
     | Watching (s, c, w) -> (
@@ -358,7 +356,11 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         | Suspend c' ->
             return
               (Suspend (Watching (s, c', Env.merge w w')), Env.emptyFrame, h')
-        | _ -> return (k, Env.emptyFrame, h')
+        | _ ->
+          let  l = Env.allValues (Env.merge w w') in 
+          let* l' = collect h' (List.map fst l) in
+          let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in 
+            return (k, Env.emptyFrame, cleanHeap)
         (* let  l = Env.allValues (Env.merge w w') in *)
         (* let* cleanHeap = drop h' l in *))
     | Par (c1, w1, c2, w2) -> (
@@ -366,9 +368,12 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         let* k2, w2', h'' = aux c2 (Env.activate env w2) h' in
         match (k1, k2) with
         | Continue, Continue ->
+          let  l = Env.allValues (Env.merge w1 (Env.merge w2 (Env.merge w1' w2'))) in 
+          let* l' = collect h' (List.map fst l) in
+          let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
             (* let  l = Env.allValues (Env.merge w1 (Env.merge w2 (Env.merge w1' w2'))) in *)
             (* let* cleanHeap = drop h' l in *)
-            return (Continue, Env.emptyFrame, h'')
+            return (Continue, Env.emptyFrame, cleanHeap)
         | Continue, Suspend c ->
             return
               ( Suspend (Par (Skip, Env.merge w1 w1', c, Env.merge w2 w2')),
@@ -390,15 +395,15 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
 
 let rec collect (c : command) (env : env) : Heap.address list =
   match c with
-  | Block (c, w) -> Env.allValues w @ collect c (Env.activate env w)
+  | Block (c, w) -> (List.map fst (Env.allValues w)) @ collect c (Env.activate env w)
   | Seq (c1, _) -> collect c1 env
   | Par (c1, w1, c2, w2) ->
       collect c1 (Env.activate env w1)
-      @ Env.allValues w1
+      @ (List.map fst (Env.allValues w1))
       @ collect c2 (Env.activate env w2)
-      @ Env.allValues w2
-  | When (_, c, w) -> collect c (Env.activate env w) @ Env.allValues w
-  | Watching (_, c, w) -> collect c (Env.activate env w) @ Env.allValues w
+      @ (List.map fst (Env.allValues w2))
+  | When (_, c, w) -> collect c (Env.activate env w) @ (List.map fst (Env.allValues w))
+  | Watching (_, c, w) -> collect c (Env.activate env w) @ (List.map fst (Env.allValues w))
   | _ -> []
 
 let rec kill (c : command) (env : env) (h : heap) :
@@ -421,7 +426,7 @@ let rec kill (c : command) (env : env) (h : heap) :
       let* c', l = kill c (Env.activate env w) h in
       return (When (s, c', w), l)
   | Watching (s, c, w) -> (
-      let* a = getVariable env s in
+      let* (a,_) = getVariable env s in
       let* v = getLocation h a in
       match v with
       | Some (Either.Right b) ->

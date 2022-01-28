@@ -86,7 +86,7 @@ let mkCall (p : Common.moduleSignature list) ((x,m,el) : string * string * Inter
   match fetch_rtype p m with 
     Some t ->
      [
-      Intermediate.DeclVar (true, x, t); 
+      Intermediate.DeclVar (true, x, t, None); 
       Intermediate.Invoke(m, el@[Intermediate.Ref (true, Intermediate.Variable x)])
     ]
     | None -> failwith ("Error in fetching return type in method : "^m)
@@ -108,11 +108,11 @@ let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermedia
   match t with 
       | Ast.DeclVar (b,x,t,e) -> 
         begin match e with 
-            None -> Intermediate.DeclVar(b,x,t)
+            None -> Intermediate.DeclVar(b,x,t,None)
           | Some e -> 
             let (e,l) = removeCalls e in
             let n = List.concat_map (mkCall p) l in
-            seq_oflist (n@[Intermediate.DeclVar(b,x,t); Intermediate.Assign(Intermediate.Variable x, e)])
+            seq_oflist (n@[Intermediate.DeclVar(b,x,t,Some e)])
         end
       | Ast.DeclSignal (s) -> Intermediate.DeclSignal(s)
       | Ast.Skip -> Intermediate.Skip
@@ -146,7 +146,7 @@ let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermedia
         let n = List.concat_map (mkCall p) l2 in
         begin match fetch_rtype p m with 
             Some t -> 
-              let backup = Intermediate.DeclVar (true, "_tmp", t) in 
+              let backup = Intermediate.DeclVar (true, "_tmp", t, None) in 
               let backup_param = begin match target with 
                 Some x -> [Intermediate.Assign(Intermediate.Variable x, Intermediate.Variable "_tmp")] 
               | None -> []
@@ -170,6 +170,7 @@ let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermedia
       | Watching (s, c) -> Intermediate.Watching(s, aux c)
       | Await (s) -> Intermediate.When(s, Skip)
       | Par (c1, c2) -> Intermediate.Par (aux c1, aux c2)
+      | Block (c) -> Intermediate.Block(aux c)
         in aux t
 
 (* If the return type is non void, we add a parameter to hold the result *)

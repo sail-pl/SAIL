@@ -55,8 +55,7 @@ type statement =
   | Await of string
   | When of string * statement
   | Watching of string * statement
-
-(* to sort definitions *)
+  | Block of statement
 
 type defn =
   | Struct of struct_defn

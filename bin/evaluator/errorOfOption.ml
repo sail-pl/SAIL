@@ -25,3 +25,6 @@ let setOffset v o v' =
   resultOfOption (UndefinedOffset (v, o)) (updateValue v o) v'
 
 let push env w = resultOfOption InvalidStack (Env.push env) w
+
+let free h a = 
+  resultOfOption (UndefinedAddress a) (Heap.free h) a

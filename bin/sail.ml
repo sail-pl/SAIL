@@ -72,12 +72,13 @@ let command =
                     if intermediate then 
                       Out_channel.with_file ("sail.intermediate") ~f:(fun y -> 
                         let output = Format.formatter_of_out_channel y in
-                        Format.fprintf output "%a\n" (Common.pp_program Intermediate.pp_print_command) p'                         
+                        Format.fprintf output "%a\n" (Pp_common.pp_program Intermediate.pp_print_command) p'                         
                       ) in 
                   let c = List.find p'.processes ~f:(fun x -> String.equal x.p_name "Main") in
                     begin match c with 
                       None -> failwith "no main process "
-                    | Some c -> let _ = Evaluator.start p'.methods c.p_body in ()
+                    | Some c -> 
+                      let _ = Evaluator.start p'.methods c.p_body in ()
                end
                | Error(e) -> Error.raise e
              )

@@ -10,10 +10,19 @@ let pp_print_tag (pf : Format.formatter) (t : Domain.tag) : unit =
   | Indice n -> Format.fprintf pf "[%d]" n
 
 let pp_print_offset (pf : Format.formatter) (o : Domain.offset) : unit =
-  Format.fprintf pf "ε%a" (Format.pp_print_list ~pp_sep:pp_comma pp_print_tag) o
+  Format.fprintf pf "ε%a" (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_tag) o
 
 let pp_print_location pf (a, o) =
   Format.fprintf pf "(%a,%a)" Heap.pp_address a pp_print_offset o
+
+let pp_print_kind pf k =
+  match k with Owned -> pp_print_string pf "own" | Borrowed -> pp_print_string pf "bor"
+
+let pp_mutability (pf : Format.formatter) (mut : mutability) : unit =
+  match mut with 
+      Mutable -> pp_print_string pf "mut"
+    | UnMutable -> pp_print_string pf "umut"
+
 
 let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
   match v with
@@ -24,28 +33,29 @@ let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
   | VString s -> Format.pp_print_string pf s
   | VArray a ->
       Format.fprintf pf "[%a]"
-        (Format.pp_print_list ~pp_sep:pp_comma pp_print_value)
+        (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_value)
         a
   | VStruct a -> 
       Format.fprintf pf "{%a}"
-        (Format.pp_print_list ~pp_sep:pp_comma (pp_print_pair pp_print_string pp_print_value))
+        (Format.pp_print_list ~pp_sep:Pp_common.pp_comma (pp_print_pair pp_print_string pp_print_value))
         (FieldMap.bindings a) 
   | VEnum (c, l) ->
       Format.fprintf pf "%s(%a)" c
-        (Format.pp_print_list ~pp_sep:pp_comma pp_print_value)
+        (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_value)
         l
-  | VLoc l -> Format.fprintf pf "0x%a" pp_print_location l
+  | VLoc (l, k, mut) -> Format.fprintf pf "0x%a:%a:%a" pp_print_location l pp_print_kind k pp_mutability mut
 
 let pp_print_heapValue pf v =
   match v with Either.Left v -> pp_print_value pf v | Either.Right b -> Format.pp_print_bool pf b
 
-
-
 let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
   match c with
-  | DeclVar (b, x, t) ->
-      if b then Format.fprintf pf "var mut %s : %a;" x Common.pp_type t
-      else Format.fprintf pf "var %s : %a;" x Common.pp_type t
+  | DeclVar (b, x, t, None) ->
+      if b then Format.fprintf pf "var mut %s : %a;" x Pp_common.pp_type t
+      else Format.fprintf pf "var %s : %a;" x Pp_common.pp_type t
+  | DeclVar (b, x, t, Some e) ->
+      if b then Format.fprintf pf "var mut %s : %a = %a;" x Pp_common.pp_type t Intermediate.pp_print_expression e
+      else Format.fprintf pf "var %s : %a = %a;" x Pp_common.pp_type t Intermediate.pp_print_expression e
   | DeclSignal x -> Format.fprintf pf "signal %s;" x
   | Skip -> Format.fprintf pf "skip;"
   | Assign (e1, e2) ->
@@ -59,14 +69,14 @@ let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
       Format.fprintf pf "while (%a) %a" Intermediate.pp_print_expression e pp_print_command c
   | Case (e, pl) ->
       let pp_case (pf : Format.formatter) ((p, c) : Common.pattern * command) =
-        Format.fprintf pf "%a:%a" Common.pp_pattern p pp_print_command c
+        Format.fprintf pf "%a:%a" Pp_common.pp_pattern p pp_print_command c
       in
       Format.fprintf pf "case (%a) {%a}" Intermediate.pp_print_expression e
-        (Format.pp_print_list ~pp_sep:Common.pp_comma pp_case)
+        (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_case)
         pl
   | Invoke (m, el) ->
       Format.fprintf pf "%s (%a);" m
-        (Format.pp_print_list ~pp_sep:Common.pp_comma Intermediate.pp_print_expression)
+        (Format.pp_print_list ~pp_sep:Pp_common.pp_comma Intermediate.pp_print_expression)
         el
   | Return -> Format.fprintf pf "return;"
   | Emit s -> Format.fprintf pf "emit %s;" s
@@ -78,9 +88,12 @@ let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
 let rec pp_command_short (pf : Format.formatter) (c : command) : unit =
   let open Format in
   match c with
-  | DeclVar (b, x, t) ->
-      if b then Format.fprintf pf "var mut %s : %a" x Common.pp_type t
-      else Format.fprintf pf "var %s : %a" x Common.pp_type t
+  | DeclVar (b, x, t, None) ->
+    if b then Format.fprintf pf "var mut %s : %a" x Pp_common.pp_type t 
+    else Format.fprintf pf "var %s : %a" x Pp_common.pp_type t 
+  | DeclVar (b, x, t, Some e) ->
+      if b then Format.fprintf pf "var mut %s : %a = %a" x Pp_common.pp_type t Intermediate.pp_print_expression e
+      else Format.fprintf pf "var %s : %a = %a" x Pp_common.pp_type t Intermediate.pp_print_expression e
   | DeclSignal x -> Format.fprintf pf "signal %s" x
   | Skip -> Format.fprintf pf "skip"
   | Assign (e1, e2) ->
@@ -92,7 +105,7 @@ let rec pp_command_short (pf : Format.formatter) (c : command) : unit =
   | Case (e, _) -> Format.fprintf pf "case %a" Intermediate.pp_print_expression e
   | Invoke (m, el) ->
       Format.fprintf pf "%s (%a)" m
-        (pp_print_list ~pp_sep:Common.pp_comma Intermediate.pp_print_expression)
+        (pp_print_list ~pp_sep:Pp_common.pp_comma Intermediate.pp_print_expression)
         el
   | Return -> Format.fprintf pf "return"
   | Emit s -> Format.fprintf pf "emit %s" s
@@ -124,5 +137,6 @@ let pp_print_result (pf : Format.formatter) (r : command status) : unit =
       | InvalidStack -> Format.pp_print_string pf "Invalid Stack"
       | NotALeftValue -> Format.pp_print_string pf "Not A left value"
       | NotAValue -> Format.pp_print_string pf "Not a value"
+      | UnMutableLocation a -> Format.fprintf pf "Unmutable address %a" Heap.pp_address a
       | Division_by_zero -> Format.pp_print_string pf "Division by zero"
     
