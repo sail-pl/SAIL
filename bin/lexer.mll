@@ -74,8 +74,9 @@ rule read_token = parse
   | "/" { DIV }
   | "%" { REM }
   | "&"  {REF}
-  | "&&" { AND }
-  | "||" { OR }
+  | "and" { AND }
+  | "or" { OR }
+  | "||" { PAR }
   | "!" { NOT }
   | "<=" {LE}
   | ">="  {GE}

@@ -44,7 +44,7 @@
 %token TRUE FALSE
 %token PLUS MINUS MUL DIV REM
 %token LE GE EQ NEQ
-%token AND OR NOT
+%token AND OR NOT PAR
 %token CASE
 %token REF
 %token MUT
@@ -57,7 +57,9 @@
 %left MUL DIV REM
 
 %nonassoc UNARY
+
 %nonassoc RPAREN
+
 %nonassoc ELSE
 
 %start sailModule
@@ -71,8 +73,6 @@
 
 %% 
 
-(* for {}; each basic instruction is followed by ; *)
-
 sailModule:  
   | l = list(defn); EOF {fun x -> mk_program x l};
             
@@ -82,9 +82,9 @@ defn:
   | ENUM name=ID generics=generic LBRACE fields = separated_list(COMMA, enum_elt) RBRACE
       {Enum {e_name=name; e_generics=generics; e_injections=fields}}
   | METHOD name=ID generics=generic LPAREN params=separated_list(COMMA, id_colon(sailtype)) 
-    RPAREN rtype=returnType body=delimited (LBRACE,seq,RBRACE)
+    RPAREN rtype=returnType body=block
       {Method ({m_name=name; m_generics=generics; m_params=params ; m_rtype=rtype; m_body = body})}
-  | PROCESS name = UID generics=generic LPAREN interface=interface RPAREN  body=delimited (LBRACE,seq,RBRACE)
+  | PROCESS name = UID generics=generic LPAREN interface=interface RPAREN  body=block
       {Process ({p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
   ;
 
@@ -154,36 +154,49 @@ literal :
 | EQ {Eq}
 | NEQ {NEq}
 | AND {And} 
- | OR {Or}
-
+| OR {Or}
 ;
 
-seq :
-| l = list(statement) 
-  {if List.length l <> 1 then Seq l else List.hd l}
+block :
+| LBRACE RBRACE {Ast.Skip}
+| LBRACE s = statement RBRACE {s}
+;
 
-parl :
-| s1 = statement OR s2 = statement {[s1;s2]}
-| s1 = statement OR p = parl {s1::p};
+single_statement :
+| VAR b = mut id = ID COLON typ=sailtype  {DeclVar(b,id,typ,None)}
+| VAR b = mut id = ID COLON typ=sailtype ASSIGN e = expression  {DeclVar(b,id,typ,Some e)}
+| SIGNAL id = ID  {DeclSignal(id)}
+| l = expression ASSIGN e = expression {Assign(l, e)}
+| IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement  {If(e, s1, None)}
+| IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement ELSE s2 = single_statement {If(e, s1, Some s2)}
+| WHILE e = delimited(LPAREN, expression, RPAREN) s = single_statement {While(e, s)}
+| CASE e = delimited(LPAREN, expression, RPAREN) l = delimited(LBRACE, separated_list(COMMA,case), RBRACE) {Case(e,l)}
+| id = ID LPAREN p = separated_list(COMMA, expression) RPAREN  {Invoke(None, id, p)}
+| RETURN e = option(expression)  {Return e}
+| id = UID params=delimited(LPAREN, separated_list(COMMA, expression), RPAREN)  {Run (id, params)}
+| EMIT id = delimited(LPAREN, ID, RPAREN)  {Emit(id)}
+| AWAIT id = delimited(LPAREN,ID,RPAREN)  {Await(id)}
+| WATCHING id = delimited(LPAREN, ID, RPAREN) s = single_statement {Watching(id, s)}
+| WHEN id = delimited(LPAREN, ID, RPAREN) s = single_statement {When(id, s)}
+| s = block {s}
+
+left : 
+  | s1 = block {s1}
+  | WHILE e = delimited(LPAREN, expression, RPAREN) s = block{While(e, s)}
+  | WATCHING id = delimited(LPAREN, ID, RPAREN) s = block {Watching(id, s)}
+  | WHEN id = delimited(LPAREN, ID, RPAREN) s = block {When(id, s)}
+
+;
+statement_seq : 
+(* | s1 = statement PAR s2 = statement {Par (s1, s2)}*)
+| s = single_statement {s}
+| s1 = left s2 = statement_seq {Seq(s1, s2)}
+| s1 = single_statement SEMICOLON s2 = statement_seq {Seq(s1,s2)}
+;
 
 statement :
-| VAR b = mut id = ID COLON typ=sailtype SEMICOLON {DeclVar(b,id,typ,None)}
-| VAR b = mut id = ID COLON typ=sailtype ASSIGN e = expression SEMICOLON {DeclVar(b,id,typ,Some e)}
-| SIGNAL id = ID SEMICOLON {DeclSignal(id)}
-| l = expression ASSIGN e = expression SEMICOLON {Assign(l, e)}
-| s = delimited(LBRACE,seq, RBRACE) option(SEMICOLON){s}
-| s = delimited(LBRACE,parl,RBRACE) {Par s}
-| IF e = delimited(LPAREN, expression, RPAREN) s1 = statement  {If(e, s1, None)}
-| IF e = delimited(LPAREN, expression, RPAREN) s1 = statement ELSE s2 = statement {If(e, s1, Some s2)}
-| WHILE e = delimited(LPAREN, expression, RPAREN) s = statement {While(e, s)}
-| CASE e = delimited(LPAREN, expression, RPAREN) l = delimited(LBRACE, list( case), RBRACE) {Case(e,l)}
-| id = ID LPAREN p = separated_list(COMMA, expression) RPAREN SEMICOLON {Invoke(None, id, p)}
-| RETURN e = option(expression) SEMICOLON {Return e}
-| id = UID params=delimited(LPAREN, separated_list(COMMA, expression), RPAREN) SEMICOLON {Run (id, params)}
-| EMIT id = delimited(LPAREN, ID, RPAREN) SEMICOLON {Emit(id)}
-| AWAIT id = delimited(LPAREN,ID,RPAREN) SEMICOLON {Await(id)}
-| WATCHING id = delimited(LPAREN, ID, RPAREN) s = statement {Watching(id, s)}
-| WHEN id = delimited(LPAREN, ID, RPAREN) s = statement {When(id, s)}
+| s = statement_seq {s}
+| s1 = statement_seq PAR  s2 = statement {Par (s1, s2)}
 ;
 
 case :

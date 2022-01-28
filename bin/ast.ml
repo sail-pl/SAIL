@@ -40,9 +40,10 @@ type expression =
 type statement =
   | DeclVar of bool * string * sailtype * expression option 
   | DeclSignal of string
+  | Skip
   | Assign of expression * expression
-  | Seq of statement list
-  | Par of statement list
+  | Seq of statement * statement
+  | Par of statement * statement
   | If of expression * statement * statement option
   | While of expression * statement
   | Case of expression * (pattern * statement) list

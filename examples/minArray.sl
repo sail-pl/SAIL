@@ -5,7 +5,7 @@ process Main(){
     while (cpt < 10) {
         if (a[cpt] < a[res]) 
             res = cpt;
-        cpt = cpt + 1;
+        cpt = cpt + 1
     }
-    print_int (a[res]); print_newline();
+    print_int (a[res]); print_newline()
 }

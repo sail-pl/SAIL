@@ -115,16 +115,13 @@ let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermedia
             seq_oflist (n@[Intermediate.DeclVar(b,x,t); Intermediate.Assign(Intermediate.Variable x, e)])
         end
       | Ast.DeclSignal (s) -> Intermediate.DeclSignal(s)
+      | Ast.Skip -> Intermediate.Skip
       | Ast.Assign (e1, e2) ->
         let (e1, l1) = removeCalls e1 in 
         let (e2, l2) = removeCalls e2 in 
         let n = List.concat_map (mkCall p) (l1 @ l2) in
           seq_oflist (n@[Intermediate.Assign(e1,e2)])
-      | Ast.Seq [] -> Intermediate.Skip
-      | Ast.Seq (h::t) -> 
-          let h = aux h
-          and t = List.map (aux) t in
-          normalize(List.fold_left (fun x y -> Intermediate.Seq (x, y)) h t)
+      | Ast.Seq (c1, c2) -> Intermediate.Seq(aux c1, aux c2)
       | Ast.If(e, t1, t2) -> 
           let t1 = aux t1 in
           let t2 = begin match t2 with None -> Intermediate.Skip | Some t2 -> aux t2 end in            
@@ -172,12 +169,7 @@ let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermedia
       | When (s, c) -> Intermediate.When(s, aux c)
       | Watching (s, c) -> Intermediate.Watching(s, aux c)
       | Await (s) -> Intermediate.When(s, Skip)
-      | Par (c) -> 
-        begin match List.map aux c with 
-          | []-> Intermediate.Skip
-          | [c] -> c
-          | c1::c2::t -> List.fold_left (fun x y -> Intermediate.Par (x,y)) c1 (c2::t)
-        end
+      | Par (c1, c2) -> Intermediate.Par (aux c1, aux c2)
         in aux t
 
 (* If the return type is non void, we add a parameter to hold the result *)
