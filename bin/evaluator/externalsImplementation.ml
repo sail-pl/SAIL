@@ -28,20 +28,19 @@ let extern h x vl : heap Result.t =
     return h
   | [ v1; v2 ] when x = "box" -> (
         match v2 with
-    | VLoc ((a, o), _, Mutable) -> (
+    | VLoc (a, o) -> (
         let a', h' = Heap.fresh h in
         let* u = getLocation h a in
         match u with
         | None ->
-            let* h'' = setLocation h' (a, Either.Left (VLoc ((a', []), Owned, Mutable))) in
+            let* h'' = setLocation h' (a, Either.Left (VLoc ((a', [])))) in
             let* h''' = setLocation h'' (a', Either.Left v1) in
             return h'''
         | Some u ->
             let* v0 = resultOfOption TypingError Either.find_left u in
             let* v' = setOffset v0 o v1 in
-            let* h'' = setLocation h' (a, Either.Left (VLoc ((a', []), Owned, Mutable))) in
+            let* h'' = setLocation h' (a, Either.Left (VLoc ((a', [])))) in
             let* h''' = setLocation h'' (a', Either.Left v') in
             return h''')
-    | VLoc ((a, _), _, UnMutable) -> throwError (UnMutableLocation a)
     | _ -> throwError TypingError)
     | _ -> throwError (UnknownMethod x)

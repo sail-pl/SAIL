@@ -125,7 +125,11 @@ expression :
 | MUL e = expression %prec UNARY {Deref e}
 | e1=expression o=binOp e2=expression {BinOp (o,e1,e2)}
 | el = delimited (LSQBRACE, separated_list(COMMA, expression), RSQBRACE) {ArrayStatic(el)}
-| l = delimited (LBRACE, separated_nonempty_list(COMMA, id_colon(expression)), RBRACE) {StructAlloc(l)}
+| id=ID l = delimited (LBRACE, separated_nonempty_list(COMMA, id_colon(expression)), RBRACE) 
+    {
+      let m = List.fold_left (fun x (y,z) -> FieldMap.add y z x) FieldMap.empty l
+      in StructAlloc(id, m)
+      }
 | id = UID {EnumAlloc(id, [])}
 | id = UID l = delimited (LPAREN, separated_list(COMMA, expression), RPAREN) {EnumAlloc(id, l)}
 | id = ID params = delimited (LPAREN, separated_list (COMMA, expression), RPAREN) {MethodCall (id,params)}

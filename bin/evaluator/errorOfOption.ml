@@ -22,7 +22,7 @@ let getIndex a n = resultOfOption (OutOfBounds n) (List.nth_opt a) n
 let getOffset v o = resultOfOption (UndefinedOffset (v, o)) (readValue v) o
 
 let setOffset v o v' =
-  resultOfOption (UndefinedOffset (v, o)) (updateValue v o) v'
+  resultOfOption (UndefinedOffset (v, o)) (updateValue v  o) v'
 
 let push env w = resultOfOption InvalidStack (Env.push env) w
 

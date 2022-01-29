@@ -33,7 +33,7 @@ type expression =
   | ArrayRead of expression * expression
   | ArrayStatic of expression list
   | StructRead of expression * string
-  | StructAlloc of (string * expression) list
+  | StructAlloc of string * expression FieldMap.t
   | EnumAlloc of (string * expression list) 
   | MethodCall of string * expression list
       

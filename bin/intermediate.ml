@@ -28,7 +28,7 @@ type expression =
 | BinOp of Common.binOp * expression * expression
 | ArrayAlloc of expression list
 | ArrayRead of expression * expression
-| StructAlloc of expression FieldMap.t
+| StructAlloc of string * expression FieldMap.t
 | StructRead of expression * string
 | EnumAlloc of string * expression list
 | Ref of bool * expression
@@ -64,9 +64,9 @@ let pp_print_expression pf e : unit =
           (Format.pp_print_list ~pp_sep:Pp_common.pp_comma aux)
           el
     | ArrayRead (e1, e2) -> Format.fprintf pf "%a[%a]" aux e1 aux e2
-    | StructAlloc m ->
+    | StructAlloc (x, m) ->
         let pp_field pf (x, y) = Format.fprintf pf "%s:%a" x aux y in
-        Format.fprintf pf "{%a}"
+        Format.fprintf pf "%s{%a}" x
           (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_field)
           (FieldMap.bindings m)
     | StructRead (e, f) -> Format.fprintf pf "%a.%s" aux e f
@@ -105,7 +105,7 @@ let rec pp_print_command (n : int) (pf : Format.formatter) (c : command) : unit 
       Format.fprintf pf "%swhile (%a)\n%a" (String.make n '\t') pp_print_expression e (pp_print_command (n+1)) c 
   | Case (e, pl) ->
       let pp_case (pf : Format.formatter) ((p, c) : Common.pattern * command) =
-        Format.fprintf pf "%s%a:{\n%a\n%s}" (String.make (n +1) '\t') Pp_common.pp_pattern p (pp_print_command (n + 2)) c (String.make (n +1) '\t') 
+        Format.fprintf pf "%s%a:\n%a\n%s" (String.make (n +1) '\t') Pp_common.pp_pattern p (pp_print_command (n + 2)) c (String.make (n +1) '\t') 
       in
       Format.fprintf pf "%scase (%a) {\n%a\n%s}" (String.make n '\t') pp_print_expression e
          (Format.pp_print_list ~pp_sep:pp_commaline pp_case) 

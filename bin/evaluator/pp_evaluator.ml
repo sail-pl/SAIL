@@ -15,13 +15,6 @@ let pp_print_offset (pf : Format.formatter) (o : Domain.offset) : unit =
 let pp_print_location pf (a, o) =
   Format.fprintf pf "(%a,%a)" Heap.pp_address a pp_print_offset o
 
-let pp_print_kind pf k =
-  match k with Owned -> pp_print_string pf "own" | Borrowed -> pp_print_string pf "bor"
-
-let pp_mutability (pf : Format.formatter) (mut : mutability) : unit =
-  match mut with 
-      Mutable -> pp_print_string pf "mut"
-    | UnMutable -> pp_print_string pf "umut"
 
 
 let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
@@ -35,16 +28,16 @@ let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
       Format.fprintf pf "[%a]"
         (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_value)
         a
-  | VStruct a -> 
-      Format.fprintf pf "{%a}"
-        (Format.pp_print_list ~pp_sep:Pp_common.pp_comma (pp_print_pair pp_print_string pp_print_value))
-        (FieldMap.bindings a) 
+  | VStruct (id, a) -> 
+      Format.fprintf pf "%s{%a}" id
+        (Format.pp_print_list ~pp_sep:Pp_common.pp_comma 
+          (pp_print_pair pp_print_string (pp_print_value )))
+        (FieldMap.bindings a)
   | VEnum (c, l) ->
       Format.fprintf pf "%s(%a)" c
         (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_value)
         l
-  | VLoc (l, k, mut) -> Format.fprintf pf "0x%a:%a:%a" pp_print_location l pp_print_kind k pp_mutability mut
-
+  | VLoc l -> Format.fprintf pf "0x%a" pp_print_location l
 let pp_print_heapValue pf v =
   match v with Either.Left v -> pp_print_value pf v | Either.Right b -> Format.pp_print_bool pf b
 

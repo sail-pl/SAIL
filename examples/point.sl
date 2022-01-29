@@ -6,7 +6,7 @@ enum color {
 struct point {x:int, y:int, c:color}
 
 process Main(){
-    var p : point = {x:5, y:7, c:Red};
+    var p : point = point {x:5, y:7, c:Red};
     var y : int = p.x + p.y;
     var z : color = p.c
 }

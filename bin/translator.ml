@@ -62,10 +62,11 @@ let removeCalls (e : Ast.expression) : Intermediate.expression *  (string * stri
         return (Intermediate.ArrayAlloc el)
     | Ast.StructRead (e,f) -> 
         let* e = aux e in return (Intermediate.StructRead(e,f))
-    | Ast.StructAlloc (fel) -> (* change list to map in AST *)
-        let* el = listMapM (pairMap2 aux) fel in
-        let m = List.fold_left (fun x (y,e) -> FieldMap.add y e x) FieldMap.empty el in
-        return (Intermediate.StructAlloc(m)) 
+    | Ast.StructAlloc (x, fel) -> 
+        let l = FieldMap.fold (fun x a y -> (x,a)::y) fel [] in    
+        let* l = listMapM (pairMap2 aux) l in
+        let m = List.fold_left (fun x (y,e) -> FieldMap.add y e x) FieldMap.empty l in
+        return (Intermediate.StructAlloc(x,m)) 
     | Ast.EnumAlloc (x,el) ->
         let* el = listMapM aux el in 
           return (Intermediate.EnumAlloc(x, el))

@@ -18,8 +18,8 @@ method length<A>(l : list<A>) : int {
     while (pt != None){
         case (pt) {
            None : {},
-           Some (e) : {pt = (*e).next; cpt = cpt+1} 
-        }
+           Some (e) : pt = (*e).next; cpt = cpt+1
+        };
     }
     return cpt
 }
@@ -28,17 +28,17 @@ method fromTo(n : int, m : int) : list<int> {
     var node : option<box<node<A>>> = None;
     var current : int = m;
     while (current >= n) {
-        node = Some(box({elem : n, next:node}));
+        node = Some(box(node{elem : n, next:node}));
         current = current - 1
     }
-    return {head : node}    
+    return list {head : node}    
 }
 
 process Main(){
-    var x : node<int> = {elem:1, next:None};
-    var y : node<int> = {elem:2, next:Some(box(x))};
-    var t : node<int> = {elem:3, next:Some(box(y))};
-    var z : list<int> = {head:Some(box(t))};
+    var x : node<int> = node {elem:1, next:None};
+    var y : node<int> = node {elem:2, next:Some(box(x))};
+    var t : node<int> = node {elem:3, next:Some(box(y))};
+    var z : list<int> = list {head:Some(box(t))};
     var n : int = length(z);
     print_int(n); print_newline();
     var l : list<int> = fromTo(0,10);

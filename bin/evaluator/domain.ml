@@ -35,9 +35,6 @@ type tag = Field of string | Indice of int
 type offset = tag list
 type location = Heap.address * offset
 
-type kind = Owned | Borrowed
-type mutability = Mutable | UnMutable 
-
 type value =
   | VBool of bool
   | VInt of int
@@ -45,12 +42,12 @@ type value =
   | VChar of char
   | VString of string
   | VArray of value list
-  | VStruct of value FieldMap.t
+  | VStruct of string * value FieldMap.t
   | VEnum of string * value list
-  | VLoc of location * kind * mutability 
+  | VLoc of location
 
-type frame = (Heap.address * mutability) Env.frame
-type env = (Heap.address * mutability) Env.t
+type frame = Heap.address Env.frame
+type env = Heap.address Env.t
 type heap = (value, bool) Either.t Heap.t
 
 type 'a status = Continue | Ret | Suspend of 'a
@@ -117,17 +114,18 @@ let locationOfAddress (a : Heap.address)  : location = (a, [])
 let rec readValue (v : value) (o : offset) : value option =
   match (v, o) with
   | _, [] -> Some v
-  | VStruct m, Field f :: o' -> FieldMap.find_opt f m >>= (Fun.flip readValue) o'
+  | VStruct (_, m), Field f :: o' -> 
+      let* v = FieldMap.find_opt f m in readValue v o'
   | VArray a, Indice n :: o' -> List.nth_opt a n >>= (Fun.flip readValue) o'
   | _ -> None
 
 let rec updateValue (v : value) (o : offset) (w : value) : value option =
   match (v, o) with
   | _, [] -> Some w
-  | VStruct m, Field f :: o' ->
+  | VStruct (id,m), Field f :: o' ->
       let* vf = FieldMap.find_opt f m in
-      let* v' = updateValue vf o' w in
-      Some (VStruct (FieldMap.update f (fun _ -> Some v') m))
+        let* v' = updateValue vf o' w in
+        Some (VStruct (id,FieldMap.update f (fun _ -> Some v') m))
   | VArray a, Indice n :: o' ->
       let* vn = List.nth_opt a n in
       let* v' = updateValue vn o' w in
