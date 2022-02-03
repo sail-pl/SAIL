@@ -1,0 +1,761 @@
+\documentclass[12pt]{article}
+\usepackage{a4wide}
+\usepackage{amsmath,amssymb, latexsym, stmaryrd}
+\usepackage{tensor}
+\def\loc{\alpha}
+\def\sig{s}
+\def\unit{()}
+\def\susp{\downarrow}
+\def\present{{\bf{1}}}
+\def\absent{{\bf{0}}}
+\newcommand{\parl}[2]{\tensor[_{#1}]{\parallel}{_{#2}}}
+\newcommand{\vect}[1]{\overline{#1}}
+\newcommand\envs[1]{\langle #1 \rangle}
+\def\env{\rho}
+\def\sigenv{\theta}
+\def\heap{\sigma}
+\def\continue{{\mathcal{C}}}
+\def\ret{{\mathcal{R}}}
+\def\suspend{{\mathcal{S}}}
+\def\signal{{\tt{signal}}}
+\def\variable{\tt{var}}
+\def\dom{{\mathit{dom}}}
+\def\lhs{{\mathit{lhs}}}
+\def\allocate{{\tt{ref}}}
+\def\case{{\tt{case}}}
+\newcommand{\ite}[3]{{\tt{if}}~#1~#2~#3}
+ \newcommand{\while}[2]{{\tt{while}}~#1~#2}
+ \def\emit{{\tt{emit}}}
+ \newcommand{\when}[2]{{\tt{when}}~#1~#2}
+ \newcommand{\watching}[2]{{\tt{watching}}~#1~#2}
+\newcommand{\eval}[3]{{\mathit{eval}}(#1,#2,#3)}
+\newcommand{\evalLeft}[3]{{\mathit{eval_L}}(#1,#2,#3)}
+\newcommand{\evalRight}[3]{{\mathit{eval_R}}(#1,#2,#3)}
+\newcommand{\field}[2]{#1\!:\!#2}
+\def\sail{{\sc{sail}}}
+\def\integer{{\tt{int}}}
+ \def\bool{{\tt{bool}}}
+ \def\float{{\tt{float}}}
+ \def\char{{\tt{char}}}
+ \def\str{{\tt{string}}}
+ \def\reftype{\mathit{ref}}
+ \def\boxtype{\mathit{box}}
+ \def\arraytype{\mathit{array}}
+ \def\struct{{\tt{struct}}}
+\def\enum{{\tt{enum}}}
+\def\method{{\mathit{method}}}
+\def\activate{{\mathit{enter}}}
+\def\deactivate{{\mathit{exit}}}
+\def\emptyoffset{\epsilon}
+\def\skipp{{\tt{skip}}}
+\def\return{{\tt{return}}}
+\newcommand{\block}[2]{\{#1\}_{#2}}
+\def\updateValue{{\mathit{update_V}}}
+\title{Core \sail}
+\begin{document}
+\maketitle
+\section{Overview}
+The \sail{} language belongs to the family of Synchronous Reactive Programming 
+(or SRP for short) languages. It is a domain specific language aiming at increasing the
+reliability of reactive programming, especially in the field of IOT. 
+
+In \sail{}, reactivity is expressed through parallel composition and signal broadcast. Parallel composition of commands 
+$c_1$ and $c_2$ is noted $c_1 \parallel c_2$. It relies on a cooperative scheduling.
+The execution of a program consists in successive runs named {\emph{instants}}. 
+A signal named $s$ is declared through the command $\signal~s$. Its lifetime is the innermost surrounding block of code.
+It is {\emph{emitted}} through the command $\emit~s$. It can also be produced by the environment
+between instants. Once emitted, a signal is {\emph{present}} for the duration of the current instant. 
+The execution of a command may be subject to the presence of a signal.
+This is expressed by the statement $\when{s}{c}$. 
+For example, the following command prints a message if $s$ is present. Otherwise it is suspended
+until the signal is emitted or a preemption occurs (see the ${\tt{watching}}$ construct below)
+$$
+\begin{array}{l}
+  {\tt{pause}} = \when{s}{{\mathit{print\_string}}("{\text{s was here}}")}
+\end{array}
+$$
+The end of an instant occurs when  no further progress can be made. Either because the execution 
+is terminated or because all components are waiting for an absent signal.
+Every component of a program has the opportunity to react to a present signal before the instant
+terminates, components have a consistent view of their environment. 
+Finally, a command may be preempted at the end of the current instant if it is blocked and if a given signal is present. 
+This is expressed by the statement s $\watching{s}{c}$ which behaves as $c$ but preempts its residual at the end 
+of the instant if $s$ is present. If $c$ terminates during the instant then $\watching{s}{c}$ also terminates.
+As an example, consider the following statement which will note ${\tt{pause}}$ in the rest of the document.
+$$
+\begin{array}{c}
+  \signal~s; \watching{s}{\{\emit~s;\signal~s';\when{s'}{}\}}
+\end{array}
+$$
+The ${\tt{pause}}$ statement suspends its execution until the end of the instant and resumes at the next instant.
+Ths signal $s'$ is not emitted and thus the program is suspended because of the ${\tt{when}}$ statement. As the signal $s'$ is 
+local, it can't be emitted whatever is the context of the program. At the end of 
+the instant the signal $s$ is present and thus the ${\tt{watch}}$ statement is preempted.
+
+The following example shows a possible use of this construct.
+$$
+\begin{array}{l}
+  \signal~s;\\
+  \signal~s';\\
+  \{\\
+  \qquad {\mathit{print\_string}}("A");\\
+  \qquad \emit~s;\\
+  \qquad {\tt{pause}};\\
+  \qquad \emit~s'\\
+  \parallel \\
+  \qquad \when{s'}{{\mathit{print\_string}}("B")}\\
+  \parallel\\
+  \qquad \watching{s}{\\\qquad\qquad\when{s'}{{\mathit{print\_string}}("C")}}\\
+  \}
+\end{array}
+$$
+The program prints "A" at the first instant and "B" at the second instant. The message "C" is never printed 
+because the {\tt{watching}} block is preempted.
+
+\section{Syntax}
+
+The \sail{} language supports usual ground data types (boolean, integers, floating points numbers, 
+characters and strings) as well as compound data types (arrays, structures and enumerations) and generic data types.
+Types in \sail{} are defined by : 
+$$
+\tau ::= \bool \mid \integer \mid  {\tt{float}} \mid \char \mid \str \\
+\mid \arraytype \langle\tau\rangle \mid \reftype\langle\tau\rangle \mid \boxtype \langle \tau \rangle \mid id\langle \tau,\ldots,\tau\rangle \mid A
+$$
+where $\arraytype\langle\tau\rangle$ denotes an array of values of type $\tau$, $\boxtype\langle\tau\rangle$ 
+denotes a pointer to a heap allocated value of type $\tau$, $\reftype\langle\tau\rangle$ denotes a shared reference and 
+$id\langle \tau,\ldots,\tau \rangle$ denotes a user type which is either a structure or an enumeration.
+A type variable $A$ denotes a generic type. Closed types are types in which no type variable occurs.
+Structure and enumeration are respectively defined by : 
+$$
+\begin{array}{lcl}
+  \struct~id\lceil\langle A,\ldots,A \rangle\rceil~\{f:\tau,\ldots,f:\tau\} \\
+  \enum~id\lceil\langle A, \ldots A\rceil\rangle~\{f\lceil :(\tau,\ldots,\tau) \rceil,\ldots,f\lceil :(\tau,\ldots,\tau)\rceil\}\\ 
+\end{array}
+$$
+where $\lceil . \rceil$ denotes an optional element.
+In both cases, the type variables may occur in the types used in the definition.
+As an example, the type of generic list may be defined in \sail{} by 
+$$
+\begin{array}{l}
+  \enum~{\mathit{option}}<A>\{\\
+  \qquad None,\\
+  \qquad Some (A)\\
+  \}\\
+  \struct~{\mathit{list}}<A>\{\\
+  \qquad {\mathit{head}} : option \langle \reftype\langle {\mathit{node}\langle A\rangle}\rangle \rangle \\\}\\
+  \struct~{\mathit{node}}\langle A\rangle \{\\
+  \qquad elem : A, \\
+  \qquad next : option \langle \reftype\langle {\mathit{node}\langle A\rangle}\rangle \rangle \\
+  \}
+\end{array}
+$$
+Expressions of the {\sail} language are defined by the following grammar :
+$$
+\begin{array}{lcl}
+e &::=& \mid x \mid c \mid \varominus e \mid e \varoplus e\\
+&& \mid [e;\ldots;e] \mid e[e] \mid \{\field{f}{e},\ldots,\field{f}{e}\} 
+    \mid e.f \mid C(e,\ldots,e)\\
+&& \mid \&e \mid *e  
+\end{array}
+$$
+Variables are names ranging over a finite set and are noted $x$, $y$, $z$ and so on.
+A constant $c$ is a literal denoting a boolean, an integer, a floating-point value, a character or a string.
+Given a literal $c$, we note $\widehat{c}$ the corresponding value.
+Unary and binary  operators (respectively $\varominus$ and $\varoplus$) are usual operators over integer and
+boolean value and are assumed to come with semantics functions (noted $\widehat{\varominus}$ 
+and $\widehat{\varoplus}$). 
+An expression $[e_0,\ldots,e_{n-1}]$ denotes an array value filled
+with the values denoted by $e_0,\ldots,e_{n-1}$ and
+and $e_1[e_2]$ denotes the value at the position denoted by $e_2$ of such a value 
+denoted by $e_1$.
+An expression $\{\field{f_0}{e_0},\ldots, \field{f_{n-1}}{e_{n-1}}\}$ denotes a 
+structured value filled with values $e_0,\ldots,e_{n-1}$ and $e.f$ denotes the 
+value at position $f$ of such a value denoted by $e$.
+An expression $\&e$ denotes the memory location at which the value denoted by $e$ is stored.
+An expression $*e$ denotes the value stored at the memory location denoted by $e$.
+
+Commands of Core-\sail{} contain usual commands such as variable declaration, sequential composition, 
+conditional, loops and method calls. In Core sail, method calls return no values.
+Core-\sail{} also contains reactive constructs for parallel composition and signal handling.
+The grammar of commands is given below, followed by an intuitive description for the more significative commands.
+In next section, we will see that the execution stack will reflect the parallel nature of terms. We choose
+to distribute the stack over commands (symbols $\omega$). This will be explained latter.
+For now the symbols $\{c\}_\omega$ can be read as the command $c$.
+$$
+\begin{array}{lcl}
+  c &::=& \mid \variable~x:\tau \mid \signal~\sig \mid \skipp \mid e_1 = e_2 \mid e_1 = \allocate(e_2) \\
+  && \mid \{c\}_\omega \mid c;c \mid \ite{e}{c}{c} \mid \while{e}{c} \mid \case~e~\{p:c,\ldots,p:c\}
+  \mid m(e,\ldots,e) \mid \return
+   \\
+  &&\mid \emit~s \mid \when{s}{\{c\}_\omega} \mid \watching{s}{\{c\}_\omega} 
+  \mid \block{c}{\omega} \parallel \block{c}{\omega}
+\end{array}
+$$
+\begin{itemize}
+  \item $\variable~x:\tau$ and $\signal~s$ declare respectively a variable $x$ 
+  of type $\tau$ and a signal $s$
+  \item $e_1 = e_2$ stores the value of $e_1$ at the memory location denoted by $e_1$
+  \item the sequence, conditional, loop commands and method calls behave as usual.
+  \item $\case~e~\{p:c,\ldots,p:c\}$ performs pattern matching on the value denoted by 
+  $e$. It takes the first pattern $p$ of the list that match the value and behaves as the
+  corresponding command $c$ in an environment augmented by a mapping of the variable of $p$
+  to the appropriate values. 
+  \item $\when{e}{\block{c}{\omega}}$ behaves as $c$ when the signal $s$ is present. When $s$ is absent the 
+  command is suspended.
+  \item $\watching{s}{\block{c}{\omega}}$ behaves as $c$ but, if $s$ is present at the end of the instant the 
+  whole block terminates
+  \item $\block{c_1}{\omega_1} \parallel \block{c_2}{\omega_2}$ runs $c_1$ and $c_2$ in parallel. 
+  Parallel composition terminates when both branches terminate.
+\end{itemize}
+
+
+
+\begin{paragraph}{Methods and programs}
+The syntax of method declaration is 
+$$
+{\tt{method~id\langle A,\ldots,A \rangle(x:\tau,\ldots,x:\tau)}}~c
+$$
+A program in Core-\sail{} is given by a sequence of declarations of user-defined types and methods. It also provide an entry 
+point which is a single command (which corresponds to the Main process in \sail{}). Consider the following example which computes 
+the factorial of $5$.
+$$
+\begin{array}{l}
+{\tt{method}}~{\mathit{factorial}}(x : int, y:\&int) \{\\
+    \qquad {\tt{if}} (x==0~{\tt{or}}~x==1 ) \{*y = 1; {\tt{return}}\}\\
+    \qquad{\tt{else}} \{\\
+    \qquad\qquad  {\tt{var}}~z : {\tt{int}};\\
+    \qquad\qquad  {\mathit{factorial}}(x - 1, \&z);\\
+    \qquad\qquad  y = x * z;\\
+    \qquad\qquad  {\tt{return}}\\
+    \qquad\}\\
+\}
+\\\\
+
+{\tt{var}}~x : int;\\
+{\mathit{factorial}} (5, \&x);\\
+
+\end{array}
+$$
+\end{paragraph}
+
+\begin{paragraph}{Memory locations}
+We assume a built-in method 
+$$box\langle A\rangle (x:A, y:\&box\langle A\rangle)$$
+ which allocates a new memory location, of type $box\langle A\rangle$ 
+which receives the value of $x$. The new memory location is written in $y$. Core-\sail{} distinguish two kind of 
+memory locations. Those of type $box\langle\tau\rangle$, for some type $\tau$, are memory locations explicitly allocated 
+by the user as in $x = box(1,\&y)$. Memory locations of type $ref\langle\tau\rangle$ are shared references obtained by 
+the $\&$ operator.
+\end{paragraph}
+
+\section{Dynamic semantics}
+Core \sail{} commands execute in the context of an environment and a heap. The environment maps program
+variables and signal names to memory addresses (noted $\alpha$ possibly with subscripts). 
+The heap maps memory addresses to values and signal states.
+\begin{paragraph}{Values}
+Values are defined by the following grammar
+$$
+\begin{array}{lcl}
+{\mathit{Value}} \owns v &::=& v_\bool \mid v_\integer \mid v_\float \mid v_\char \mid v_\str\\
+&&\mid A(v,\ldots,v) \mid S(\field{f}{v}, \ldots, \field{f}{v}) \mid E_C(v,\ldots,v) \mid \ell
+\end{array}
+$$
+where given a ground type $\tau$, $v_\tau$ is a value of type $\tau$.
+A value $A(v,\ldots,v)$ is an array,
+A value $S(\field{f_0}{v_0},\ldots,\field{f_{n-1}}{v_{n-1}})$ is a structured value with fields 
+$f_0, \ldots v_1$ and a value $C(v_0,\ldots,v_{n-1})$ is an enum value with constructor $C$. 
+A memory location $\ell$ is a pair $(\alpha, o)$ where $\alpha$ is a memory address and 
+$o$ is an abstract offset. An abstract offset is a sequence of field names and indices denoting a position 
+in a value.
+$$
+\begin{array}{lclcl}
+{\mathit{Offset}} &\owns& o &::=& \emptyoffset \mid o.f \mid o.n\\
+{\mathit{Location}} &\owns &\ell &::=& (\alpha, o)
+\end{array}
+$$
+We omit $\epsilon$ when the sequence is non empty.
+For exemple the value at location $g.1$ in the value $\{f:1,g:[4,5,6]\}$ is 5.
+
+The update of the value $v$ at offset $o$ with value $w$ is given by  $\updateValue(v,o, w)$ which is defined by:
+$$
+\begin{array}{lcll}
+  \updateValue(v,\epsilon, w) &=& w\\
+  %\update (S(\ldots, \field{f_i}{v_i}, \ldots),f,w) &=& S(\ldots, \field{f_i}{w},\ldots) &\\
+  \updateValue (S(\ldots, \field{f_i}{v_i}, \ldots),f.o, w) &=& S(\ldots, \field{f_i}{v},\ldots)& v = \updateValue(v_i,o,w)\\
+  %\update (A[\ldots,v_i,\ldots],n,w) &=& A[\ldots, v,\ldots] & \\
+  \updateValue (A[\ldots,v_i,\ldots],n.o,w) &=& A[\ldots, v,\ldots] & v = \updateValue(v_i,o,w)\\
+\end{array}
+$$
+\end{paragraph}
+\begin{paragraph}{Stack and heap} An environment $\rho$ is a non empty list of mappings
+from variable to values. The use of a list of mappings instead of a single mapping is motivated by the need
+for a precise view of the lifetime of variables. The elements of the list represents the nesting of code 
+blocks.
+$$
+\begin{array}{lcll}
+\omega &\in& \mathit{Variables} \rightharpoonup \mathit{Location} & {\text{frame}}\\
+\rho &=& \overline{\omega} & {\text{stack}}\\
+\sigma &\in& \mathit{Location} \rightharpoonup {\mathit{Value}}^\bot \cup\{\absent, \present\} &{\text{heap}}
+\end{array}
+$$
+where $\overline{\omega}$ denotes a list $\omega_0,\ldots,\omega_{n-1}$ and
+$\value^\bot = Value \cup \{\bot\}$ and $\bot$ represents the value of an allocated but uninitialized location.
+The special values $\absent$ and $\present$ represent the state of a signal, absent ($\absent$) or present($\present$). 
+\end{paragraph}
+\begin{paragraph}{Notations}
+Given a partial function $f : A \rightharpoonup B$, and a value $a \not \in \dom(f)$, we note $f_{a \leadsto b}$, the 
+partial function defined by $f_{a\leadsto b}(a) = b$ and $f_{a\leadsto b}(x)=f(x)$ for all $x \not = a$.
+Given a partial function $f : A \rightharpoonup B$, and a value $a \not \in \dom(f)$, we note $f_{a \mapsto b}$, the 
+partial function defined by $f_{a\mapsto b}(a) = b$ and $f_{a\mapsto b}(x)=f(x)$ for all $x \not = a$. We note 
+$f_{a,c \mapsto b,d}$ for the parallel update of $a$ and $b$ if $a \not = b$.
+We extends the functional notations to list of functions.
+$$
+  \begin{array}{lcll}
+    \epsilon(x) &=& {\mathit{undef}}\\
+    (\overline{\omega}\cdot\omega(x)) &=&
+    \begin{cases}
+      \omega(x) &{\text{if $x \in \dom(\omega)$}}\\
+      \overline{\omega}(x)& {\text{otherwise}}
+    \end{cases}
+    \\
+    \rho_{x \leadsto \ell} &=& \overline{\omega} \cdot \omega_{x \leadsto \ell} & {\text{if $\rho = \overline{\omega} \cdot \omega$}}\\
+    \activate(\rho) &=& \rho \cdot \varnothing \\
+    \deactivate(\rho\cdot\omega) &=& Loc(\omega)
+  \end{array}
+$$
+where $\varnothing$ denotes the empty mapping and $Loc(\omega)$ is 
+the set of memory location occurring in $\omega$.
+\end{paragraph}
+
+\newcommand{\valarray}[1]{A(#1)}
+\newcommand{\valstruct}[1]{S(#1)}
+\newcommand{\valenum}[2]{S_{#1}(#2)}
+\subsection{Semantics of expressions} 
+
+The semantics of expressions is devised in two functions
+${\mathit{eval_L}} \in {\mathcal{X}} \times {\mathcal{E}} \times {\mathcal{H}} \rightharpoonup {\mathcal{L}}$
+and 
+${\mathit{eval_R}} \in {\mathcal{X}} \times {\mathcal{E}} \times {\mathcal{H}} \rightharpoonup {\mathcal{V}}$
+which correspond respectively to the evaluation of left-values and right-values.
+$$
+\begin{array}{lcll}
+
+  \evalLeft{x}{\env}{\heap} &=& (\env(x),\emptyoffset) \\
+  \evalLeft{*e}{\env}{\heap} &=& \ell {\text{ if }} \evalRight{e}{\env}{\heap} = \ell\\
+  \evalLeft{e.f}{\env}{\heap} &=& (\ell, o.f)  {\text{ if $\evalLeft{e}{\env}{\heap} = (\ell,o)$}}\\
+  \evalLeft{e_1[e_2]}{\env}{\heap} &=& (\ell, o.n) {\text{ if $\evalLeft{e_1}{\env}{\heap} = (\ell,o)$ and }}
+  \evalRight{e_2}{\env}{\heap} = n\\\\
+  \evalRight{x}{\env}{\heap} &=& \heap(\env(x))\\
+  \evalRight{c}{\env}{\heap} &=& \widehat{c} &\\
+  \evalRight{\varominus~e}{\env}{\heap} &=& \widehat{\varominus} (\evalRight{e}{\env}{\heap})\\
+  \evalRight{e_1 \varoplus e_2}{\env}{\heap} &=& 
+  \widehat{\oplus}(\evalRight{e_1}{\env}{\heap},  \evalRight{e_2}{\env}{\heap})\\
+  \evalRight{e.f}{\env}{\heap} &=& v_i {\text{ if }} 
+  \evalRight{e}{\env}{\heap} = \valstruct{\ldots,\field{f_i}{v_i},\ldots}, f = f_i \\ 
+  \evalRight{e_1[e_2]}{\env}{\heap} &=& v_i {\text{ if }} 
+  \evalRight{e_1}{\env}{\heap} = \valarray{\ldots, v_i,\ldots},
+  \evalRight{e_2}{\env}{\heap}=i\\
+  \evalRight{[e_0,\ldots,e_{n-1}]}{\env}{\heap} &=& \valarray{v_0,\ldots,v_{n-1}}
+  {\text{ if }} \{\evalRight{e_i}{\env}{\heap} = v_i\}_{i=0}^{n-1}\\
+  \evalRight{\{f\!:\!e_1;\ldots;\field{f}{e_n}\}}{\env}{\heap} &=& 
+  S(\field{f_0}{v_0},\ldots,\field{f_{n-1}}{v_{n-1}})  
+  {\text{ if }} \{\evalRight{e_i}{\env}{\heap} = v_i\}_{i=0}^{n-1}\\
+  \evalRight{C(e_0,\ldots,e_n)}{\env}{\heap} &=& E_C(v_0,\ldots,v_{n-1}) 
+  {\text{ if }} \{\evalRight{e_i}{\env}{\heap} = v_i\}_{i=0}^{n-1}\\
+  \evalRight{\&e}{\env}{\heap} &=& \evalLeft{e}{\env}{\heap}\\
+  \evalRight{*e}{\env}{\heap} &=& \sigma(\ell) {\text{ if }} \evalRight{e}{\env}{\heap}=\ell\\
+\end{array}
+$$
+
+\subsection{Semantics of commands}
+
+The semantics of commands is divided in several levels. First we have microsteps which are given 
+by rules of the form $c,\rho,\sigma \rightarrow K, \omega,\heap'$. In a microstep, each component
+is executed one time until it is terminated or suspended.
+The status $K \in\{\continue, \suspend~c, \ret\}$ tells us if the command is terminated ($\continue$), suspended
+with the continuation $c$ to resume ($\suspend~c$) or returning control to the caller ($\ret$).
+The frame $\omega$ denotes the part of the stack allocated during the micro-steps. Commands containing blocks
+of the form $\{.\}_\omega$ is a suspened command in which $\omega$ was recorded when the command suspends. 
+As mentioned earlier, we use these annotations to distribute the stack over commands.
+\begin{figure}
+$$
+\begin{array}{c}
+  \cfrac{x \not \in \dom (\rho) \qquad \alpha\not\in\dom(\heap)}{
+    
+    \variable~x:\tau, \env,\heap \rightarrow 
+    \continue, [x\leadsto \alpha],\heap_{\alpha \leadsto {\mathit{undef}}} 
+  }
+  \qquad
+  \cfrac{s \not \in \dom(\rho) \qquad \alpha \not \in \dom(\heap)}{
+    \signal~\sig, \env, \heap\rightarrow 
+    \continue, [\sig \leadsto \alpha], \heap_{\alpha \leadsto \absent}
+  }
+  \\
+  \cfrac{}{\skipp,\env ,\sigma \rightarrow \continue, \varnothing,\sigma}
+  \\\\
+  \cfrac{
+    \begin{array}{c}
+      \evalLeft{e_1}{\env}{\heap} = (\alpha,o) \qquad
+      \evalRight{e_2}{\env}{\heap} = v \\ 
+      \sigma(\alpha) = v_\alpha \qquad v' = \updateValue(v_\alpha,o,v)
+    \end{array}
+  }{
+    e_1 := e_2, \env,\heap \rightarrow
+    \continue, \varnothing,\heap_{\alpha \mapsto v'}
+  }
+  \\\\
+  \cfrac{
+    \begin{array}{c}
+      \evalLeft{e_1}{\env}{\heap} = (\alpha,o) \qquad
+      \evalRight{e_2}{\env}{\heap} = v \\ 
+      \heap(\alpha) = v_\alpha \qquad \alpha' \not \in \dom(\heap) 
+      \qquad v' = \updateValue(v_\alpha,p,\alpha') 
+    \end{array}
+  }{
+    e_1 := {\tt{box}}(e_2), \env,\heap \rightarrow  
+    \continue, \varnothing,\heap_{\alpha' \leadsto v, \alpha \mapsto v'}
+  }
+  \\\\
+   \cfrac{
+  c_1, \env \cdot \omega,\heap \rightarrow \continue, \omega_1,\heap''\qquad
+  c_2, \env \cdot \omega\omega_1,\heap'' \rightarrow \mathcal{K},\omega_2,\heap'
+  }{
+  c_1;c_2,\env \cdot \omega ,\heap \rightarrow \mathcal{K},\omega_1\omega_2,\heap'
+  }
+  \\\\
+   \cfrac{
+  c_1, \env,\heap\rightarrow \suspend~c_1', \omega,\heap'
+  }{
+  c_1;c_2,\env,\heap \rightarrow \suspend~c_1';c_2,\omega,\heap'
+  }
+  \qquad
+  \cfrac{
+  c_1, \env,\heap \rightarrow \ret, \omega,\heap'
+  }{
+  c_1;c_2,\env,\heap \rightarrow \ret,\omega,\heap'
+  }
+  \\\\
+  \cfrac{
+    c, \env \cdot \omega, \heap \rightarrow \suspend~c', \omega', \heap' 
+  }{
+   \{c\}_{\omega},\env, \heap \rightarrow \suspend~\{c'\}_{\omega\omega'}, [~],\heap'
+  }
+  \\\\
+  \cfrac{
+    c, \env \cdot \omega, \heap \rightarrow 
+    \mathcal{K}, \omega', \heap' \qquad \omega\omega' \lightning \overline{\alpha}
+    \qquad \mathcal{K} \in \continue,\ret \qquad 
+    \heap'' = drop(\heap', \overline{\alpha})
+  }{
+    \{c\}_{\omega},\env, \heap \rightarrow \mathcal{K}, \varnothing,\heap''
+  }
+  \\\\
+  \cfrac{
+    \evalRight{e}{\env}{\heap} = {\tt{true}} 
+    \qquad \{c_1\}, \env,\heap \rightarrow \mathcal{K},\omega,\heap'
+  }{
+  \ite{e}{\{c_1\}}{\{c_2\}},\env,\heap \rightarrow \mathcal{K},\omega,\heap'
+  }
+  \\\\  
+  \cfrac{
+    \evalRight{e}{\env}{\heap} ={\tt{false}} \qquad \{c_2\}, \rho,\sigma 
+    \rightarrow \mathcal{K},\omega,\sigma'
+  }{
+  \ite{e}{\{c_1\}}{\{c_2\}},\env,\sigma \rightarrow \mathcal{K},\omega,\sigma'
+  }
+  \\\\
+  \cfrac{
+    \evalRight{e}{\env}{\heap} = {\tt{true}}\qquad \{c\}_\varnothing; \while{e}{c},\env,\heap \rightarrow \mathcal{K}, \omega,\heap'
+  }{
+  \while{e}{c}, \env, \heap \rightarrow \mathcal{K},\omega,\heap'
+  }
+  \\\\
+  \cfrac{
+    \evalRight{e}{\env}{\heap} ={\tt{false}}
+  }{
+  \while{e}{c}, \env, \heap \rightarrow \continue,\varnothing,\heap
+  }
+  \end{array}
+  $$
+  \caption{Microsteps}
+  \label{fig:sem1}
+\end{figure}
+ \begin{figure}
+  $$
+  \begin{array}{c}
+  \cfrac{
+    \begin{array}{c}
+    \evalRight{e_i}{\env}{\heap} \Downarrow v_i \qquad 0\leq i \leq n-1 \\
+    {\tt{method}}~m\langle A_0,\ldots,A_{m-1}\rangle(\field{x_0}{\tau_0},\ldots,\field{x_{n-1}}{\tau_{n-1}})\lceil :\tau\rceil~c \in {\mathit{Methods}}\\
+    \{c\}_{[x_i \mapsto v_i]_{i=0}^{n-1}},\epsilon, \heap \rightarrow \ret(v), \omega, \heap'
+    \end{array}
+  }{
+  m(e_0,\ldots,e_{n-1}), \env, \heap \rightarrow \continue, \omega, \heap'
+  }
+  \\\\
+  \cfrac{ 
+    \begin{array}{c}
+    \evalRight{e}{\env}{\heap} = v \qquad
+    filter(p,v) = {\mathit{undef}} \\
+    {\tt{case}}~e~\{\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K},\omega, \heap'
+    \end{array}
+  }{
+    {\tt{case}}~e~\{p:c,\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K},\omega, \heap'
+  }
+  \\\\
+  \cfrac{ 
+    \begin{array}{c}
+    \evalRight{e}{\env}{\heap} = v \qquad
+    filter(p,v) = [(x_i,v_i)]_{i=0}^{n-1}\\
+    \{\ell_i\}_{i=0}^{n-1} \cap \dom(\heap)= \emptyset \\
+    \{c\}_{[x_i \mapsto \ell_i]_{i=0}^{n-1}}, \env, \heap_{\{\ell_i, \mapsto v_i\}_{i=0}^{n-1}} 
+    \rightarrow \mathcal{K},\omega,\heap'
+    \end{array}
+  }{
+    {\tt{case}}~e~\{p:c,\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K}, \omega , \heap'
+  }
+  % A PRIORI OMEGA = VIDE ICI
+  % CE QUI EST LE CAS A CHAQUE FOIS QUE L'ON INSERE UN BLOC, FAIRE DEUX TYPES DE REGLES BLOCK OU NON BLOCK
+  % CONTEXTE OOU NON CONTEXTE
+  % NOTE {C} for {C}_[]
+  \\\\
+\end{array}
+$$
+\caption{Microsteps}
+\label{fig:sem2}
+\end{figure}
+\begin{figure}
+$$
+\begin{array}{c}
+  \cfrac{
+    \begin{array}{c}
+      \env(s) = \ell \qquad \sigma(\ell) = \present
+      \qquad c,\env\cdot \varnothing,\heap,\rightarrow \mathcal{K},\omega',\heap'
+      \qquad \mathcal{K} \in \continue,\ret \\
+      \omega\omega' \lightning \overline{\alpha} \qquad 
+      \sigma'' = {\mathit{drop}}(\omega,\overline{\alpha})
+    \end{array}
+  }{
+    \when{s}{\{c\}_\omega},\env,\heap\rightarrow 
+    \mathcal{K},\varnothing,\heap''
+  }
+  \\\\
+  \cfrac{
+    \env(s) = \ell \qquad \sigma(\ell) = \present \qquad 
+    c,\env \cdot \omega,\heap \rightarrow \suspend~c',\omega',\heap'
+  }
+  {
+    \when{s}{\{c\}_\omega},\env,\heap\rightarrow
+    \suspend~\when{s}{\{c'\}_{\omega\omega'}},\varnothing,\heap'
+  }
+  \\\\
+  \cfrac{
+  \env(s) = \ell \qquad \sigma(\ell)= {\bf{0}}
+  }{
+  \when{s}{\{c\}_\omega},\env,\heap \rightarrow
+  \suspend~\when{s}{\{c\}_\omega},\varnothing,\heap
+  }
+  \\\\
+  \cfrac{
+    \begin{array}{c}
+    c,\env \cdot \omega,\heap \rightarrow \mathcal{K},\omega',\heap'
+   \qquad \mathcal{K} \in \continue,\ret\\
+   \omega\omega' \lightning \overline{\alpha} \qquad 
+   \sigma'' = {\mathit{drop}}(\omega,\overline{\alpha})
+    \end{array}
+   }{
+  \watching{s}{\{c\}_\omega},\env,\heap\rightarrow \mathcal{K}, \varnothing,\heap''
+  }
+  \\\\    
+  \cfrac{
+  c,\env \cdot \omega,\heap\rightarrow \suspend~c',\omega',\heap'
+  }{
+  \watching{s}{\{c\}_\omega},\env,\heap \rightarrow \suspend~\watching{s}{\{c'\}_{\omega\omega'}},\varnothing,\heap'
+  }
+  \\\\
+  \cfrac{
+  \begin{array}{c}
+    c_1, \env \cdot \omega_1, \heap \rightarrow 
+    \continue ,\omega_1' , \heap''
+    \qquad
+    c_2, \env \cdot \omega_2 , \heap'' \rightarrow 
+    \continue ,\env \cdot \omega_2' ,\heap'''
+    \\
+    \omega_1\omega_2\omega_1'\omega_2' \lightning \overline{\alpha} \qquad \heap''={\mathit{drop}}(\heap, \overline{\alpha})
+  \end{array}
+  }{
+    \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2}, \env ,\heap \rightarrow 
+    \continue, \varnothing,\heap''
+  }
+  \\\\
+  \cfrac{
+  \begin{array}{c}
+    c_1, \env \cdot \omega_1, \heap \rightarrow 
+    \suspend(c_1') ,\omega_1' , \heap''
+    \qquad
+    c_2, \env \cdot \omega_2 , \heap'' \rightarrow 
+    \suspend(c_2') ,\omega_2' ,\heap'
+  \end{array}
+  }{
+  \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2}, \env ,\heap \rightarrow 
+  \suspend~\{c_1\}_{\omega_1\omega_1'} \parallel \{c_2\}_{\omega_2\omega_2'}, \varnothing, \heap'
+  }
+  \\\\
+  \cfrac{
+  \begin{array}{c}
+    \{c_1\}, \env \cdot \omega_1, \heap \rightarrow 
+    \suspend(c_1') ,\omega_1' , \heap''
+    \qquad 
+    \{c_2\}, \env \cdot \omega_2 , \heap'' \rightarrow 
+    \continue ,\omega_2' ,\heap'''
+  \end{array}
+  }{
+  \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2}, \env ,\heap \rightarrow 
+  \suspend~\{c_1'\}_{\omega_1\omega_1'} \parallel \{\skipp\}_{\omega_2\omega_2'}, \varnothing,\heap'
+  }
+  \\\\
+  \cfrac{
+  \begin{array}{c}
+  c \equiv c' \qquad c',\env,\heap \rightarrow K',\omega,\heap' \qquad K' \equiv K
+  \end{array}
+  }{
+  c, \env ,\heap \rightarrow 
+  K,\omega,\heap'
+  }
+\end{array}
+$$
+\caption{Microsteps}
+\label{fig:sem3}
+\end{figure}
+$$
+\begin{array}{c}
+  \cfrac{}{c \equiv c} \qquad 
+  \cfrac{}
+  {
+    \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2} \equiv
+    \{c_2\}_{\omega_2} \parallel \{c_1\}_{\omega_1} 
+  }
+  \\\\
+  \cfrac{}{K \equiv K} \qquad
+  \cfrac{c \equiv c'}{\suspend~c \equiv \suspend~c'}
+\end{array}
+$$
+
+\def\kill{{\mathit{kill}}}
+\def\collect{{\mathit{collect}}}
+\newcommand{\addressOf}[1]{#1\lightning}
+
+\def\suspended{{\mathit{suspended}}}
+\def\unlock{{\mathit{unlock}}}
+
+\subsection{steps and instants}
+
+The execution of an instant is a succession of microsteps. We perform microsteps until 
+the command is either terminated or suspended (predicate $\suspended$).If the 
+command is suspended, we perform preemption (function $\unlock$) before to run a new instant.
+The computation of instants is given in figure \ref{fig:instants}.
+$$
+\begin{array}{c}
+  \cfrac{
+    \suspended(c,\env \cdot \omega,\heap)
+  }{
+   \suspended(\{c\}_\omega,\env,\heap)
+  }
+  \qquad
+  \cfrac{
+    \suspended(c_1,\env,\heap)
+  }{
+    \suspended(c_1;c_2,\env,\heap)
+  }
+  \\\\
+  \cfrac{
+    \env(s)=\alpha \qquad 
+    \heap(\alpha)=\absent \vee (\heap(\alpha)=\present \wedge
+    {\mathit{suspended}}(c,\env \cdot \omega,\heap))
+  }
+  {{\mathit{suspended}}(\when{s}{\{c\}_\omega},\env,\heap)}
+  \\\\
+  \cfrac{
+    \suspended(c,\env\cdot \omega,\heap)
+  }{
+    \suspended(\watching{s}{\{c\}_\omega},\env,\heap)
+  }
+  \\\\
+  \cfrac{
+    \suspended(c_1,\env \cdot \omega_1,\heap) \vee 
+      \suspended(c_2,\env \cdot \omega_2,\heap) 
+  }{
+    \suspended({c_1} \parl{\omega_1}{\omega_2} {c_2}, \env, \heap)
+  }
+\end{array}
+$$
+The function $\unlock$ terminates preemption blocks if the watched signal is present.
+$$
+\begin{array}{lcll}
+  \unlock(\{c\}_\omega, \env,\sigma) &=& \{c'\}_\omega & {\text{where }} c'=\unlock(c,\env\cdot\omega,\heap)\\
+  \unlock(c_1;c_2, \env,\sigma) &=& c_1';c_2 & {\text{where }} c_1'=\unlock(c_1,\env,\heap)\\
+  \unlock(\when{s}{\{c\}_\omega}) &=& \when{s}{\{c'\}_\omega} & {\text{where }} c'=\unlock(c,\env\cdot\omega,\heap)\\
+  \unlock(\watching{s}{\{c\}_\omega}) &=& \skipp & {\text{if $\rho(s)=\alpha$ and $\sigma(\alpha)=\present$}}\\
+  \unlock(\watching{s}{\{c\}_\omega}) &=& \watching{s}{\{c'\}_\omega} & {\text{if $\rho(s)=\alpha$, $\sigma(\alpha)=\absent$ and $c'=\unlock(c,\env\cdot\omega,\heap)$}}\\
+  \unlock(c_1 \parl{\omega_1}{\omega_2} c_2, \env, \heap) &=&c_1'\parl{\omega_1}{\omega_2} c_2' & {\text{where }} c_i' = \unlock(c_i,\env\cdot\omega_i,\heap),~i=1,2
+ 
+\end{array}
+$$
+
+We note $(c,\heap) \rightarrow (c', \heap)$ for $(c,\epsilon,\heap) \rightarrow (c',\varnothing,\heap')$,
+$\suspended(c,\heap)$ for $\suspended(c,\varnothing,\heap)$ and
+$\unlock(c,\heap)$ for $\unlock(c,\varnothing,\heap)$.
+$$
+\begin{array}{c}
+  \cfrac{
+   (c,\heap) \rightarrow (\continue,\heap') 
+  }{
+    (c,\heap) \Rightarrow \heap'
+  }
+  \qquad
+  \cfrac{
+    (c,\heap) \rightarrow (\suspend~c',\heap') \qquad 
+    \suspended (c',\heap')
+   }{
+     (c,\heap) \Rightarrow (c', \heap')
+   }
+  \\\\
+  \cfrac{
+   (c,\heap) \rightarrow (\suspend~c',\heap') \qquad 
+   \neg \suspended (c',\heap') \qquad (c',\heap') \Rightarrow (c'',\heap'')
+  }{
+    (c,\heap) \Rightarrow (c'', \heap'')
+  }
+\end{array}
+$$
+\begin{figure}
+$$
+\begin{array}{c}
+  \cfrac{
+    (c,\heap) \Rightarrow \heap'
+  }{
+    (c,\heap) \Longmapsto \heap'
+  }
+  \qquad 
+  \cfrac{
+    (c,\heap) \Rightarrow (c',\heap')
+  }{
+    (c,\heap) \Longmapsto (c', \heap')
+  }
+  \\\\\
+  \cfrac{
+  (c,\heap) \Longmapsto (c', \heap') \qquad \unlock(c',\heap) = c'' \qquad (c'', \heap') \Longmapsto (c''',\heap')
+  }{
+    (c,\heap) \Longmapsto (c''', \heap')
+  }
+\end{array}
+$$
+\label{fig:instants}
+\caption{Instants}
+\end{figure}
+\begin{paragraph}{Execution of a program}
+Given a command $c$, the initial state is $\{c\}_\varnothing,\epsilon,h_\emptyset$
+\end{paragraph}
+%Note that $\{\}$ are not parentheses which are useless in an abtract grammar.
+
+\end{document}
