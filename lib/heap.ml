@@ -37,6 +37,7 @@ module type Heap = sig
   (* *)
   val free : 'a t -> address -> 'a t option
 
+  val map : ('a -> 'b) -> 'a t -> 'b t
   val pp_address : Format.formatter -> address -> unit 
   val pp_t : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a t -> unit
 end
@@ -79,6 +80,9 @@ module Heap  : Heap = struct
           } )
     | l :: t -> 
       (l, { map = M.add l None h.map; freelist = t; next = h.next })
+
+  let map f h = 
+    {map = M.map (fun x -> match x with None -> None | Some x -> Some (f x)) h.map ; freelist = h.freelist; next=h.next}
 
   (* let free (h : t) (l : address) : t option = 
     if M.mem l h.map then 

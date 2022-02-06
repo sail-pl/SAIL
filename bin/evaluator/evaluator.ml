@@ -49,13 +49,13 @@ let mapM (f : 'a -> 'b Result.t) (s : 'a FieldMap.t) : 'b FieldMap.t Result.t =
 (* Semantics domain *)
 
 let rec locationsOfValue (v : value) : Heap.address list =
-    match v with
-    | VLoc(a,_) -> [a]
-    | VArray vl -> List.concat_map locationsOfValue vl
-    | VStruct (_,m) -> List.concat_map locationsOfValue 
-      (List.map snd (FieldMap.bindings m))
-    | VEnum (_, vl) -> List.concat_map locationsOfValue vl
-    | _ -> []
+  match v with
+  | VLoc (a, _) -> [ a ]
+  | VArray vl -> List.concat_map locationsOfValue vl
+  | VStruct (_, m) ->
+      List.concat_map locationsOfValue (List.map snd (FieldMap.bindings m))
+  | VEnum (_, vl) -> List.concat_map locationsOfValue vl
+  | _ -> []
 
 let _collect (h : heap) (l : Heap.address list) : Heap.address list Result.t =
   let open MonadSyntax (Result) in
@@ -119,33 +119,37 @@ let valueOfLiteral c =
   | LChar x -> VChar x
   | LString x -> VString x
 
-let rec evalL (env : env) (h : heap) (e : Intermediate.expression) : location Result.t =
+let rec evalL (env : env) (h : heap) (e : Intermediate.expression) :
+    location Result.t =
   let open Result in
   let open MonadSyntax (Result) in
-  Logs.debug (fun m -> m "evaluate left value < %a >" Intermediate.pp_print_expression e);
+  Logs.debug (fun m ->
+      m "evaluate left value < %a >" Intermediate.pp_print_expression e);
   match e with
   | Intermediate.Variable x ->
       let* a = getVariable env x in
       return (locationOfAddress a)
   | Intermediate.Deref e -> (
       let* v = evalR env h e in
-      match v with VLoc l -> return (l) | _ -> throwError TypingError)
+      match v with VLoc l -> return l | _ -> throwError TypingError)
   | Intermediate.StructRead (e, f) ->
-      let* (a, o) = evalL env h e in
-      return ((a, o @ [ Field f ]))
+      let* a, o = evalL env h e in
+      return (a, o @ [ Field f ])
   | Intermediate.ArrayRead (e1, e2) -> (
-      let* (a, o) = evalL env h e1 and* v = evalR env h e2 in
+      let* a, o = evalL env h e1 and* v = evalR env h e2 in
       match v with
       | VInt n -> return (a, o @ [ Indice n ])
       | _ -> throwError TypingError)
   | _ -> throwError NotALeftValue
 
-and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t =
+and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t
+    =
   let open Result in
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
   let rec aux e =
-    Logs.debug (fun m -> m "evaluate right value < %a >" Intermediate.pp_print_expression e);
+    Logs.debug (fun m ->
+        m "evaluate right value < %a >" Intermediate.pp_print_expression e);
     match e with
     | Intermediate.Variable x -> (
         let* a = getVariable env x in
@@ -166,14 +170,17 @@ and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t 
         match (v, n) with
         | VArray a, VInt n -> getIndex a n
         | _ -> throwError TypingError)
-    | StructAlloc (id, es) -> mapM aux es >>= fun x -> 
-      (* PUT THE RIGHT MUTABILITY *)
+    | StructAlloc (id, es) ->
+        mapM aux es >>= fun x ->
+        (* PUT THE RIGHT MUTABILITY *)
         return (VStruct (id, x))
     | StructRead (e, f) -> (
         aux e >>= fun x ->
-        match x with VStruct (_, m) -> 
-            let* v = getField m f in return v
-            | _ -> throwError TypingError)
+        match x with
+        | VStruct (_, m) ->
+            let* v = getField m f in
+            return v
+        | _ -> throwError TypingError)
     | EnumAlloc (c, es) ->
         let* vs = sequence (List.map aux es) in
         return (VEnum (c, vs))
@@ -210,10 +217,10 @@ let rec freshn (h : heap) n : Heap.address list * heap =
   else ([], h)
 
 (* let pp_eloc (pf : Format.formatter) (l : Heap.address) : unit =
-  Format.fprintf pf "%a" Heap.pp_address l *)
+   Format.fprintf pf "%a" Heap.pp_address l *)
 
-let reduce (p : Intermediate.command method_defn list) (c : command) (env : env) (h : heap) :
-    (command status * frame * heap) Result.t =
+let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
+    (h : heap) : (command status * frame * heap) Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
@@ -227,22 +234,23 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         let a, h0 = Heap.fresh h in
         return (Continue, Env.singleton x a, h0)
     | DeclVar (_, x, _, Some e) ->
-      let* v = evalR env h e in
-          let a, h0 = Heap.fresh h in
-          let* h' = setLocation h0 (a, Either.Left v) in
-          return (Continue, Env.singleton x (a), h')
+        let* v = evalR env h e in
+        let a, h0 = Heap.fresh h in
+        let* h' = setLocation h0 (a, Either.Left v) in
+        return (Continue, Env.singleton x a, h')
     | DeclSignal s ->
         let a, h0 = Heap.fresh h in
         let* h1 = setLocation h0 (a, Either.Right false) in
-        return (Continue, Env.singleton s (a), h1)
+        return (Continue, Env.singleton s a, h1)
     | Skip -> return (Continue, Env.emptyFrame, h)
+    | Stop -> return (Continue, Env.emptyFrame, h)
     | Assign (e1, e2) -> (
-        let* (a, o) = evalL env h e1 in
+        let* a, o = evalL env h e1 in
         let* v = evalR env h e2 in
         let* u = getLocation h a in
-        match (u,o) with
+        match (u, o) with
         (* NOT CLEAR : *)
-        | None,[] ->
+        | None, [] ->
             let* h' = setLocation h (a, Either.Left v) in
             return (Continue, Env.emptyFrame, h')
         | None, _ -> throwError (UnitializedAddress a)
@@ -265,12 +273,11 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         match k with
         | Suspend c' ->
             return (Suspend (Block (c', Env.merge w w')), Env.emptyFrame, h')
-        | _ ->
-          return (k, Env.emptyFrame, h'))
-          (* let  l = Env.allValues (Env.merge w w') in 
-          let* l' = collect h' l in
-          let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
-          return (k, Env.emptyFrame, cleanHeap)) *)
+        | _ -> return (k, Env.emptyFrame, h')
+        (* let  l = Env.allValues (Env.merge w w') in
+           let* l' = collect h' l in
+           let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
+           return (k, Env.emptyFrame, cleanHeap)) *))
     | If (e, c1, c2) -> (
         let* v = evalR env h e in
         match v with
@@ -285,9 +292,9 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             if b then aux (Seq (Block (c, Env.emptyFrame), While (e, c))) env h
             else return (Continue, Env.emptyFrame, h)
         | _ -> throwError TypingError)
-    | Case (e, []) -> 
-      let* v = evalR env h e in 
-      throwError (IncompletePatternMatching v)
+    | Case (e, []) ->
+        let* v = evalR env h e in
+        throwError (IncompletePatternMatching v)
     | Case (e, (p, c) :: pl) -> (
         let* v = evalR env h e in
         match filter (v, p) with
@@ -304,13 +311,13 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             aux (Block (c, w)) env h''
         | None -> aux (Case (e, pl)) env h)
     | Invoke (x, el) -> (
-      let* real_params = listMapM (evalR env h) el in
-        match List.find_opt (fun m -> m.m_name = x) p with 
-          None -> 
-            let* h' = ExternalsImplementation.extern h x real_params in 
+        let* real_params = listMapM (evalR env h) el in
+        match List.find_opt (fun m -> m.m_name = x) p with
+        | None ->
+            let* h' = ExternalsImplementation.extern h x real_params in
             return (Continue, Env.emptyFrame, h')
-        | Some callee -> 
-          let formal_params = List.map fst callee.m_params in
+        | Some callee -> (
+            let formal_params = List.map fst callee.m_params in
             let l, h' = freshn h (List.length real_params) in
             let varmap =
               List.map
@@ -326,7 +333,7 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             let* r, w, h = aux (Block (c, w)) Env.empty h'' in
             match r with
             | Ret -> return (Continue, w, h)
-            | _ -> throwError MissingReturnStatement)
+            | _ -> throwError MissingReturnStatement))
     | Return -> return (Ret, Env.emptyFrame, h)
     | Emit s ->
         let* a = getVariable env s in
@@ -344,13 +351,11 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             | Suspend c' ->
                 return
                   (Suspend (When (s, c', Env.merge w w')), Env.emptyFrame, h')
-            | _ -> 
-              return (k, Env.emptyFrame, h')
-              (* let  l = Env.allValues (Env.merge w w') in 
-              let* l' = collect h' l in
-              let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
-                return (k, Env.emptyFrame, cleanHeap) *)
-            )
+            | _ -> return (k, Env.emptyFrame, h')
+            (* let  l = Env.allValues (Env.merge w w') in
+               let* l' = collect h' l in
+               let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
+                 return (k, Env.emptyFrame, cleanHeap) *))
         | None -> throwError (UnitializedAddress a)
         | _ -> throwError TypingError)
     | Watching (s, c, w) -> (
@@ -359,31 +364,29 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         | Suspend c' ->
             return
               (Suspend (Watching (s, c', Env.merge w w')), Env.emptyFrame, h')
-        | _ ->
-          return (k, Env.emptyFrame, h')
-          (* let  l = Env.allValues (Env.merge w w') in 
-          let* l' = collect h' l in
-          let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in 
-            return (k, Env.emptyFrame, cleanHeap) *)
-            )
+        | _ -> return (k, Env.emptyFrame, h')
+        (* let  l = Env.allValues (Env.merge w w') in
+           let* l' = collect h' l in
+           let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
+             return (k, Env.emptyFrame, cleanHeap) *))
     | Par (c1, w1, c2, w2) -> (
         let* k1, w1', h' = aux c1 (Env.activate env w1) h in
         let* k2, w2', h'' = aux c2 (Env.activate env w2) h' in
         match (k1, k2) with
         | Continue, Continue ->
-          return (Continue, Env.emptyFrame, h'')
-          (* let  l = Env.allValues (Env.merge w1 (Env.merge w2 (Env.merge w1' w2'))) in 
-          let* l' = collect h' l in
-          let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
-            return (Continue, Env.emptyFrame, cleanHeap) *)
+            return (Continue, Env.emptyFrame, h'')
+            (* let  l = Env.allValues (Env.merge w1 (Env.merge w2 (Env.merge w1' w2'))) in
+               let* l' = collect h' l in
+               let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
+                 return (Continue, Env.emptyFrame, cleanHeap) *)
         | Continue, Suspend c ->
             return
-              ( Suspend (Par (Skip, Env.merge w1 w1', c, Env.merge w2 w2')),
+              ( Suspend (Par (Stop, Env.merge w1 w1', c, Env.merge w2 w2')),
                 Env.emptyFrame,
                 h'' )
         | Suspend c, Continue ->
             return
-              ( Suspend (Par (c, Env.merge w1 w1', Skip, Env.merge w2 w2')),
+              ( Suspend (Par (c, Env.merge w1 w1', Stop, Env.merge w2 w2')),
                 Env.emptyFrame,
                 h'' )
         | Suspend c1', Suspend c2' ->
@@ -395,50 +398,67 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
   in
   aux c env h
 
-let rec collect (c : command) (env : env) : Heap.address list =
-  match c with
-  | Block (c, w) -> (Env.allValues w) @ collect c (Env.activate env w)
-  | Seq (c1, _) -> collect c1 env
-  | Par (c1, w1, c2, w2) ->
-      collect c1 (Env.activate env w1)
-      @ (Env.allValues w1)
-      @ collect c2 (Env.activate env w2)
-      @ (Env.allValues w2)
-  | When (_, c, w) -> collect c (Env.activate env w) @  (Env.allValues w)
-  | Watching (_, c, w) -> collect c (Env.activate env w) @  (Env.allValues w)
-  | _ -> []
+let reset (h : heap) : heap =
+  Heap.map
+    (fun x -> match x with Either.Right _ -> Either.Right false | _ -> x)
+    h
 
-let rec kill (c : command) (env : env) (h : heap) :
-    (command * Heap.address list) Result.t =
+let canProgress (c : command) (h : heap) : bool Result.t =
+  let open Result in
+  let open MonadSyntax (Result) in
+  let open MonadFunctions (Result) in
+  Logs.debug (fun m -> m "todo %a" pp_print_command c);
+  let rec aux c env =
+    match c with
+    | Block (c, w) -> aux c (Env.activate env w)
+    | Seq (c1, _) -> aux c1 env
+    | Par (c1, w1, c2, w2) ->
+        let* b1 = aux c1 (Env.activate env w1) in
+        let* b2 = aux c2 (Env.activate env w2) in
+        return (b1 || b2)
+    | When (s, c, w) -> (
+        let* l = getVariable env s in
+        let* v = getLocation h l in
+        match v with
+        | None -> throwError (UndefinedAddress l)
+        | Some (Either.Left _) -> throwError NotASignalState
+        | Some (Either.Right b) ->
+            if b then aux c (Env.activate env w) else return false)
+    | Watching (_, c, w) -> aux c (Env.activate env w)
+    | Stop -> return false
+    | _ -> return true
+  in
+  aux c Env.empty
+
+let rec kill (c : command) (env : env) (h : heap) : command Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
   match c with
   | Block (c, w) ->
-      let* c', l = kill c (Env.activate env w) h in
-      return (Block (c', w), l)
+      let* c' = kill c (Env.activate env w) h in
+      return (Block (c', w))
   | Seq (c1, c2) ->
-      let* c1', l = kill c1 env h in
-      return (Seq (c1', c2), l)
+      let* c1' = kill c1 env h in
+      return (Seq (c1', c2))
   | Par (c1, w1, c2, w2) ->
-      let* c1', l1 = kill c1 (Env.activate env w1) h
-      and* c2', l2 = kill c2 (Env.activate env w2) h in
-      return (Par (c1', w1, c2', w2), l1 @ l2)
+      let* c1' = kill c1 (Env.activate env w1) h
+      and* c2' = kill c2 (Env.activate env w2) h in
+      return (Par (c1', w1, c2', w2))
   | When (s, c, w) ->
-      let* c', l = kill c (Env.activate env w) h in
-      return (When (s, c', w), l)
+      let* c' = kill c (Env.activate env w) h in
+      return (When (s, c', w))
   | Watching (s, c, w) -> (
       let* a = getVariable env s in
       let* v = getLocation h a in
       match v with
       | Some (Either.Right b) ->
-          if b then return (Skip, collect (Watching (s, c, w)) env)
+          if b then return Skip
           else
-            let* c', l = kill c (Env.activate env w) h in
-            return (Watching (s, c', w), l)
+            let* c' = kill c (Env.activate env w) h in
+            return (Watching (s, c', w))
       | _ -> throwError NotASignalState)
-  | _ -> return (c, [])
-
+  | _ -> return c
 
 (* AAT NESXT INSTANT *)
 let run (m : Intermediate.command method_defn list) c : unit Result.t =
@@ -446,31 +466,28 @@ let run (m : Intermediate.command method_defn list) c : unit Result.t =
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
   let rec aux c h =
+    Logs.debug (fun m -> m "start of a microstep");
     let* kont, _, heapAfterReduce = reduce m c Env.empty h in
-    Logs.debug (fun m ->
-        m "End of micro step : %a" (Heap.pp_t pp_print_heapValue) heapAfterReduce);
     match kont with
     | Ret -> throwError ReturnStatementInProcess
     | Continue -> return ()
     | Suspend suspendedCommand ->
-        if h = heapAfterReduce then 
-      (* if suspend we must do more microsteps if signals were emitted *)
-        let* nextCommand, _l = kill suspendedCommand Env.empty heapAfterReduce in
-        (* let* h'' = drop h' l in  *)
-        Logs.debug (fun m ->
-          m "Start a new instant: %a" (Heap.pp_t pp_print_heapValue) heapAfterReduce);
-        aux nextCommand heapAfterReduce
-        else 
-          let _ = 
-            Logs.debug (fun m ->
-              m "Start a new microstep : %a" (Heap.pp_t pp_print_heapValue) heapAfterReduce);
-
-            in
-          aux suspendedCommand heapAfterReduce
+        let* b = canProgress suspendedCommand heapAfterReduce in
+        if b then aux suspendedCommand heapAfterReduce
+        else
+          let _ = Logs.debug (fun m -> m "new instant") in
+          let* nextCommand = kill suspendedCommand Env.empty heapAfterReduce in
+          let* b = canProgress nextCommand (reset heapAfterReduce) in
+          if b then aux nextCommand (reset heapAfterReduce)
+          else
+            (* The machine should freeze, waiting for external events *)
+            let _ = Logs.debug (fun m -> m "no further progress") in
+            return ()
   in
   aux (Block (c, Env.emptyFrame)) Heap.empty
 
-let start (m : Intermediate.command method_defn list) (c : Intermediate.command) : unit =
+let start (m : Intermediate.command method_defn list) (c : Intermediate.command)
+    : unit =
   match run m (Domain.initCommand c) with
   | Either.Left e ->
       Format.fprintf Format.std_formatter "ERROR : %a\n" pp_print_error e
