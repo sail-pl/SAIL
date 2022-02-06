@@ -5,6 +5,7 @@ let e_print_int = {m_name="print_int"; m_generics=[];m_params=[("x", Int)];m_rty
 
 let e_print_new_line = {m_name="print_newline"; m_generics=[];m_params=[];m_rtype=None;m_body=()}
 
+let drop = {m_name="drop"; m_generics=["A"]; m_params=[("x",Box (GenericType "A"))];m_rtype=None;m_body=()}
 let exSig = {
   name = "_External"; 
   structs = [];

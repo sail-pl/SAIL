@@ -12,10 +12,13 @@ let pp_print_tag (pf : Format.formatter) (t : Domain.tag) : unit =
 let pp_print_offset (pf : Format.formatter) (o : Domain.offset) : unit =
   Format.fprintf pf "ε%a" (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_tag) o
 
-let pp_print_location pf (a, o) =
-  Format.fprintf pf "(%a,%a)" Heap.pp_address a pp_print_offset o
+let pp_print_kind pf k = 
+  match k with 
+    | Owned -> Format.pp_print_string pf "Ow"
+    | Borrowed b ->  Format.fprintf pf "B%s" (if b then "w" else "")
 
-
+let pp_print_location pf (a, o, k) =
+  Format.fprintf pf "(%a,%a,%a)" Heap.pp_address a pp_print_offset o pp_print_kind k
 
 let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
   match v with
@@ -133,5 +136,6 @@ let pp_print_result (pf : Format.formatter) (r : command status) : unit =
       | NotALeftValue -> Format.pp_print_string pf "Not A left value"
       | NotAValue -> Format.pp_print_string pf "Not a value"
       | UnMutableLocation a -> Format.fprintf pf "Unmutable address %a" Heap.pp_address a
+      | CantDropNotOwned a -> Format.fprintf pf "Not Owned address %a" Heap.pp_address a
       | Division_by_zero -> Format.pp_print_string pf "Division by zero"
     

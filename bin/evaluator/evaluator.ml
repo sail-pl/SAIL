@@ -50,7 +50,7 @@ let mapM (f : 'a -> 'b Result.t) (s : 'a FieldMap.t) : 'b FieldMap.t Result.t =
 
 let rec locationsOfValue (v : value) : Heap.address list =
   match v with
-  | VLoc (a, _) -> [ a ]
+  | VLoc (a, _,_) -> [ a ]
   | VArray vl -> List.concat_map locationsOfValue vl
   | VStruct (_, m) ->
       List.concat_map locationsOfValue (List.map snd (FieldMap.bindings m))
@@ -128,17 +128,17 @@ let rec evalL (env : env) (h : heap) (e : Intermediate.expression) :
   match e with
   | Intermediate.Variable x ->
       let* a = getVariable env x in
-      return (locationOfAddress a)
+      return (locationOfAddress a Owned)
   | Intermediate.Deref e -> (
       let* v = evalR env h e in
       match v with VLoc l -> return l | _ -> throwError TypingError)
   | Intermediate.StructRead (e, f) ->
-      let* a, o = evalL env h e in
-      return (a, o @ [ Field f ])
+      let* a, o, k = evalL env h e in
+      return (a, o @ [ Field f ],k)
   | Intermediate.ArrayRead (e1, e2) -> (
-      let* a, o = evalL env h e1 and* v = evalR env h e2 in
+      let* a, o, k = evalL env h e1 and* v = evalR env h e2 in
       match v with
-      | VInt n -> return (a, o @ [ Indice n ])
+      | VInt n -> return (a, o @ [ Indice n ], k)
       | _ -> throwError TypingError)
   | _ -> throwError NotALeftValue
 
@@ -190,7 +190,7 @@ and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t
     | Deref e -> (
         let* v = aux e in
         match v with
-        | VLoc (a, o) -> (
+        | VLoc (a, o, _) -> (
             let* a' = getLocation h a in
             match a' with
             | None -> throwError TypingError
@@ -245,7 +245,7 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
     | Skip -> return (Continue, Env.emptyFrame, h)
     | Stop -> return (Continue, Env.emptyFrame, h)
     | Assign (e1, e2) -> (
-        let* a, o = evalL env h e1 in
+        let* a, o, _k = evalL env h e1 in (* prevent writes if now writable *)
         let* v = evalR env h e2 in
         let* u = getLocation h a in
         match (u, o) with
