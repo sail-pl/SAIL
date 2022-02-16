@@ -31,30 +31,30 @@ let _box =
   let open MonadSyntax (Result) in
   ("box", 
     fun h vl -> 
-      match vl with [v1; VLoc (a, o, Borrowed true)] -> 
+      match vl with [v1; VLoc (a, o, Borrowed (true))] -> 
         let a', h' = Heap.fresh h in
         let* u = getLocation h a in
         let l = VLoc(locationOfAddress a' Owned) in 
-        begin match u with
-        | None ->
-            let* h'' = setLocation h' (a, Either.Left l) in
-            let* h''' = setLocation h'' (a', Either.Left v1) in
-            return h'''
-        | Some u ->
-            let* v0 = resultOfOption TypingError Either.find_left u in
-            let* v' = setOffset v0 o v1 in
-            let* h'' = setLocation h' (a, Either.Left l) in
-            let* h''' = setLocation h'' (a', Either.Left v') in
-            return h'''
-        end
-    | _ -> throwError TypingError
+        let* v0 = 
+          if o = [] then return v1 
+          else begin match u with
+                | None -> throwError (UnitializedAddress a) 
+                | Some u ->
+                  let* v0 = resultOfOption TypingError Either.find_left u in
+                  setOffset v0 o v1
+          end
+        in 
+          let* h'' = setLocation h' (a, Either.Left l) in 
+          let* h''' = setLocation h'' (a', Either.Left v0) in
+          return h'''
+      | _ -> throwError TypingError
   )
 
 let _drop = 
   let open Result in
   ("drop", 
           fun h vl -> 
-            match vl with [VLoc (a,_,Owned)] -> free h a 
+            match vl with [VLoc (a,[], Owned)] -> free h a 
             | [VLoc (a,_,_)]  -> throwError (CantDropNotOwned a)
             | _ -> throwError TypingError 
   )

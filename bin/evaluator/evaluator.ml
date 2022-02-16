@@ -185,8 +185,8 @@ and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t
         let* vs = sequence (List.map aux es) in
         return (VEnum (c, vs))
     | Ref (_, e) ->
-        let* l = evalL env h e in
-        return (VLoc l)
+        let* (a, o, _k) = evalL env h e in
+        return (VLoc (a,o,Borrowed true))
     | Deref e -> (
         let* v = aux e in
         match v with
@@ -199,6 +199,33 @@ and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t
         | _ -> throwError TypingError)
   in
   aux e
+
+(* owned locations are always pure *)
+(* x = y.f , this is moving the content of (a,f) belongs to x, not x.f*)
+let rec drop (h : heap) (a : Heap.address) : heap Result.t =
+    let open MonadSyntax (Result) in
+    let open MonadFunctions (Result) in
+        let* v = getLocation h a in 
+        let* h' = free h a in
+        match v with 
+             Some (Either.Left v) -> dropValue h' v []
+            | _ -> return h'
+and dropValue (h : heap) (v : value ) (o :offset) : heap Result.t =
+let open Result in
+ let open MonadSyntax (Result) in
+    let open MonadFunctions (Result) in
+    match (v, o) with 
+        | (_, []) -> foldLeftM drop h (locationsOfValue v)
+        | VStruct(_, m), Field f::o' -> 
+            let* v = getField m f in 
+                dropValue h v o' 
+        | VArray a, Indice n::o' -> 
+            begin match List.nth_opt a n with 
+                | Some v -> dropValue h v o' 
+                | _ -> throwError (OutOfBounds n)
+            end
+        | _ -> return h
+(* drop on value *)
 
 let rec filter ((v, p) : value * pattern) : (string * value) list option =
   let open MonadOption in
@@ -215,9 +242,6 @@ let rec freshn (h : heap) n : Heap.address list * heap =
     let l, h'' = freshn h' (n - 1) in
     (a :: l, h'')
   else ([], h)
-
-(* let pp_eloc (pf : Format.formatter) (l : Heap.address) : unit =
-   Format.fprintf pf "%a" Heap.pp_address l *)
 
 let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
     (h : heap) : (command status * frame * heap) Result.t =
@@ -244,6 +268,7 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         return (Continue, Env.singleton s a, h1)
     | Skip -> return (Continue, Env.emptyFrame, h)
     | Stop -> return (Continue, Env.emptyFrame, h)
+    (* x. f = e *)
     | Assign (e1, e2) -> (
         let* a, o, _k = evalL env h e1 in (* prevent writes if now writable *)
         let* v = evalR env h e2 in
@@ -255,10 +280,12 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             return (Continue, Env.emptyFrame, h')
         | None, _ -> throwError (UnitializedAddress a)
         | Some u, _ ->
+            (* extract the value at offset and deallocate *)
             let* v0 = resultOfOption TypingError Either.find_left u in
             let* v' = setOffset v0 o v in
-            let* h' = setLocation h (a, Either.Left v') in
-            return (Continue, Env.emptyFrame, h'))
+            let* h' = dropValue h v0 o in
+            let* h'' = setLocation h' (a, Either.Left v') in
+            return (Continue, Env.emptyFrame, h''))
     | Seq (c1, c2) -> (
         let* k1, w1, h1 = aux c1 env h in
         match k1 with
@@ -273,11 +300,13 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         match k with
         | Suspend c' ->
             return (Suspend (Block (c', Env.merge w w')), Env.emptyFrame, h')
-        | _ -> return (k, Env.emptyFrame, h')
-        (* let  l = Env.allValues (Env.merge w w') in
-           let* l' = collect h' l in
-           let* cleanHeap = foldLeftM ErrorOfOption.free h' (l') in
-           return (k, Env.emptyFrame, cleanHeap)) *))
+        | _ -> 
+             return (k, Env.emptyFrame, h') 
+        (* let l = Env.allValues (Env.merge w w') in
+        Logs.debug (fun m -> m "%d " (List.length l)) ;
+        let* cleanHeap = foldLeftM (fun h a -> drop h a) h' l in 
+        return (k, Env.emptyFrame, cleanHeap) *)
+        )
     | If (e, c1, c2) -> (
         let* v = evalR env h e in
         match v with

@@ -12,7 +12,7 @@ let pp_print_tag (pf : Format.formatter) (t : Domain.tag) : unit =
 let pp_print_offset (pf : Format.formatter) (o : Domain.offset) : unit =
   Format.fprintf pf "ε%a" (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_tag) o
 
-let pp_print_kind pf k = 
+let pp_print_kind pf (k : kind) = 
   match k with 
     | Owned -> Format.pp_print_string pf "Ow"
     | Borrowed b ->  Format.fprintf pf "B%s" (if b then "w" else "")
