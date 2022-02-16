@@ -33,7 +33,8 @@ open MonadSyntax(MonadOption)
 
 type tag = Field of string | Indice of int
 type offset = tag list
-type location = Heap.address * offset
+type kind = Owned | Borrowed of bool
+type location = Heap.address * offset * kind
 
 type value =
   | VBool of bool
@@ -56,6 +57,7 @@ type command =
   | DeclVar of bool * string * Common.sailtype * expression option
   | DeclSignal of string
   | Skip
+  | Stop
   | Assign of expression * expression
   | Seq of command * command
   | Block of command * frame
@@ -72,7 +74,7 @@ type command =
   let rec initCommand (c : Intermediate.command) : command = 
     match c with 
     | Intermediate.DeclVar (b,x,t,e) -> DeclVar(b,x,t,e)
-     | Intermediate.DeclSignal (s) -> DeclSignal(s)
+    | Intermediate.DeclSignal (s) -> DeclSignal(s)
     | Intermediate.Skip -> Skip
     | Intermediate.Assign(e1, e2) -> Assign(e1, e2)
     | Intermediate.Seq (c1, c2) -> Seq(initCommand c1, initCommand c2)
@@ -105,11 +107,12 @@ type error =
   | NotALeftValue
   | NotAValue
   | UnMutableLocation of Heap.address
+  | CantDropNotOwned of Heap.address
   | Division_by_zero
 
 module Result = ErrorMonadEither.Make(struct type t = error end)
 
-let locationOfAddress (a : Heap.address)  : location = (a, [])
+let locationOfAddress (a : Heap.address)  (k : kind) : location = (a, [], k)
 
 let rec readValue (v : value) (o : offset) : value option =
   match (v, o) with
