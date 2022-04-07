@@ -28,7 +28,7 @@ let sailfile_type =
     Format.printf  "'%s' is not a sail file. Hint: use the .sl extension\n%!" filename ;
     exit 1 in
   Command.Spec.Arg_type.create (fun filename ->
-      match Sys.is_file filename with
+      match Sys_unix.is_file filename with
       | `Yes ->
           if String.equal (get_file_extension filename) "sl" then filename
           else error_not_file filename
@@ -85,6 +85,6 @@ let command =
     )
 
 let main = 
-  command |> Command.run ~version:"0.1"
+  command |> Command_unix.run ~version:"0.1"
 
 (* let _ = evaluator_test () *)
