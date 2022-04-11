@@ -48,15 +48,8 @@ let mapM (f : 'a -> 'b Result.t) (s : 'a FieldMap.t) : 'b FieldMap.t Result.t =
 
 (* Semantics domain *)
 
-let rec locationsOfValue (v : value) : Heap.address list =
-  match v with
-  | VLoc (a, _,_) -> [ a ]
-  | VArray vl -> List.concat_map locationsOfValue vl
-  | VStruct (_, m) ->
-      List.concat_map locationsOfValue (List.map snd (FieldMap.bindings m))
-  | VEnum (_, vl) -> List.concat_map locationsOfValue vl
-  | _ -> []
 
+(* 
 let _collect (h : heap) (l : Heap.address list) : Heap.address list Result.t =
   let open MonadSyntax (Result) in
   let rec aux h l acc : Heap.address list Result.t =
@@ -73,7 +66,7 @@ let _collect (h : heap) (l : Heap.address list) : Heap.address list Result.t =
           | Some (Either.Right _) -> aux h t (a :: acc)
           | None -> aux h t (a :: acc))
   in
-  aux h l []
+  aux h l [] *)
 
 let evalunop (u : unOp) (v : value) : value Result.t =
   let open Result in
@@ -196,36 +189,60 @@ and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t
             | None -> throwError TypingError
             | Some (Either.Left v) -> getOffset v o
             | Some (Either.Right _) -> throwError TypingError)
+        | Moved a -> throwError (MovedPointer a)
         | _ -> throwError TypingError)
   in
   aux e
 
-(* owned locations are always pure *)
+(*let rec locationsOfValue (v : value) : Heap.address list =
+    match v with
+    | VLoc (a, _,_) -> [ a ]
+    | VArray vl -> List.concat_map locationsOfValue vl
+    | VStruct (_, m) ->
+        List.concat_map locationsOfValue (List.map snd (FieldMap.bindings m))
+    | VEnum (_, vl) -> List.concat_map locationsOfValue vl
+    | _ -> []*)
+
+
+let rec erasePointerInValue (a : Heap.address) (v : value)  : value =
+    match v with 
+    | VLoc (b, _, Owned) when a = b -> Moved a
+    | VArray vl -> VArray (List.map (erasePointerInValue a) vl)
+    | VStruct (c, m) ->
+        VStruct (c, FieldMap.map (erasePointerInValue a) m)
+    | VEnum (c, vl) -> VEnum (c, List.map (erasePointerInValue a) vl)
+    | _ -> v
+
+let erasePointerInHeap (h : heap) (a : Heap.address) : heap =  
+Heap.map (fun v -> 
+    match v with 
+        Either.Left u -> Either.Left (erasePointerInValue a u)
+        | _ -> v
+    ) h
+
+let rec ownedLocations (v : value) : Heap.address list = 
+    match v with 
+    | VLoc (a, _, Owned) -> [ a ]
+    | VArray vl -> List.concat_map ownedLocations vl
+    | VStruct (_, m) ->
+        List.concat_map ownedLocations (List.map snd (FieldMap.bindings m))
+    | VEnum (_, vl) -> List.concat_map ownedLocations vl
+    | _ -> []
+(* owned locations are always pure (root) *)
 (* x = y.f , this is moving the content of (a,f) belongs to x, not x.f*)
-let rec drop (h : heap) (a : Heap.address) : heap Result.t =
+(* drop value, *)
+let rec deepFree (h : heap) (a : Heap.address) : heap Result.t =
     let open MonadSyntax (Result) in
     let open MonadFunctions (Result) in
         let* v = getLocation h a in 
         let* h' = free h a in
         match v with 
-             Some (Either.Left v) -> dropValue h' v []
+             Some (Either.Left v) -> dropReferencesFromValue h' v
             | _ -> return h'
-and dropValue (h : heap) (v : value ) (o :offset) : heap Result.t =
-let open Result in
- let open MonadSyntax (Result) in
+and dropReferencesFromValue (h : heap) (v : value) : heap Result.t =
+    let open MonadSyntax (Result) in
     let open MonadFunctions (Result) in
-    match (v, o) with 
-        | (_, []) -> foldLeftM drop h (locationsOfValue v)
-        | VStruct(_, m), Field f::o' -> 
-            let* v = getField m f in 
-                dropValue h v o' 
-        | VArray a, Indice n::o' -> 
-            begin match List.nth_opt a n with 
-                | Some v -> dropValue h v o' 
-                | _ -> throwError (OutOfBounds n)
-            end
-        | _ -> return h
-(* drop on value *)
+    foldLeftM deepFree h (ownedLocations v) (* should only free owner locations *)
 
 let rec filter ((v, p) : value * pattern) : (string * value) list option =
   let open MonadOption in
@@ -243,6 +260,51 @@ let rec freshn (h : heap) n : Heap.address list * heap =
     (a :: l, h'')
   else ([], h)
 
+(* When dropping a value, we get all adresses occuring in it *)
+
+let rec nonLinear l =
+    match l with 
+    [] -> false
+    | h::t -> nonLinear t || List.mem h t
+
+let linearEvalR env h e = 
+    let open Result in  
+    let open MonadSyntax (Result) in
+    let open MonadFunctions (Result) in
+    let* v = evalR env h e in
+    let locs = ownedLocations v in 
+    if nonLinear locs 
+        then throwError (NonLinearPointer) 
+    else 
+        let h0 = List.fold_left (fun h a -> erasePointerInHeap h a) h locs in
+        return (v, h0)
+
+let linearlistEvalR env h el = 
+    let open Result in  
+    let open MonadSyntax (Result) in
+    let open MonadFunctions (Result) in
+    let* vl =  listMapM (evalR env h) el in
+    let locs = List.concat_map ownedLocations vl in
+    if nonLinear locs 
+        then throwError (NonLinearPointer) 
+    else 
+        let h0 = List.fold_left (fun h a -> erasePointerInHeap h a) h locs in
+        return (vl, h0)
+
+(* let moveFromValue h v =
+        let locs = ownedLocations v in 
+        List.fold_left (fun h a -> erasePointerInHeap h a) h locs
+
+let moveFromListValue h vl =
+    let locs = List.concat_map ownedLocations vl in 
+    List.fold_left (fun h a -> erasePointerInHeap h a) h locs *)
+    
+(* If we remove the move semantics, think to make the drop function not fail
+    on desalocation of undefined addresses
+    Be ware that after the first desalocation, the memory location can be reused.
+    Then if one occurence remains the gc may perform a faulty desalocation.
+     *)
+
 let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
     (h : heap) : (command status * frame * heap) Result.t =
   let open Result in
@@ -258,77 +320,73 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         let a, h0 = Heap.fresh h in
         return (Continue, Env.singleton x a, h0)
     | DeclVar (_, x, _, Some e) ->
-        let* v = evalR env h e in
-        let a, h0 = Heap.fresh h in
-        let* h' = setLocation h0 (a, Either.Left v) in
-        return (Continue, Env.singleton x a, h')
+        let* (v, h0) = linearEvalR env h e in
+        let freshAddres, heap1 = Heap.fresh h0 in
+        let* h2 = setLocation heap1 (freshAddres, Either.Left v) in
+        return (Continue, Env.singleton x freshAddres, h2)
     | DeclSignal s ->
-        let a, h0 = Heap.fresh h in
-        let* h1 = setLocation h0 (a, Either.Right false) in
-        return (Continue, Env.singleton s a, h1)
+        let freshAddress, h0 = Heap.fresh h in
+        let* h1 = setLocation h0 (freshAddress, Either.Right false) in
+        return (Continue, Env.singleton s freshAddress, h1)
     | Skip -> return (Continue, Env.emptyFrame, h)
     | Stop -> return (Continue, Env.emptyFrame, h)
-    (* x. f = e *)
     | Assign (e1, e2) -> (
-        let* a, o, _k = evalL env h e1 in (* prevent writes if now writable *)
-        let* v = evalR env h e2 in
-        let* u = getLocation h a in
-        match (u, o) with
-        (* NOT CLEAR : *)
-        | None, [] ->
-            let* h' = setLocation h (a, Either.Left v) in
-            return (Continue, Env.emptyFrame, h')
-        | None, _ -> throwError (UnitializedAddress a)
-        | Some u, _ ->
-            (* extract the value at offset and deallocate *)
-            let* v0 = resultOfOption TypingError Either.find_left u in
-            let* v' = setOffset v0 o v in
-            let* h' = dropValue h v0 o in
-            let* h'' = setLocation h' (a, Either.Left v') in
-            return (Continue, Env.emptyFrame, h''))
+        let* targetAddress, targetOffset, _ = evalL env h e1 in
+        let* oldValue = getLocation h targetAddress in
+        let* (newValue, h0) = linearEvalR env h e2 in
+        match oldValue with
+        | None ->
+            if targetOffset = [] then 
+                let* h' = setLocation h0 (targetAddress, Either.Left newValue) in
+                return (Continue, Env.emptyFrame, h')
+            else throwError (UnitializedAddress targetAddress)
+        | Some (Either.Left oldValue) ->
+            let* h' = getOffset oldValue targetOffset >>= dropReferencesFromValue h0 in
+            let* v' = setOffset oldValue targetOffset newValue in
+            let* h'' = setLocation h' (targetAddress, Either.Left v') in
+            return (Continue, Env.emptyFrame, h'')
+        | Some _ -> throwError TypingError)
     | Seq (c1, c2) -> (
-        let* k1, w1, h1 = aux c1 env h in
+        let* k1, bindings1, h1 = aux c1 env h in
         match k1 with
         | Continue ->
-            let* env' = push env w1 in
-            let* k2, w2, h2 = aux c2 env' h1 in
-            return (k2, Env.merge w1 w2, h2)
-        | Suspend c1' -> return (Suspend (Seq (c1', c2)), w1, h1)
-        | Ret -> return (Ret, w1, h1))
+            let* env' = push env bindings1 in
+            let* k2, bindings2, h2 = aux c2 env' h1 in
+            return (k2, Env.merge bindings1 bindings2, h2)
+        | Suspend c1' -> return (Suspend (Seq (c1', c2)), bindings1, h1)
+        | Ret -> return (Ret,bindings1, h1))
     | Block (c, w) -> (
         let* k, w', h' = aux c (Env.activate env w) h in
         match k with
         | Suspend c' ->
             return (Suspend (Block (c', Env.merge w w')), Env.emptyFrame, h')
         | _ -> 
-             return (k, Env.emptyFrame, h') 
-        (* let l = Env.allValues (Env.merge w w') in
-        Logs.debug (fun m -> m "%d " (List.length l)) ;
-        let* cleanHeap = foldLeftM (fun h a -> drop h a) h' l in 
-        return (k, Env.emptyFrame, cleanHeap) *)
+            let l = Env.allValues (Env.merge w w') in
+            let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h' l in 
+            return (k, Env.emptyFrame, cleanHeap)
         )
     | If (e, c1, c2) -> (
-        let* v = evalR env h e in
+        let* (v, h0) = linearEvalR env h e in
         match v with
         | VBool b ->
-            if b then aux (Block (c1, Env.emptyFrame)) env h
-            else aux (Block (c2, Env.emptyFrame)) env h
+            if b then aux (Block (c1, Env.emptyFrame)) env h0
+            else aux (Block (c2, Env.emptyFrame)) env h0
         | _ -> throwError TypingError)
     | While (e, c) -> (
-        let* v = evalR env h e in
+        let* (v, h0) = linearEvalR env h e in
         match v with
         | VBool b ->
-            if b then aux (Seq (Block (c, Env.emptyFrame), While (e, c))) env h
-            else return (Continue, Env.emptyFrame, h)
+            if b then aux (Seq (Block (c, Env.emptyFrame), While (e, c))) env h0
+            else return (Continue, Env.emptyFrame, h0)
         | _ -> throwError TypingError)
     | Case (e, []) ->
-        let* v = evalR env h e in
+        let* (v, _) = linearEvalR env h e in
         throwError (IncompletePatternMatching v)
-    | Case (e, (p, c) :: pl) -> (
-        let* v = evalR env h e in
+    | Case (e, (p, c) :: pl) -> ( (* MOVE *)
+        let* (v, h0) = linearEvalR env h e in
         match filter (v, p) with
         | Some s ->
-            let l, h' = freshn h (List.length s) in
+            let l, h' = freshn h0 (List.length s) in
             let vars = List.map fst s in
             let vals = List.map (fun x -> Either.Left (snd x)) s in
             let varmap =
@@ -340,14 +398,14 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             aux (Block (c, w)) env h''
         | None -> aux (Case (e, pl)) env h)
     | Invoke (x, el) -> (
-        let* real_params = listMapM (evalR env h) el in
+        let* (real_params,h0) = linearlistEvalR env h el in
         match List.find_opt (fun m -> m.m_name = x) p with
         | None ->
-            let* h' = ExternalsImplementation.extern h x real_params in
+            let* h' = ExternalsImplementation.extern h0 x real_params in
             return (Continue, Env.emptyFrame, h')
         | Some callee -> (
             let formal_params = List.map fst callee.m_params in
-            let l, h' = freshn h (List.length real_params) in
+            let l, h' = freshn h0 (List.length real_params) in
             let varmap =
               List.map
                 (fun (x, y) -> Env.singleton x y)

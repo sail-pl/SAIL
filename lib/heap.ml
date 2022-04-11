@@ -69,7 +69,7 @@ module Heap  : Heap = struct
       { map = M.update l (fun _ -> Some (Some v)) h.map;
         freelist = h.freelist;
         next = h.next;}
-  
+
   let fresh (h : 'a t) : address *  'a t =
     match h.freelist with
     | [] ->

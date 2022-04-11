@@ -41,6 +41,7 @@ let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
         (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_value)
         l
   | VLoc l -> Format.fprintf pf "0x%a" pp_print_location l
+  | Moved a -> Format.fprintf pf "Moved(%a)" Heap.pp_address a 
 let pp_print_heapValue pf v =
   match v with Either.Left v -> pp_print_value pf v | Either.Right b -> Format.pp_print_bool pf b
 
@@ -138,4 +139,6 @@ let pp_print_result (pf : Format.formatter) (r : command status) : unit =
       | UnMutableLocation a -> Format.fprintf pf "Unmutable address %a" Heap.pp_address a
       | CantDropNotOwned a -> Format.fprintf pf "Not Owned address %a" Heap.pp_address a
       | Division_by_zero -> Format.pp_print_string pf "Division by zero"
+      | MovedPointer l -> Format.fprintf pf "Moved Location %a" Heap.pp_address l
+      | NonLinearPointer -> Format.pp_print_string pf "Non Linear Pointer"
     

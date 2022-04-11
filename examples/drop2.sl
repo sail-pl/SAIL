@@ -2,9 +2,9 @@ process Main(){
 
     var x : box<int>;
     {
-        var y : box<int> = box(1)
-        //;x = y  // Error the box is freed twice
-        //<- here because of y
+        var y : box<int> = box(1);
+        x = y;
+        // Ok, the content of y was tagged as moved, no free here
     }
-    // <- here because of x
+    // OK, the pointer is freed once here
 }

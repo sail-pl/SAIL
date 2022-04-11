@@ -33,7 +33,10 @@ open MonadSyntax(MonadOption)
 
 type tag = Field of string | Indice of int
 type offset = tag list
+
+(** kind : wether the location is owned or (mutually) borrowed *)
 type kind = Owned | Borrowed of bool
+
 type location = Heap.address * offset * kind
 
 type value =
@@ -46,6 +49,7 @@ type value =
   | VStruct of string * value FieldMap.t
   | VEnum of string * value list
   | VLoc of location
+  | Moved of Heap.address
 
 type frame = Heap.address Env.frame
 type env = Heap.address Env.t
@@ -109,6 +113,8 @@ type error =
   | UnMutableLocation of Heap.address
   | CantDropNotOwned of Heap.address
   | Division_by_zero
+  | MovedPointer of Heap.address
+  | NonLinearPointer
 
 module Result = ErrorMonadEither.Make(struct type t = error end)
 
