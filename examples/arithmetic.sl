@@ -6,7 +6,6 @@ process Main(){
         y = x + 3 * 2;
         z = y
     }
-    //print_string(" ");
-    //print_int(z);
-    //print_newline()
+    print_int(z);
+    print_newline()
 }

@@ -17,8 +17,8 @@ let pp_print_kind pf (k : kind) =
     | Owned -> Format.pp_print_string pf "Ow"
     | Borrowed b ->  Format.fprintf pf "B%s" (if b then "w" else "")
 
-let pp_print_location pf (a, o, k) =
-  Format.fprintf pf "(%a,%a,%a)" Heap.pp_address a pp_print_offset o pp_print_kind k
+let pp_print_location pf (a, o) =
+  Format.fprintf pf "(%a,%a)" Heap.pp_address a pp_print_offset o
 
 let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
   match v with
@@ -40,7 +40,7 @@ let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
       Format.fprintf pf "%s(%a)" c
         (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_value)
         l
-  | VLoc l -> Format.fprintf pf "0x%a" pp_print_location l
+  | VLoc (l, k) -> Format.fprintf pf "0x%a %a" pp_print_location l pp_print_kind k
   | Moved a -> Format.fprintf pf "Moved(%a)" Heap.pp_address a 
 let pp_print_heapValue pf v =
   match v with Either.Left v -> pp_print_value pf v | Either.Right b -> Format.pp_print_bool pf b
@@ -57,7 +57,7 @@ let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
   | Skip -> Format.fprintf pf "skip;"
   | Stop -> Format.fprintf pf "stop;"
   | Assign (e1, e2) ->
-      Format.fprintf pf "%a = %a;" Intermediate.pp_print_expression e1 Intermediate.pp_print_expression e2
+      Format.fprintf pf "%a = %a;" Intermediate.pp_print_path e1 Intermediate.pp_print_expression e2
   | Seq (c1, c2) -> Format.fprintf pf "%a; %a " pp_print_command c1 pp_print_command c2
   | Block (c, _) -> Format.fprintf pf "{%a}" pp_print_command c
   | If (e, c1, c2) ->
@@ -83,7 +83,7 @@ let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
   | Par (c1, _, c2, _) ->
       Format.fprintf pf "%a || %a" pp_print_command c1 pp_print_command c2
 
-let rec pp_command_short (pf : Format.formatter) (c : command) : unit =
+ let rec pp_command_short (pf : Format.formatter) (c : command) : unit =
   let open Format in
   match c with
   | DeclVar (b, x, t, None) ->
@@ -96,7 +96,7 @@ let rec pp_command_short (pf : Format.formatter) (c : command) : unit =
   | Skip -> Format.fprintf pf "skip"
   | Stop -> Format.fprintf pf "stop;"
   | Assign (e1, e2) ->
-      Format.fprintf pf "%a := %a" Intermediate.pp_print_expression e1 Intermediate.pp_print_expression e2
+      Format.fprintf pf "%a := %a" Intermediate.pp_print_path e1 Intermediate.pp_print_expression e2
   | Seq (c1, _) -> Format.fprintf pf "%a; ... " pp_command_short c1
   | Block (_, _) -> Format.fprintf pf "{...}"
   | If (e, _, _) -> Format.fprintf pf "if %a {...} {...}" Intermediate.pp_print_expression e
@@ -112,11 +112,11 @@ let rec pp_command_short (pf : Format.formatter) (c : command) : unit =
   | Watching (s, _, _) -> Format.fprintf pf "watch %s {...}" s
   | Par (_, _, _, _) -> Format.fprintf pf "_ || _"
 
-let pp_print_result (pf : Format.formatter) (r : command status) : unit =
+(* let pp_print_result (pf : Format.formatter) (r : command status) : unit =
   match r with
   | Ret -> Format.fprintf pf "ret"
   | Continue -> Format.fprintf pf "continue"
-  | Suspend c -> pp_print_command pf c
+  | Suspend c -> pp_print_command pf c*)
 
   let pp_print_error (pf : Format.formatter) (e : Domain.error) : unit =
     match e with 

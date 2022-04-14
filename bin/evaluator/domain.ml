@@ -25,20 +25,22 @@ open Saillib.Heap
 open Saillib.Monad
 open Saillib.Option
 open Saillib.Error
-open Intermediate
 open Common
+open Intermediate
 
 open MonadOption
 open MonadSyntax(MonadOption)
 
+
 type tag = Field of string | Indice of int
+
 type offset = tag list
 
-(** kind : wether the location is owned or (mutually) borrowed *)
+type location = Heap.address * offset
+
 type kind = Owned | Borrowed of bool
 
-type location = Heap.address * offset * kind
-
+(** kind : wether the location is owned or (mutually) borrowed *)
 type value =
   | VBool of bool
   | VInt of int
@@ -48,26 +50,51 @@ type value =
   | VArray of value list
   | VStruct of string * value FieldMap.t
   | VEnum of string * value list
-  | VLoc of location
+  | VLoc of location * kind
   | Moved of Heap.address
 
+let rec readValue (v : value) (o : offset) : value option =
+  match (v, o) with
+  | _, [] -> Some v
+  | VStruct (_, m), Field f :: o' -> 
+      let* v = FieldMap.find_opt f m in readValue v o'
+  | VArray a, Indice n :: o' -> List.nth_opt a n >>= (Fun.flip readValue) o'
+  | _ -> None
+
+let rec updateValue (v : value) (o : offset) (w : value) : value option =
+  match (v, o) with
+  | _, [] -> Some w
+  | VStruct (id,m), Field f :: o' ->
+      let* vf = FieldMap.find_opt f m in
+        let* v' = updateValue vf o' w in
+        Some (VStruct (id,FieldMap.update f (fun _ -> Some v') m))
+  | VArray a, Indice n :: o' ->
+      let* vn = List.nth_opt a n in
+      let* v' = updateValue vn o' w in
+      Some (VArray (List.mapi (fun i x -> if i = n then v' else x) a))
+  | _ -> None
+  
 type frame = Heap.address Env.frame
+
 type env = Heap.address Env.t
+
 type heap = (value, bool) Either.t Heap.t
 
 type 'a status = Continue | Ret | Suspend of 'a
 
+(* A command is a statement decorated with frames *)
+
 type command =
-  | DeclVar of bool * string * Common.sailtype * expression option
+  | DeclVar of bool * string * sailtype * expression option
   | DeclSignal of string
   | Skip
   | Stop
-  | Assign of expression * expression
+  | Assign of path * expression
   | Seq of command * command
   | Block of command * frame
   | If of expression * command * command
   | While of expression * command
-  | Case of expression * (Common.pattern * command) list
+  | Case of expression * (pattern * command) list
   | Invoke of string * expression list
   | Return
   | Emit of string
@@ -75,7 +102,7 @@ type command =
   | Watching of string * command * frame
   | Par of command * frame * command * frame
 
-  let rec initCommand (c : Intermediate.command) : command = 
+  let rec initCommand (c : statement) : command = 
     match c with 
     | Intermediate.DeclVar (b,x,t,e) -> DeclVar(b,x,t,e)
     | Intermediate.DeclSignal (s) -> DeclSignal(s)
@@ -92,7 +119,7 @@ type command =
     | Intermediate.When(s,c) -> When(s, initCommand c, Env.emptyFrame)
     | Intermediate.Watching(s,c) -> Watching(s, initCommand c, Env.emptyFrame)
     | Intermediate.Par (c1, c2) -> Par (initCommand c1, Env.emptyFrame, initCommand c2, Env.emptyFrame) 
-
+    
 type error = 
   | TypingError 
   | UnknownMethod of string
@@ -118,25 +145,4 @@ type error =
 
 module Result = ErrorMonadEither.Make(struct type t = error end)
 
-let locationOfAddress (a : Heap.address)  (k : kind) : location = (a, [], k)
 
-let rec readValue (v : value) (o : offset) : value option =
-  match (v, o) with
-  | _, [] -> Some v
-  | VStruct (_, m), Field f :: o' -> 
-      let* v = FieldMap.find_opt f m in readValue v o'
-  | VArray a, Indice n :: o' -> List.nth_opt a n >>= (Fun.flip readValue) o'
-  | _ -> None
-
-let rec updateValue (v : value) (o : offset) (w : value) : value option =
-  match (v, o) with
-  | _, [] -> Some w
-  | VStruct (id,m), Field f :: o' ->
-      let* vf = FieldMap.find_opt f m in
-        let* v' = updateValue vf o' w in
-        Some (VStruct (id,FieldMap.update f (fun _ -> Some v') m))
-  | VArray a, Indice n :: o' ->
-      let* vn = List.nth_opt a n in
-      let* v' = updateValue vn o' w in
-      Some (VArray (List.mapi (fun i x -> if i = n then v' else x) a))
-  | _ -> None
