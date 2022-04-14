@@ -22,39 +22,42 @@
 open Common 
 
 type expression =
-| Variable of string
+  Path of path
 | Literal of Common.literal
 | UnOp of Common.unOp * expression
 | BinOp of Common.binOp * expression * expression
 | ArrayAlloc of expression list
-| ArrayRead of expression * expression
 | StructAlloc of string * expression FieldMap.t
-| StructRead of expression * string
 | EnumAlloc of string * expression list
-| Ref of bool * expression
-| Deref of expression
+| Ref of bool * path
+and syntacticTag = SymbField of string | SymbIndice of expression
+and path = 
+    Variable of string 
+  | Deref of path 
+  | StructField of path * string
+  | ArrayRead of path * expression
 
-type command =
+type statement =
 | DeclVar of bool * string * Common.sailtype * expression option
 | DeclSignal of string
 | Skip
-| Assign of expression * expression
-| Seq of command * command
-| Block of command
-| If of expression * command * command
-| While of expression * command
-| Case of expression * (Common.pattern * command) list
+| Assign of path * expression
+| Seq of statement * statement
+| Block of statement
+| If of expression * statement * statement
+| While of expression * statement
+| Case of expression * (Common.pattern * statement) list
 | Invoke of string * expression list
 | Return
 | Emit of string
-| When of string * command
-| Watching of string * command
-| Par of command * command 
+| When of string * statement
+| Watching of string * statement
+| Par of statement * statement 
 
-let pp_print_expression pf e : unit =
+let rec pp_print_expression pf e : unit =
   let rec aux pf e =
     match e with
-    | Variable x -> Format.pp_print_string pf x
+    Path p -> pp_print_path pf p
     | Literal c -> Format.fprintf pf "%a" Pp_common.pp_literal c
     | UnOp (op, e) -> Format.fprintf pf "%a%a" Pp_common.pp_unop op aux e
     | BinOp (op, e1, e2) ->
@@ -63,28 +66,35 @@ let pp_print_expression pf e : unit =
         Format.fprintf pf "[%a]"
           (Format.pp_print_list ~pp_sep:Pp_common.pp_comma aux)
           el
-    | ArrayRead (e1, e2) -> Format.fprintf pf "%a[%a]" aux e1 aux e2
+ 
     | StructAlloc (x, m) ->
         let pp_field pf (x, y) = Format.fprintf pf "%s:%a" x aux y in
         Format.fprintf pf "%s{%a}" x
           (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_field)
           (FieldMap.bindings m)
-    | StructRead (e, f) -> Format.fprintf pf "%a.%s" aux e f
+   
     | EnumAlloc (c, el) ->
         Format.fprintf pf "%s(%a)" c
           (Format.pp_print_list ~pp_sep:Pp_common.pp_comma aux)
           el
     | Ref (b, e) ->
-        if b then Format.fprintf pf "&mut %a" aux e
-        else Format.fprintf pf "& %a" aux e
-    | Deref e -> Format.fprintf pf "* %a" aux e
+        if b then Format.fprintf pf "&mut %a" pp_print_path e
+        else Format.fprintf pf "& %a" pp_print_path e
   in
   aux pf e
+  and pp_print_path pf (p : path) : unit =
+  let rec aux pf p =
+    match p with 
+    | Variable x -> Format.pp_print_string pf x
+    | ArrayRead (p, e2) -> Format.fprintf pf "%a[%a]" aux p pp_print_expression e2
+    | StructField (p, f) -> Format.fprintf pf "%a.%s" aux p f
+    | Deref p -> Format.fprintf pf "* %a" aux p
+  in aux pf p
 
   let pp_commaline (pf : Format.formatter) (() : unit) : unit = Format.fprintf pf ",\n" 
 
 
-let rec pp_print_command (n : int) (pf : Format.formatter) (c : command) : unit =
+let rec pp_print_command (n : int) (pf : Format.formatter) (c : statement) : unit =
   match c with
   | DeclVar (b, x, t, None) ->
       if b then Format.fprintf pf "%svar mut %s : %a;" (String.make n '\t') x Pp_common.pp_type t
@@ -95,7 +105,7 @@ let rec pp_print_command (n : int) (pf : Format.formatter) (c : command) : unit 
   | DeclSignal x -> Format.fprintf pf "%ssignal %s;"(String.make n '\t') x 
   | Skip -> Format.fprintf pf "%sskip;" (String.make n '\t')
   | Assign (e1, e2) ->
-      Format.fprintf pf "%s%a = %a;" (String.make n '\t') pp_print_expression e1 pp_print_expression e2
+      Format.fprintf pf "%s%a = %a;" (String.make n '\t') pp_print_path e1 pp_print_expression e2
   | Seq (c1, c2) -> Format.fprintf pf "%a\n%a " (pp_print_command n) c1 (pp_print_command n) c2
   | Block c -> Format.fprintf pf "%s{\n%a\n%s}" (String.make n '\t') (pp_print_command (n+1)) c (String.make n '\t')
   | If (e, c1, c2) ->
@@ -104,7 +114,7 @@ let rec pp_print_command (n : int) (pf : Format.formatter) (c : command) : unit 
   | While (e, c) ->
       Format.fprintf pf "%swhile (%a)\n%a" (String.make n '\t') pp_print_expression e (pp_print_command (n+1)) c 
   | Case (e, pl) ->
-      let pp_case (pf : Format.formatter) ((p, c) : Common.pattern * command) =
+      let pp_case (pf : Format.formatter) ((p, c) : Common.pattern * statement) =
         Format.fprintf pf "%s%a:\n%a\n%s" (String.make (n +1) '\t') Pp_common.pp_pattern p (pp_print_command (n + 2)) c (String.make (n +1) '\t') 
       in
       Format.fprintf pf "%scase (%a) {\n%a\n%s}" (String.make n '\t') pp_print_expression e

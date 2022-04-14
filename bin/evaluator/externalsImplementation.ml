@@ -31,10 +31,10 @@ let _box =
   let open MonadSyntax (Result) in
   ("box", 
     fun h vl -> 
-      match vl with [v1; VLoc (a, o, Borrowed (true))] -> 
+      match vl with [v1; VLoc ((a, o), Borrowed (true))] -> 
         let a', h' = Heap.fresh h in
         let* u = getLocation h a in
-        let l = VLoc(locationOfAddress a' Owned) in 
+        let l = VLoc((a',[]), Owned) in 
         let* v0 = 
           if o = [] then return v1 
           else begin match u with
@@ -54,8 +54,8 @@ let _drop =
   let open Result in
   ("drop", 
           fun h vl -> 
-            match vl with [VLoc (a,[], Owned)] -> free h a 
-            | [VLoc (a,_,_)]  -> throwError (CantDropNotOwned a)
+            match vl with [VLoc ((a,[]), Owned)] -> free h a 
+            | [VLoc ((a,_),_)]  -> throwError (CantDropNotOwned a)
             | _ -> throwError TypingError 
   )
 

@@ -22,17 +22,19 @@
 
 open Common
 
+
+
 (* expressions are control free *)
 type expression = 
-    Variable of string
+  Variable of string 
+  | Deref of expression
+  | StructRead of expression * string
+  | ArrayRead of expression * expression  
   | Literal of literal
   | UnOp of unOp * expression
   | BinOp of binOp * expression * expression
   | Ref of bool * expression
-  | Deref of expression
-  | ArrayRead of expression * expression
   | ArrayStatic of expression list
-  | StructRead of expression * string
   | StructAlloc of string * expression FieldMap.t
   | EnumAlloc of (string * expression list) 
   | MethodCall of string * expression list

@@ -46,27 +46,20 @@ let mapM (f : 'a -> 'b Result.t) (s : 'a FieldMap.t) : 'b FieldMap.t Result.t =
   | Either.Right s -> Either.Right (FieldMap.of_seq s)
   | Either.Left e -> Either.Left e
 
-(* Semantics domain *)
-
-
-(* 
-let _collect (h : heap) (l : Heap.address list) : Heap.address list Result.t =
-  let open MonadSyntax (Result) in
-  let rec aux h l acc : Heap.address list Result.t =
-    match l with
-    | [] -> return acc
-    | a :: t -> (
-        if List.mem a acc then aux h t acc
-        else
-          let* v = getLocation h a in
-          match v with
-          | Some (Either.Left v) ->
-              let x = locationsOfValue v in
-              aux h (x @ t) (a :: acc)
-          | Some (Either.Right _) -> aux h t (a :: acc)
-          | None -> aux h t (a :: acc))
-  in
-  aux h l [] *)
+  let foldM (f : 'a -> (string * 'b) -> 'a Result.t) (x :'a) (y : 'b FieldMap.t) : 'a Result.t =  
+    let open Result in
+    let open MonadSyntax (Result) in
+    let rec aux (l : (string * 'b) Seq.t) : 'a Result.t =
+        match l () with 
+            Seq.Nil -> return x
+        |   Seq.Cons ((y, a), v) -> (
+                match aux v with 
+                    Either.Left u -> throwError u
+                |   Either.Right u ->  f u (y, a)
+        )
+    in match aux (FieldMap.to_seq y) with 
+    | Either.Right s -> Either.Right s
+    | Either.Left e -> Either.Left e 
 
 let evalunop (u : unOp) (v : value) : value Result.t =
   let open Result in
@@ -76,7 +69,7 @@ let evalunop (u : unOp) (v : value) : value Result.t =
   | Neg, VFloat x -> return (VFloat (-.x))
   | Not, VBool x -> return (VBool (not x))
   | _ -> throwError TypingError
-
+ 
 let evalBinop (b : binOp) (v1 : value) (v2 : value) : value Result.t =
   let open Result in
   let open MonadSyntax (Result) in
@@ -112,87 +105,119 @@ let valueOfLiteral c =
   | LChar x -> VChar x
   | LString x -> VString x
 
-let rec evalL (env : env) (h : heap) (e : Intermediate.expression) :
-    location Result.t =
+
+let rec evalL (env : env) (h : heap) (e : Intermediate.path) : (location * heap) Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   Logs.debug (fun m ->
-      m "evaluate left value < %a >" Intermediate.pp_print_expression e);
+      m "evaluate left value < %a >" Intermediate.pp_print_path e);
   match e with
   | Intermediate.Variable x ->
       let* a = getVariable env x in
-      return (locationOfAddress a Owned)
-  | Intermediate.Deref e -> (
-      let* v = evalR env h e in
-      match v with VLoc l -> return l | _ -> throwError TypingError)
-  | Intermediate.StructRead (e, f) ->
-      let* a, o, k = evalL env h e in
-      return (a, o @ [ Field f ],k)
+        return ((a,[]), h)
+  | Intermediate.Deref p -> (
+      let* v = evalR env h p in
+      match v with (VLoc (l,_k), h) -> return (l, h) | _ -> throwError TypingError)
+  | Intermediate.StructField (e, f) ->
+      let* ((a, o), h) = evalL env h e in
+      return ((a, o @ [ Field f ]), h)
   | Intermediate.ArrayRead (e1, e2) -> (
-      let* a, o, k = evalL env h e1 and* v = evalR env h e2 in
+      let* ((a, o), h) = evalL env h e1 in 
+      let* (v, h') = eval env h e2 in
       match v with
-      | VInt n -> return (a, o @ [ Indice n ], k)
+      | VInt n -> return ((a, o @ [ Indice n ]), h')
       | _ -> throwError TypingError)
-  | _ -> throwError NotALeftValue
-
-and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t
-    =
-  let open Result in
-  let open MonadSyntax (Result) in
-  let open MonadFunctions (Result) in
-  let rec aux e =
-    Logs.debug (fun m ->
-        m "evaluate right value < %a >" Intermediate.pp_print_expression e);
-    match e with
-    | Intermediate.Variable x -> (
-        let* a = getVariable env x in
-        let* v = getLocation h a in
+and locationOfPath (env : env) (h : heap) (p : Intermediate.path) : location Result.t =
+        let open Result in
+        let open MonadSyntax (Result) in
+        match p with 
+            Variable x ->   
+                let* a = getVariable env x in
+                return (a, [])
+        |   Deref p -> 
+                let* (v,_h) = evalR env h p in 
+                    begin match v with 
+                        VLoc (l, _k) -> return l
+                    |   _ -> throwError TypingError
+                    end
+        |   StructField (p,f) ->
+                let* (a,o) = locationOfPath env h p in 
+                    return (a,(Field f)::o)
+        |   ArrayRead  (p, e) ->
+                let* (a,o) = locationOfPath env h p in
+                let* (v,_h') = eval env h e in 
+                match v with 
+                    VInt n -> return (a, Indice(n)::o)
+                |   _ -> throwError TypingError
+and evalR (env : env) (h : heap) (e : Intermediate.path) : (value * heap) Result.t =
+    let open Result in
+    let open MonadSyntax (Result) in
+    let rec read (h : heap) (e : Intermediate.path) : (value * heap) Result.t =
+        match e with 
+        | Intermediate.Variable x ->
+            (
+            let* a = getVariable env x in
+            let* v = getLocation h a in
+            match v with
+            | Some (Either.Left v) -> return (v, h)
+            | _ -> throwError NotAValue)
+        | Intermediate.Deref p -> (
+        let* (v, h') = read h p in
         match v with
-        | Some (Either.Left v) -> return v
-        | _ -> throwError NotAValue)
-    | Literal c -> return (valueOfLiteral c)
-    | UnOp (u, e) -> aux e >>= fun x -> evalunop u x
-    | BinOp (b, e1, e2) ->
-        let* x = aux e1 and* y = aux e2 in
-        evalBinop b x y
-    | ArrayAlloc es ->
-        let* l = sequence (List.map aux es) in
-        return (VArray l)
-    | ArrayRead (e1, e2) -> (
-        let* v = aux e1 and* n = aux e2 in
-        match (v, n) with
-        | VArray a, VInt n -> getIndex a n
-        | _ -> throwError TypingError)
-    | StructAlloc (id, es) ->
-        mapM aux es >>= fun x ->
-        (* PUT THE RIGHT MUTABILITY *)
-        return (VStruct (id, x))
-    | StructRead (e, f) -> (
-        aux e >>= fun x ->
-        match x with
-        | VStruct (_, m) ->
-            let* v = getField m f in
-            return v
-        | _ -> throwError TypingError)
-    | EnumAlloc (c, es) ->
-        let* vs = sequence (List.map aux es) in
-        return (VEnum (c, vs))
-    | Ref (_, e) ->
-        let* (a, o, _k) = evalL env h e in
-        return (VLoc (a,o,Borrowed true))
-    | Deref e -> (
-        let* v = aux e in
-        match v with
-        | VLoc (a, o, _) -> (
+        | VLoc ((a,o), _k) -> (
             let* a' = getLocation h a in
             match a' with
             | None -> throwError TypingError
-            | Some (Either.Left v) -> getOffset v o
+            | Some (Either.Left v) -> 
+                getOffset v o >>= fun x -> return (x,h')
             | Some (Either.Right _) -> throwError TypingError)
         | Moved a -> throwError (MovedPointer a)
         | _ -> throwError TypingError)
+    | Intermediate.StructField (p, f) ->
+        (
+        read h p >>= fun (x,h) ->
+        match x with
+        | VStruct (_, m) ->
+            let* v = getField m f in
+            return (v, h)
+        | _ -> throwError TypingError)
+    | Intermediate.ArrayRead (p, e2) ->
+        (
+        let* (v, h) = read h p in 
+        let* (n, h') = eval env h e2 in
+        match (v, n) with
+        | VArray a, VInt n -> getIndex a n >>= fun x -> return (x, h')
+        | _ -> throwError TypingError)
+    in let* (v,h) = read h e in return (v,h) (* HERE *)
+and eval (env : env) (h : heap) (e : Intermediate.expression) : (value * heap) Result.t =
+  let open Result in
+  let open MonadSyntax (Result) in
+  let open MonadFunctions (Result) in
+  let rec aux e h =
+    Logs.debug (fun m ->
+        m "evaluate right value < %a >" Intermediate.pp_print_expression e);
+    match e with
+    | Intermediate.Path p -> evalR env h p
+    | Literal c -> return (valueOfLiteral c, h)
+    | UnOp (u, e) -> aux e h >>= fun (x, h') -> evalunop u x >>= fun y -> return (y,h')
+    | BinOp (b, e1, e2) ->
+        let* (x, h') = aux e1 h in 
+        let* (y, h'') = aux e2 h' in
+        evalBinop b x y >>= fun y -> return (y, h'')
+    | ArrayAlloc es ->
+        let* (l,h) = foldLeftM (fun (x, h0) e -> aux e h0 >>= fun (v, h') -> return (v::x, h') ) ([], h) es in     
+        return (VArray l, h)
+    | StructAlloc (id, es) ->
+        let* (vs, h') = foldM (fun (x, h0) (str,e) -> aux e h0 >>= fun (v,h') -> return (FieldMap.add str v x, h')) (FieldMap.empty, h) es in
+        return (VStruct (id, vs), h')
+    | EnumAlloc (c, es) ->
+        let* (l,h) = foldLeftM (fun (x, h0) e -> aux e h0 >>= fun (v, h') -> return (v::x, h') ) ([], h) es in     
+        return (VEnum (c, l), h)
+    | Ref (_, p) ->
+        let* ((a, o), h') = evalL env h p in
+        return (VLoc ((a,o),Borrowed true), h')
   in
-  aux e
+  aux e h
 
 (*let rec locationsOfValue (v : value) : Heap.address list =
     match v with
@@ -206,7 +231,7 @@ and evalR (env : env) (h : heap) (e : Intermediate.expression) : value Result.t
 
 let rec erasePointerInValue (a : Heap.address) (v : value)  : value =
     match v with 
-    | VLoc (b, _, Owned) when a = b -> Moved a
+    | VLoc ((b, _), Owned) when a = b -> Moved a
     | VArray vl -> VArray (List.map (erasePointerInValue a) vl)
     | VStruct (c, m) ->
         VStruct (c, FieldMap.map (erasePointerInValue a) m)
@@ -222,7 +247,7 @@ Heap.map (fun v ->
 
 let rec ownedLocations (v : value) : Heap.address list = 
     match v with 
-    | VLoc (a, _, Owned) -> [ a ]
+    | VLoc ((a, _), Owned) -> [ a ]
     | VArray vl -> List.concat_map ownedLocations vl
     | VStruct (_, m) ->
         List.concat_map ownedLocations (List.map snd (FieldMap.bindings m))
@@ -266,7 +291,7 @@ let rec nonLinear l =
     match l with 
     [] -> false
     | h::t -> nonLinear t || List.mem h t
-
+(* 
 let linearEvalR env h e = 
     let open Result in  
     let open MonadSyntax (Result) in
@@ -277,8 +302,8 @@ let linearEvalR env h e =
         then throwError (NonLinearPointer) 
     else 
         let h0 = List.fold_left (fun h a -> erasePointerInHeap h a) h locs in
-        return (v, h0)
-
+        return (v, h0) *)
+(* 
 let linearlistEvalR env h el = 
     let open Result in  
     let open MonadSyntax (Result) in
@@ -289,7 +314,7 @@ let linearlistEvalR env h el =
         then throwError (NonLinearPointer) 
     else 
         let h0 = List.fold_left (fun h a -> erasePointerInHeap h a) h locs in
-        return (vl, h0)
+        return (vl, h0) *)
 
 (* let moveFromValue h v =
         let locs = ownedLocations v in 
@@ -305,7 +330,7 @@ let moveFromListValue h vl =
     Then if one occurence remains the gc may perform a faulty desalocation.
      *)
 
-let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
+let reduce (p : Intermediate.statement method_defn list) (c : command) (env : env)
     (h : heap) : (command status * frame * heap) Result.t =
   let open Result in
   let open MonadSyntax (Result) in
@@ -320,7 +345,7 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         let a, h0 = Heap.fresh h in
         return (Continue, Env.singleton x a, h0)
     | DeclVar (_, x, _, Some e) ->
-        let* (v, h0) = linearEvalR env h e in
+        let* (v, h0) = eval env h e in
         let freshAddres, heap1 = Heap.fresh h0 in
         let* h2 = setLocation heap1 (freshAddres, Either.Left v) in
         return (Continue, Env.singleton x freshAddres, h2)
@@ -330,10 +355,10 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
         return (Continue, Env.singleton s freshAddress, h1)
     | Skip -> return (Continue, Env.emptyFrame, h)
     | Stop -> return (Continue, Env.emptyFrame, h)
-    | Assign (e1, e2) -> (
-        let* targetAddress, targetOffset, _ = evalL env h e1 in
+    | Assign (p, e2) -> (
+        let* ((targetAddress, targetOffset), h') = evalL env h p in
         let* oldValue = getLocation h targetAddress in
-        let* (newValue, h0) = linearEvalR env h e2 in
+        let* (newValue, h0) = eval env h' e2 in
         match oldValue with
         | None ->
             if targetOffset = [] then 
@@ -366,24 +391,24 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             return (k, Env.emptyFrame, cleanHeap)
         )
     | If (e, c1, c2) -> (
-        let* (v, h0) = linearEvalR env h e in
+        let* (v, h0) = eval env h e in
         match v with
         | VBool b ->
             if b then aux (Block (c1, Env.emptyFrame)) env h0
             else aux (Block (c2, Env.emptyFrame)) env h0
         | _ -> throwError TypingError)
     | While (e, c) -> (
-        let* (v, h0) = linearEvalR env h e in
+        let* (v, h0) = eval env h e in
         match v with
         | VBool b ->
             if b then aux (Seq (Block (c, Env.emptyFrame), While (e, c))) env h0
             else return (Continue, Env.emptyFrame, h0)
         | _ -> throwError TypingError)
     | Case (e, []) ->
-        let* (v, _) = linearEvalR env h e in
+        let* (v, _) = eval env h e in
         throwError (IncompletePatternMatching v)
     | Case (e, (p, c) :: pl) -> ( (* MOVE *)
-        let* (v, h0) = linearEvalR env h e in
+        let* (v, h0) = eval env h e in
         match filter (v, p) with
         | Some s ->
             let l, h' = freshn h0 (List.length s) in
@@ -398,7 +423,8 @@ let reduce (p : Intermediate.command method_defn list) (c : command) (env : env)
             aux (Block (c, w)) env h''
         | None -> aux (Case (e, pl)) env h)
     | Invoke (x, el) -> (
-        let* (real_params,h0) = linearlistEvalR env h el in
+        let* (real_params,h0) = 
+        foldLeftM (fun (vl,h0) e -> let* (v,h1) = eval env h0 e in return (v::vl, h1)) ([], h) el in 
         match List.find_opt (fun m -> m.m_name = x) p with
         | None ->
             let* h' = ExternalsImplementation.extern h0 x real_params in
@@ -548,7 +574,7 @@ let rec kill (c : command) (env : env) (h : heap) : command Result.t =
   | _ -> return c
 
 (* AAT NESXT INSTANT *)
-let run (m : Intermediate.command method_defn list) c : unit Result.t =
+let run (m : Intermediate.statement method_defn list) c : unit Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
@@ -573,7 +599,7 @@ let run (m : Intermediate.command method_defn list) c : unit Result.t =
   in
   aux (Block (c, Env.emptyFrame)) Heap.empty
 
-let start (m : Intermediate.command method_defn list) (c : Intermediate.command)
+let start (m : Intermediate.statement method_defn list) (c : Intermediate.statement)
     : unit =
   match run m (Domain.initCommand c) with
   | Either.Left e ->

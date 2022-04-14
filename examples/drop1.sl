@@ -3,7 +3,7 @@ process Main(){
     var x : box<int>;
     {
         var y : box<int> = box(1);
-        x = y;
+        x = y
         // print_int(*y); print_newline() ==> Error, y was moved
     }
     // Error
