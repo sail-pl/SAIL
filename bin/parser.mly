@@ -142,7 +142,7 @@ literal :
 | FALSE {LBool(false)}
 | n = INT {LInt n}
 | f = FLOAT {LFloat f}
-| QUOTE c = CHAR QUOTE {LChar c}
+| c = CHAR {LChar c}
 | s = STRING {LString s}
 ;
 

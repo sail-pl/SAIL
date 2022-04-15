@@ -108,8 +108,7 @@ rule read_token = parse
   | int { INT (int_of_string (Lexing.lexeme lexbuf))}
   | id { ID (Lexing.lexeme lexbuf) }
   | '"'      { read_string (Buffer.create 17) lexbuf }
-  | "'" {QUOTE}
-  | alpha {CHAR (String.get (Lexing.lexeme lexbuf) 0)}
+  | "'" {read_char lexbuf}
   | newline { next_line lexbuf; read_token lexbuf }
   | eof { EOF }
   | _ {raise (SyntaxError ("Lexer - Illegal character: " ^ Lexing.lexeme lexbuf)) }
@@ -124,7 +123,17 @@ and read_multi_line_comment = parse
   | newline { next_line lexbuf; read_multi_line_comment lexbuf } 
   | eof { raise (SyntaxError ("Lexer - Unexpected EOF - please terminate your comment.")) }
   | _ { read_multi_line_comment lexbuf } 
-  
+and read_char = parse 
+  | '\\' '/' '\''  { CHAR '/' }
+  | '\\' '\\' '\'' { CHAR '\\'}
+  | '\\' 'b'  '\'' { CHAR '\b'}
+  | '\\' 'f'  '\'' { CHAR '\012'}
+  | '\\' 'n'  '\'' { CHAR '\n'}
+  | '\\' 'r'  '\'' { CHAR '\r'}
+  | '\\' 't'  '\'' { CHAR '\t'}
+  | [^ '"' '\\'] '\'' {CHAR (String.get (Lexing.lexeme lexbuf) 0)}
+  | eof { raise (SyntaxError ("Char is not terminated")) }
+  | _ { raise (SyntaxError ("Illegal character: " ^ Lexing.lexeme lexbuf)) }
 and read_string buf = parse
   | '"'       { STRING (Buffer.contents buf) }
   | '\\' '/'  { Buffer.add_char buf '/'; read_string buf lexbuf }
