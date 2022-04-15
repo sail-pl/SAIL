@@ -1,9 +1,7 @@
 open Core
 open Lexer
 open Lexing
-open Evaluator 
 
-let _ = reduce
 let print_error_position lexbuf =
   let pos = lexbuf.lex_curr_p in
   Fmt.str "Line:%d Position:%d" pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1)
@@ -86,5 +84,3 @@ let command =
 
 let main = 
   command |> Command_unix.run ~version:"0.1"
-
-(* let _ = evaluator_test () *)
