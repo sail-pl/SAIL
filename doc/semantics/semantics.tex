@@ -79,9 +79,9 @@ is terminated or because all components are waiting for an absent signal.
 Every component of a program has the opportunity to react to a present signal before the instant
 terminates, components have a consistent view of their environment. 
 Finally, a command may be preempted at the end of the current instant if it is blocked and if a given signal is present. 
-This is expressed by the statement s $\watching{s}{c}$ which behaves as $c$ but preempts its residual at the end 
+This is expressed by the statement $\watching{s}{c}$ which behaves as $c$ but preempts its residual at the end 
 of the instant if $s$ is present. If $c$ terminates during the instant then $\watching{s}{c}$ also terminates.
-As an example, consider the following statement which will note ${\tt{pause}}$ in the rest of the document.
+As an example, consider the following statement which we will note ${\tt{pause}}$ in the rest of the document.
 $$
 \begin{array}{c}
   \signal~s; \watching{s}{\{\emit~s;\signal~s';\when{s'}{}\}}
@@ -225,7 +225,7 @@ $$
     \qquad{\tt{else}} \{\\
     \qquad\qquad  {\tt{var}}~z : {\tt{int}};\\
     \qquad\qquad  {\mathit{factorial}}(x - 1, \&z);\\
-    \qquad\qquad  y = x * z;\\
+    \qquad\qquad  *y = x * z;\\
     \qquad\qquad  {\tt{return}}\\
     \qquad\}\\
 \}
