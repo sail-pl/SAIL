@@ -1,4 +1,4 @@
-(lang dune 2.9)
+(lang dune 3.2)
 (name "sail-pl")
 (version 0.1)
 (using menhir 2.0)
@@ -16,7 +16,6 @@
   (description "SAIL means Safe Interactive Language.")
   (depends 
     (ocaml (>= 4.13.1))
-    (dune (>= 2.9))
     (core (>= 0.15.0))
     (core_unix (>= 0.15.0))
     (fmt  (>= 0.9.0))

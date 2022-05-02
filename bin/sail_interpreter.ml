@@ -34,5 +34,5 @@ let command =
              )
     )
 
-let main = 
+let _ = 
   command |> Command_unix.run ~version:"0.1"
