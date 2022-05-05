@@ -195,6 +195,7 @@ left :
 
 statement_seq : 
 | s = single_statement {s}
+| s = single_statement SEMICOLON {s}
 | s1 = left s2 = statement_seq {Seq(s1, s2)}
 | s1 = single_statement SEMICOLON s2 = statement_seq {Seq(s1,s2)}
 ;
