@@ -1,7 +1,7 @@
 process M(var i : int, o : int; signal s)
 {
 	while (true) {
-		await (s);
+		await s;
 		o = o + i;
 	}
 }
@@ -13,7 +13,7 @@ process N(var i : int, o : int; signal s)
 	while (true) {
 		if (x % 2 == 0) {
 			i = x;
-			emit (s);
+			emit s;
 		}
 		x = x + 1;
 	}
@@ -25,5 +25,5 @@ process Main() {
 	var o : int;
 	i = 0;
 	o = 0;
-	{M(i,o,s); || n(i,o,s);}
-}
+	{ M(i,o,s) || N(i,o,s)}
+} 
