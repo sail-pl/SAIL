@@ -6,18 +6,18 @@ type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; }
 
 type statement_return = SailEnv.t * ( SailEnv.value option )
 
-let rec getLLVMType (t : sailtype) (c: llcontext) : lltype = 
+let rec getLLVMType (t : sailtype) (llc: llcontext) (llm: llmodule) : lltype = 
   match t with
-  | Bool -> i1_type c
-  | Int -> i32_type c 
-  | Float -> double_type c
-  | Char -> i8_type c
-  | String -> pointer_type (i8_type c)
-  | ArrayType t -> getLLVMType t c (* we just return the type of the elements *)
-  | CompoundType (_, [t])-> getLLVMType t c
+  | Bool -> i1_type llc
+  | Int -> i32_type llc 
+  | Float -> double_type llc
+  | Char -> i8_type llc
+  | String -> pointer_type (i8_type llc)
+  | ArrayType t -> getLLVMType t llc llm (* we just return the type of the elements *)
+  | CompoundType (_, [t])-> getLLVMType t llc llm
   | CompoundType _-> failwith "compound type unimplemented"
   | Box _ -> failwith "boxing unimplemented"
-  | RefType (t,_) -> getLLVMType t c |> pointer_type
+  | RefType (t,_) -> getLLVMType t llc llm |> pointer_type
   | GenericType _ -> failwith "generic types unimplemented"
 
 

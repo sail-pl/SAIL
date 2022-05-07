@@ -4,12 +4,7 @@ open Compiler_common
 
 (* todo: simplify *)
 
-type exp_eval = Ast.expression -> SailEnv.t -> llvm_args -> llvalue
-
-let llvalueArray_of_ExpList (eval:exp_eval) (args: Ast.expression list) (llvm:llvm_args) (env:SailEnv.t) : llvalue array = 
-  let llvalue_list = List.map (fun arg -> eval arg env llvm) args in
-  Array.of_list llvalue_list
-
+type exp_eval = SailEnv.t -> llvm_args -> Ast.expression ->  llvalue
 let decl_printf (c:llcontext) : (llmodule -> llvalue) =
   let proto = var_arg_function_type (i32_type c) [|pointer_type (i8_type c)|] in
   declare_function "printf" proto
@@ -47,7 +42,7 @@ let printf  (args:llvalue array) (llvm:llvm_args) : llvalue  * llvalue array =
   
 
 let external_methods (eval:exp_eval) (name : string) (args : Ast.expression list) (llvm:llvm_args) (env:SailEnv.t) : llvalue =
-  let args =  llvalueArray_of_ExpList eval args llvm env in
+  let args =  List.map (eval env llvm) args |> Array.of_list in
   let method_builder =
   match name with
   | "print_string" -> _print_string

@@ -1,15 +1,19 @@
-open Sail_common
 open Llvm
 open Llvm_target
 open Code_generator
+open Sail_common
+open Sail_env
+
 
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
 let fileToIR (a : Ast.statement Common.sailModule) : llmodule  = 
-  let context = global_context () in
-  let llm = create_module context (a.name ^ ".sl") in
-  List.iter (fun s -> parse_method s llm context) a.methods;
-  List.iter (fun s -> parse_process s llm context) a.processes;
+  let llc = global_context () in
+  let llm = create_module llc (a.name ^ ".sl") in
+  let env = SailEnv.empty () in
+  (* fixme : this forces an order of declaration ... *)
+  List.iter (fun s -> parse_method s llc llm env) a.methods;
+  List.iter (fun s -> parse_process s llc llm env) a.processes;
   match Llvm_analysis.verify_module llm with
   | None -> llm
   | Some reason -> print_endline reason; llm

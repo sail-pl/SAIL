@@ -6,13 +6,11 @@ open Externals
         
  
 
-
 let unary (op:unOp) (l:llvalue) (_:llvm_args) : llvalue = 
   match op with
   | Neg when classify_value l = ConstantFP -> const_fneg l
   | Neg -> const_neg l
   | Not  -> const_not l
-
 
 
 let binary (op:binOp) (l1:llvalue) (l2:llvalue) (llvm:llvm_args) : llvalue = 
@@ -33,14 +31,15 @@ let binary (op:binOp) (l1:llvalue) (l2:llvalue) (llvm:llvm_args) : llvalue =
 ) in
 oper l1 l2 "" llvm.b
 
-let rec eval_l (x: Ast.expression) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
+
+let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression) : llvalue = 
   let open Ast in
   match x with
   | Variable x -> SailEnv.get_var env x
-  | Deref x-> eval_r x env llvm
+  | Deref x-> eval_r env llvm x
   | ArrayRead (array_exp, index_exp) -> 
-    let array = eval_l array_exp env llvm in
-    let index = eval_r index_exp env llvm in
+    let array = eval_l env llvm array_exp in
+    let index = eval_r env llvm index_exp in
     build_gep array [|(const_int (i64_type llvm.c) 0); index|] "" llvm.b
   | StructRead _ -> failwith "struct assign unimplemented"
   | StructAlloc (_, _) -> failwith "struct allocation unimplemented"
@@ -52,29 +51,27 @@ let rec eval_l (x: Ast.expression) (env:SailEnv.t) (llvm:llvm_args) : llvalue =
   | Ref _ -> failwith "reference read is not a lvalue"
   | MethodCall _ -> failwith "method call is not a lvalue"
 
-
-
-and eval_r (x: Ast.expression) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
+and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : llvalue = 
   match x with
-  | Variable _ ->  let v = eval_l x env llvm in build_load v "" llvm.b
+  | Variable _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
   | Literal c ->  getLLVMValue c llvm
-  | UnOp (op,e) -> let l = eval_r e env llvm  in unary op l llvm
+  | UnOp (op,e) -> let l = eval_r env llvm e  in unary op l llvm
   | BinOp (op,e1, e2) -> 
-      let l1 = eval_r e1 env llvm 
-      and l2 = eval_r e2 env llvm
+      let l1 = eval_r env llvm e1
+      and l2 = eval_r env llvm e2
       in binary op l1 l2 llvm
   | StructRead (_, _) -> failwith "struct read undefined"
-  | ArrayRead _ -> let v = eval_l x env llvm in build_load v "" llvm.b
-  | Ref (_,e) -> eval_l e env llvm
-  | Deref e -> let l = eval_l e env llvm in build_load l "" llvm.b
+  | ArrayRead _ -> let v = eval_l env llvm x in build_load v "" llvm.b
+  | Ref (_,e) -> eval_l env llvm e
+  | Deref e -> let l = eval_l env llvm e in build_load l "" llvm.b
   | ArrayStatic elements -> 
     begin
     let val_types = 
       (* the type of the array is the one of the first element *)
-      eval_r (List.hd elements) env llvm |> type_of
+      List.hd elements |> eval_r env llvm |> type_of
     in 
     let array_type = array_type val_types (List.length elements) in 
-    let array_values = llvalueArray_of_ExpList eval_r elements llvm env in
+    let array_values = List.map (eval_r env llvm) elements |> Array.of_list in
 
     (* all elements must have the same type *)
     if (not (Array.for_all (fun v -> type_of v = val_types) array_values)) then
@@ -85,9 +82,9 @@ and eval_r (x: Ast.expression) (env:SailEnv.t) (llvm:llvm_args) : llvalue =
     end
   | StructAlloc _ -> failwith "struct alloc is not a rvalue"
   | EnumAlloc _   -> failwith "enum alloc is not a rvalue"
-  | MethodCall (name, args) -> 
+  | MethodCall (name, args) -> let args' = List.map (eval_r env llvm) args |> Array.of_list in
     begin
     match lookup_function name llvm.m with 
       | None -> external_methods eval_r name args llvm env
-      | Some f -> build_call f (llvalueArray_of_ExpList eval_r args llvm env) "" llvm.b
+      | Some f -> build_call f args' "" llvm.b
     end
