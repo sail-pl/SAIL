@@ -16,8 +16,7 @@
   (description "SAIL means Safe Interactive Language.")
   (depends 
     (ocaml (>= 4.13.1))
-    (core (>= 0.15.0))
-    (core_unix (>= 0.15.0))
+    (cmdliner (>= 1.1.1))
     (fmt  (>= 0.9.0))
     (menhir (>= 2.0))
     (logs (>= 0.7))
