@@ -9,14 +9,16 @@ license: "GPL"
 homepage: "https://sail-pl.github.io"
 bug-reports: "https://sail-pl.github.io"
 depends: [
+  "dune" {>= "3.2"}
   "ocaml" {>= "4.13.1"}
-  "dune" {>= "2.9" & >= "2.9"}
   "core" {>= "0.15.0"}
   "core_unix" {>= "0.15.0"}
   "fmt" {>= "0.9.0"}
   "menhir" {>= "2.0"}
   "logs" {>= "0.7"}
   "mtime" {>= "1.3.0"}
+  "ctypes-foreign" {>= "0.18.0"}
+  "llvm" {>= "13.0.0"}
   "odoc" {with-doc}
 ]
 build: [
@@ -28,10 +30,8 @@ build: [
     name
     "-j"
     jobs
-    "--promote-install-files=false"
     "@install"
     "@runtest" {with-test}
     "@doc" {with-doc}
   ]
-  ["dune" "install" "-p" name "--create-install-files" name]
 ]
