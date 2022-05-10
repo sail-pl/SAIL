@@ -36,6 +36,7 @@ end
 module type Monad = sig
   include Applicative
   val (>>=) : 'a t -> ('a -> 'b t) -> 'b t
+  val (>>|) : 'a t -> ('a -> 'b) -> 'b t
 end
 
 module MonadSyntax (M : Monad )= struct 
@@ -105,5 +106,13 @@ module MonadEither = struct
     match x with 
       | Either.Right x -> f x 
       | Either.Left e -> Either.Left e
-  end
+
+
+  let (>>|)  x f = 
+  match x with 
+    | Either.Right x -> f x |> pure
+    | Either.Left e -> Either.Left e
+end
+
+  
 end

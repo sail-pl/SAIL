@@ -3,33 +3,54 @@ open Compiler_common
 open Sail_env
 open Llvm
 open Externals
+open Saillib.Option
         
  
 
 let unary (op:unOp) (l:llvalue) (_:llvm_args) : llvalue = 
-  match op with
-  | Neg when classify_value l = ConstantFP -> const_fneg l
-  | Neg -> const_neg l
-  | Not  -> const_not l
+  let ty = type_of l in
+  let kind = classify_type ty in
+  match kind,op with
+  | Float,Neg ->const_fneg l
+  | Integer,Neg -> const_neg l
+  | _,Not  -> const_not l
+  | _ -> Printf.sprintf "bad unary operand type : '%s'. Only double and int are supported" (string_of_lltype ty) |> failwith
 
 
 let binary (op:binOp) (l1:llvalue) (l2:llvalue) (llvm:llvm_args) : llvalue = 
-  let oper = (match op with
-  | Mul -> build_mul
-  | Div -> build_sdiv
-  | Eq -> build_icmp Icmp.Eq
-  | NEq -> build_icmp Icmp.Ne
-  | Lt -> build_icmp Icmp.Slt
-  | Gt -> build_icmp Icmp.Sgt
-  | Le -> build_icmp Icmp.Sle
-  | Ge -> build_icmp Icmp.Sge
-  | Or -> build_or
-  | And -> build_and
-  | Minus -> build_sub
-  | Plus -> build_add
-  | Rem -> build_srem
-) in
-oper l1 l2 "" llvm.b
+  if (type_of l1) <> (type_of l2) then
+    failwith "operands are of different types !"
+  else
+    let ty = type_of l1 in
+    let kind = classify_type ty in
+
+    let operators = [
+      (TypeKind.Integer, 
+        [
+          (Minus, build_sub) ; (Plus, build_add) ; (Rem, build_srem) ;
+          (Mul,build_mul) ; (Div, build_sdiv) ; 
+          (Eq, build_icmp Icmp.Eq) ; (NEq, build_icmp Icmp.Ne) ;
+          (Lt, build_icmp Icmp.Slt) ; (Gt, build_icmp Icmp.Sgt) ; 
+          (Le, build_icmp Icmp.Sle) ; (Ge, build_icmp Icmp.Sge) ;
+
+        ]
+      ) ;
+      (TypeKind.Double,
+        [
+          (Minus, build_fsub) ; (Plus, build_fadd) ; (Rem, build_frem) ;
+          (Mul,build_fmul) ; (Div, build_fdiv) ; 
+          (Eq, build_fcmp Fcmp.Oeq) ; (NEq, build_fcmp Fcmp.One) ;
+          (Lt, build_fcmp Fcmp.Olt) ; (Gt, build_fcmp Fcmp.Ogt) ; 
+          (Le, build_fcmp Fcmp.Ole) ; (Ge, build_fcmp Fcmp.Oge) ;
+        ]
+      )
+    ] in
+
+    let l = List.assoc_opt kind operators in
+    let open MonadOption in
+    match l >>| List.assoc op with
+    | Some oper -> oper l1 l2 "" llvm.b
+    | None ->  Printf.sprintf "bad binary operand type : '%s'. Only doubles and ints are supported" (string_of_lltype ty) |> failwith
 
 
 let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression) : llvalue = 
