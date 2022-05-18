@@ -2,7 +2,7 @@
 (copy_files# compiler/*.ml)
 
 (executables
- (libraries sail-pl logs fmt cmdliner llvm llvm.analysis llvm.executionengine llvm.scalar_opts llvm.all_backends)
+ (libraries sail-pl logs logs.cli fmt fmt.tty fmt.cli cmdliner llvm llvm.analysis llvm.executionengine llvm.scalar_opts llvm.all_backends)
  (names sailInterpreter sailCompiler)
  (public_names saili sailor))
 

@@ -2,10 +2,7 @@ open Cmdliner
 open Common
 open CliCommon
 
-let saili (files: string list) (intermediate:bool) (l : Logs.level option)  = 
-  Logs.set_level l;
-  Logs.set_reporter (Logs_fmt.reporter ());
-
+let saili (files: string list) (intermediate:bool) () = 
   let rec aux = function
   | f::r -> 
     let file_r = open_in f in
@@ -44,6 +41,6 @@ let intermediate_arg = intermediate_arg "generate intermediate code"
 let cmd =
   let doc = "SaIL Interpreter" in
   let info = Cmd.info "saili" ~doc in
-  Cmd.v info Term.(ret (const saili $ sailfiles_arg $ intermediate_arg $ verbose_arg))
+  Cmd.v info Term.(ret (const saili $ sailfiles_arg $ intermediate_arg $ setup_log_term))
 
 let () = Cmd.eval cmd |> exit
