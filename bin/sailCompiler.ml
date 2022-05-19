@@ -111,8 +111,9 @@ let sailor (files: string list) (intermediate:bool) (l : Logs.level option) (jit
     end
   | [] -> `Ok ()
   
-  in aux files
-
+  in 
+  try aux files with
+  | e -> `Error (false,Printexc.to_string e)
 
 let jit_arg =
   let doc = "execute using the LLVM JIT compiler" in 
