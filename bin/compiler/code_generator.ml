@@ -17,9 +17,11 @@ let methodToIR (method_proto : llvalue) (m_args : (llbuilder->llvalue) array) (p
   in Array.iteri (fun i arg -> build_store (param method_proto i) arg builder |> ignore ) args;
   let llvm_args = {c = llc; b = builder; m = llm} in
   statementToIR method_proto p_body llvm_args env;
+  let ret_ty = (type_of method_proto |> return_type |> subtypes).(0) in
   match block_terminator (insertion_block builder) with
+  (* assuming the builder is on the last block of the method *)
   | Some _ -> ()
-  | None when return_type (type_of method_proto) = void_type llc ->   
+  | None when classify_type ret_ty = TypeKind.Void ->   
     (* allow not to have a return for void methods*)
     build_ret_void builder |> ignore
   | _ ->         

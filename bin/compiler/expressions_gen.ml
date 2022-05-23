@@ -32,7 +32,7 @@ let binary (op:binOp) (l1:llvalue) (l2:llvalue) (llvm:llvm_args) : llvalue =
           (Eq, build_icmp Icmp.Eq) ; (NEq, build_icmp Icmp.Ne) ;
           (Lt, build_icmp Icmp.Slt) ; (Gt, build_icmp Icmp.Sgt) ; 
           (Le, build_icmp Icmp.Sle) ; (Ge, build_icmp Icmp.Sge) ;
-
+          (And, build_and) ; (Or, build_or) ;
         ]
       ) ;
       (TypeKind.Double,
@@ -42,6 +42,7 @@ let binary (op:binOp) (l1:llvalue) (l2:llvalue) (llvm:llvm_args) : llvalue =
           (Eq, build_fcmp Fcmp.Oeq) ; (NEq, build_fcmp Fcmp.One) ;
           (Lt, build_fcmp Fcmp.Olt) ; (Gt, build_fcmp Fcmp.Ogt) ; 
           (Le, build_fcmp Fcmp.Ole) ; (Ge, build_fcmp Fcmp.Oge) ;
+          (And, build_and) ; (Or, build_or) ;
         ]
       )
     ] in

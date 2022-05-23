@@ -108,8 +108,9 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) () =
     end
   | [] -> `Ok ()
   
-  in aux files
-
+  in 
+  try aux files with
+  | e -> `Error (false,Printexc.to_string e)
 
 let jit_arg =
   let doc = "execute using the LLVM JIT compiler" in 

@@ -6,19 +6,21 @@ type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; }
 
 type statement_return = SailEnv.t * ( SailEnv.value option )
 
-let rec getLLVMType (t : sailtype) (llc: llcontext) (llm: llmodule) : lltype = 
-  match t with
+let getLLVMType (t : sailtype) (llc: llcontext) (llm: llmodule) : lltype = 
+  let rec aux = function
   | Bool -> i1_type llc
   | Int -> i32_type llc 
   | Float -> double_type llc
   | Char -> i8_type llc
-  | String -> pointer_type (i8_type llc)
-  | ArrayType t -> getLLVMType t llc llm (* we just return the type of the elements *)
-  | CompoundType (_, [t])-> getLLVMType t llc llm
+  | String -> i8_type llc |> pointer_type
+  | ArrayType t -> aux t (* we just return the type of the elements *)
+  | CompoundType (_, [t])-> aux t
   | CompoundType _-> failwith "compound type unimplemented"
-  | Box _ -> failwith "boxing unimplemented"
-  | RefType (t,_) -> getLLVMType t llc llm |> pointer_type
+  | Box _ -> failwith "boxing unimplemented" 
+  | RefType (t,_) -> aux t |> pointer_type
   | GenericType _ -> failwith "generic types unimplemented"
+  in
+  aux t
 
 
 let getLLVMValue (l:literal) (llvm:llvm_args) : llvalue =
