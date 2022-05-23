@@ -28,7 +28,7 @@ let init_llvm (llm : llmodule) : (Target.t * TargetMachine.t) =
   (target,machine)
 
 
-let init_pm (llm : llmodule) : bool = 
+let run_pm (llm : llmodule) : unit = 
   let pm = PassManager.create () in 
 
   (* seems to be deprecated
@@ -40,10 +40,10 @@ let init_pm (llm : llmodule) : bool =
   Llvm_scalar_opts.add_gvn pm;
   (* reassociate binary expressions *)
   Llvm_scalar_opts.add_reassociation pm;
-  (* dead code eliminiation, basic block merging and more *)
+  (* dead code elimination, basic block merging and more *)
   Llvm_scalar_opts.add_cfg_simplification pm;
 
-  PassManager.run_module llm pm
+  PassManager.run_module llm pm |> ignore
 
 let compile (llm:llmodule) (module_name : string) (target, machine) : int =
   let objfile = module_name ^ ".o" in 
@@ -74,10 +74,7 @@ let execute (llm:llmodule) =
   main ();
   Llvm_executionengine.dispose ee (* implicitely disposes the module *)
 
-let sailor (files: string list) (intermediate:bool) (l : Logs.level option) (jit:bool) (noopt:bool) = 
-  Logs.set_level l;
-  Logs.set_reporter (Logs_fmt.reporter ());
-
+let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) () = 
   let rec aux = function
   | f::r -> 
     let file_r = open_in f in
@@ -85,29 +82,29 @@ let sailor (files: string list) (intermediate:bool) (l : Logs.level option) (jit
     let module_name = Filename.chop_extension (Filename.basename f) in
     begin
       match parse_program lexbuf with
-      | Ok(p) ->
+      | Ok p ->
         enable_pretty_stacktrace ();
         install_fatal_error_handler error_handler;
 
-        let llm = fileToIR (p module_name) in
+        let llm = p module_name |> fileToIR in
         let tm = init_llvm llm in
 
-        if not (noopt) then (init_pm llm |> ignore);
+        if not noopt then run_pm llm;
 
-        if intermediate then (print_module (module_name ^ ".ll") llm);
+        if intermediate then print_module (module_name ^ ".ll") llm;
 
-        let ret = compile llm module_name tm in
-        if (ret <> 0) then
-          Printf.sprintf "clang couldn't execute properly (error %i)" ret |> failwith;
+        if not (intermediate || jit) then
+          begin
+            let ret = compile llm module_name tm in
+            if ret <> 0 then
+              (Printf.sprintf "clang couldn't execute properly (error %i)" ret |> failwith);
+          end;
 
-        if jit then 
-          execute llm
-        else  
-          dispose_module llm; (* a module isn't disposed by itself*)
+        if jit then execute llm else dispose_module llm;
 
         aux r
         
-      | Error(e) ->`Error (false, e)
+      | Error e ->`Error (false, e)
     end
   | [] -> `Ok ()
   
@@ -116,7 +113,7 @@ let sailor (files: string list) (intermediate:bool) (l : Logs.level option) (jit
 
 let jit_arg =
   let doc = "execute using the LLVM JIT compiler" in 
-   Arg.(value & flag & info ["e"; "execute"] ~doc)
+   Arg.(value & flag & info ["run"] ~doc)
 
 let intermediate_arg = intermediate_arg "save the LLVM IR"
 
@@ -127,6 +124,6 @@ let noopt_arg =
 let cmd =
   let doc = "SaiLOR, the SaIL cOmpileR" in
   let info = Cmd.info "sailor" ~doc in
-  Cmd.v info Term.(ret (const sailor $ sailfiles_arg $ intermediate_arg $ verbose_arg $ jit_arg $ noopt_arg))
+  Cmd.v info Term.(ret (const sailor $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ setup_log_term))
 
 let () = Cmd.eval cmd |> exit

@@ -56,7 +56,7 @@ struct
       | [] -> c ^ "\n"
       | _ -> c ^ "\n"  ^ aux env
     in try
-    Logs.debug (fun _ -> "env : \n{\n" ^ aux env ^ "}" |> print_endline)
+    Logs.debug (fun m -> m "env : \n{\n %s }" (aux env) )
     with _ -> ()
   let get_var env name = 
     let rec aux env = 

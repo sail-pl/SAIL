@@ -20,23 +20,13 @@ let parse_program lexbuf =
     Error error_msg
 
 
-let verbose_conv =
-  let parse s =
-    match Logs.level_of_string s with
-    | Ok l-> Ok l
-    | Error e -> Error e
-  in
-  let print f s = match s with
-  | Some l -> Logs.pp_level f l
-  | None -> Format.fprintf f "None"
-in
-  Arg.conv (parse, print)
+let setup_log style_renderer level =
+  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Logs.set_level level;
+  Logs.set_reporter (Logs_fmt.reporter ())
 
-
-let verbose_arg =
-  let docv = "app,error,warning,info,debug" in
-  let doc = "set verbosity level" in
-  Arg.(value & opt verbose_conv (Some Logs.Error) ~vopt:None & info ["v"; "verbose"] ~doc ~docv)
+let setup_log_term =
+Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ())
 
 
 let intermediate_arg doc =
