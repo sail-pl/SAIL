@@ -7,25 +7,17 @@ open Saillib.Option
         
  
 
-let unary (op:unOp) (l:llvalue) (_:llvm_args) : llvalue = 
-  let ty = type_of l in
-  let kind = classify_type ty in
-  match kind,op with
-  | Float,Neg ->const_fneg l
-  | Integer,Neg -> const_neg l
-  | _,Not  -> const_not l
-  | _ -> Printf.sprintf "bad unary operand type : '%s'. Only double and int are supported" (string_of_lltype ty) |> failwith
+let unary (op:unOp) (t,v) : llvalue = 
+  match t,op with
+  | Float,Neg ->const_fneg v
+  | Int,Neg -> const_neg v
+  | _,Not  -> const_not v
+  | _ -> Printf.sprintf "bad unary operand type : '%s'. Only double and int are supported" (string_of_sailtype (Some t)) |> failwith
 
 
-let binary (op:binOp) (l1:llvalue) (l2:llvalue) (llvm:llvm_args) : llvalue = 
-  if (type_of l1) <> (type_of l2) then
-    failwith "operands are of different types !"
-  else
-    let ty = type_of l1 in
-    let kind = classify_type ty in
-
+let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llvalue) = 
     let operators = [
-      (TypeKind.Integer, 
+      (Int, 
         [
           (Minus, build_sub) ; (Plus, build_add) ; (Rem, build_srem) ;
           (Mul,build_mul) ; (Div, build_sdiv) ; 
@@ -35,7 +27,7 @@ let binary (op:binOp) (l1:llvalue) (l2:llvalue) (llvm:llvm_args) : llvalue =
           (And, build_and) ; (Or, build_or) ;
         ]
       ) ;
-      (TypeKind.Double,
+      (Float,
         [
           (Minus, build_fsub) ; (Plus, build_fadd) ; (Rem, build_frem) ;
           (Mul,build_fmul) ; (Div, build_fdiv) ; 
@@ -47,22 +39,28 @@ let binary (op:binOp) (l1:llvalue) (l2:llvalue) (llvm:llvm_args) : llvalue =
       )
     ] in
 
-    let l = List.assoc_opt kind operators in
+    let l = List.assoc_opt t operators in
     let open MonadOption in
     match l >>| List.assoc op with
-    | Some oper -> oper l1 l2 "" llvm.b
-    | None ->  Printf.sprintf "bad binary operand type : '%s'. Only doubles and ints are supported" (string_of_lltype ty) |> failwith
+    | Some oper -> oper l1 l2 ""
+    | None ->  Printf.sprintf "bad binary operand type : '%s'. Only doubles and ints are supported" (string_of_sailtype (Some t)) |> failwith
 
 
-let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression) : llvalue = 
+let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression)  : (sailtype * llvalue) = 
   let open Ast in
   match x with
   | Variable x -> SailEnv.get_var env x
-  | Deref x-> eval_r env llvm x
+  | Deref x-> eval_r env llvm x 
   | ArrayRead (array_exp, index_exp) -> 
-    let array = eval_l env llvm array_exp in
-    let index = eval_r env llvm index_exp in
-    build_gep array [|(const_int (i64_type llvm.c) 0); index|] "" llvm.b
+    let array_t,array_val = eval_l env llvm array_exp in
+    let t =
+    match array_t with
+    | ArrayType t -> t
+    | t ->  Printf.sprintf "typechecker is broken : 'array' type for %s is %s" (value_name array_val) (string_of_sailtype (Some t)) |> failwith
+    in
+    let _,index = eval_r env llvm index_exp  in
+    let llvm_array = build_in_bounds_gep (build_load array_val "" llvm.b) [| (const_int (i64_type llvm.c) 0) ; index|] "" llvm.b in 
+    RefType (t,true),llvm_array
   | StructRead _ -> failwith "struct assign unimplemented"
   | StructAlloc (_, _) -> failwith "struct allocation unimplemented"
   | EnumAlloc (_, _) -> failwith "enum allocation unimplemented"
@@ -73,40 +71,59 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression) : llvalue =
   | Ref _ -> failwith "reference read is not a lvalue"
   | MethodCall _ -> failwith "method call is not a lvalue"
 
-and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : llvalue = 
+and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : (sailtype * llvalue) = 
   match x with
-  | Variable _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
-  | Literal c ->  getLLVMValue c llvm
-  | UnOp (op,e) -> let l = eval_r env llvm e  in unary op l llvm
+  | Variable _ ->  let t,v = eval_l env llvm x in t,build_load v "" llvm.b
+  | Literal l ->  Type_checker.sailtype_of_literal l,getLLVMLiteral l llvm
+  | UnOp (op,e) -> let t,l = eval_r env llvm e  in t,unary op (t,l)
   | BinOp (op,e1, e2) -> 
-      let l1 = eval_r env llvm e1
-      and l2 = eval_r env llvm e2
-      in binary op l1 l2 llvm
+      let t,l1 = eval_r env llvm e1 
+      and _,l2 = eval_r env llvm e2 
+      in t,binary op t l1 l2 llvm.b
   | StructRead (_, _) -> failwith "struct read undefined"
-  | ArrayRead _ -> let v = eval_l env llvm x in build_load v "" llvm.b
-  | Ref (_,e) -> eval_l env llvm e
-  | Deref e -> let l = eval_l env llvm e in build_load l "" llvm.b
+  | ArrayRead _ -> 
+    begin
+    match eval_l env llvm x  with
+    | RefType (t,true),v -> t,build_load v "" llvm.b
+    | _ -> failwith "something is wrong"
+  end
+  | Ref (_,e) -> eval_l env llvm e 
+  | Deref e -> 
+    begin
+      match eval_l env llvm e with
+      | RefType (t,_),l -> t,build_load l "" llvm.b
+      | _ -> failwith "something is wrong"
+      end
   | ArrayStatic elements -> 
     begin
-    let val_types = 
-      (* the type of the array is the one of the first element *)
-      List.hd elements |> eval_r env llvm |> type_of
-    in 
-    let array_type = array_type val_types (List.length elements) in 
-    let array_values = List.map (eval_r env llvm) elements |> Array.of_list in
-
-    (* all elements must have the same type *)
-    if (not (Array.for_all (fun v -> type_of v = val_types) array_values)) then
-      failwith "Error : mixed type array !";
-  
+    let array_types,array_values = List.map (eval_r env llvm ) elements |> List.split in
+    let ty = List.hd array_values |> type_of in
+    let array_values = Array.of_list array_values in
+    let array_type = array_type ty (List.length elements) in 
     let array = const_array array_type array_values in
-    build_load (define_global "const_array" array llvm.m) "" llvm.b
+    (ArrayType (List.hd array_types)),define_global "const_array" array llvm.m
     end
   | StructAlloc _ -> failwith "struct alloc is not a rvalue"
   | EnumAlloc _   -> failwith "enum alloc is not a rvalue"
-  | MethodCall (name, args) -> let args' = List.map (eval_r env llvm) args |> Array.of_list in
-    begin
-    match lookup_function name llvm.m with 
-      | None -> external_methods eval_r name args llvm env
-      | Some f -> build_call f args' "" llvm.b
-    end
+  | MethodCall (name, args) -> 
+    let t,c = construct_call name args env llvm eval_r in
+    (Option.get t),c
+  
+  and construct_call (name:string) (args:Ast.expression list) (env:SailEnv.t) (llvm:llvm_args) eval_r : sailtype option * llvalue = 
+    let args_type,args = List.map (eval_r env llvm) args |> List.split in
+    let args = List.map (
+      fun v -> 
+        let ty = type_of v in
+        match element_type ty |> classify_type with
+        | TypeKind.Array -> 
+          build_gep v [| (const_int (i64_type llvm.c) 0) ; (const_int (i64_type llvm.c) 0) |] "" llvm.b
+        | _ -> v
+      ) args
+    in
+    let mname = mangle_method_name name args_type in 
+    let args = Array.of_list args in
+    match SailEnv.get_method env mname with 
+    | None -> None,external_methods name args llvm env
+    | Some {ret;proto} -> ret,build_call proto args "" llvm.b
+
+

@@ -3,16 +3,28 @@ open Cmdliner
 open Llvm
 open Llvm_target
 open Code_generator
+open Type_checker
 open Sail_env
+open Globals
+open Compiler_common
+
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
-let fileToIR (a : Ast.statement Common.sailModule) : llmodule  = 
+
+let moduleToIR (name:string) (sc : sailor_callables) (dump_decl:bool) : llmodule  = 
+  let module FieldMap = Map.Make (String) in
+
   let llc = global_context () in
-  let llm = create_module llc (a.name ^ ".sl") in
-  let env = SailEnv.empty () in
-  (* fixme : this forces an order of declaration ... *)
-  List.iter (fun s -> parse_method s llc llm env) a.methods;
-  List.iter (fun s -> parse_process s llc llm env) a.processes;
+  let llm = create_module llc (name ^ ".sl") in
+
+  let globals = Globals.get_declarations sc llc llm in
+
+  if dump_decl then Globals.write_declarations globals name;
+
+  let env = SailEnv.empty globals in
+  FieldMap.iter (methodToIR llc llm env) sc.methodMap;
+  FieldMap.iter (processToIR llc llm env) sc.processMap;
+
   match Llvm_analysis.verify_module llm with
   | None -> llm
   | Some reason -> print_endline reason; llm
@@ -74,7 +86,7 @@ let execute (llm:llmodule) =
   main ();
   Llvm_executionengine.dispose ee (* implicitely disposes the module *)
 
-let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) () = 
+let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () = 
   let rec aux = function
   | f::r -> 
     let file_r = open_in f in
@@ -85,8 +97,10 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) () =
       | Ok p ->
         enable_pretty_stacktrace ();
         install_fatal_error_handler error_handler;
+        let sail_module = p module_name in
 
-        let llm = p module_name |> fileToIR in
+        let sc = type_check_module sail_module in
+        let llm = moduleToIR module_name sc dump_decl in
         let tm = init_llvm llm in
 
         if not noopt then run_pm llm;
@@ -121,10 +135,17 @@ let intermediate_arg = intermediate_arg "save the LLVM IR"
 let noopt_arg = 
   let doc = "do not use any optimisation pass" in
   Arg.(value & flag & info ["no-opt"] ~doc)
+
+
+let dump_decl_arg =
+  let doc = "dump the declarations" in 
+  let info = Arg.info ["D"; "dump_decl"] ~doc in
+  Arg.flag info |> Arg.value
+  
   
 let cmd =
   let doc = "SaiLOR, the SaIL cOmpileR" in
   let info = Cmd.info "sailor" ~doc in
-  Cmd.v info Term.(ret (const sailor $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ setup_log_term))
+  Cmd.v info Term.(ret (const sailor $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ dump_decl_arg $ setup_log_term))
 
 let () = Cmd.eval cmd |> exit
