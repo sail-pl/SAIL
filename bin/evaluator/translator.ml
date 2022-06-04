@@ -61,25 +61,25 @@ let removeCalls (p : Common.moduleSignature list) (e : Ast.expression) : Interme
   let open MonadFunctions(M) in
     let rec aux e = 
   match e with 
-    | Ast.Variable x -> return (Intermediate.Path (Intermediate.Variable x))
-    | Ast.Literal c -> return (Intermediate.Literal c)
-    | Ast.UnOp(o, e) -> 
+    | Ast.Variable (_, x) -> return (Intermediate.Path (Intermediate.Variable x))
+    | Ast.Literal (_, c) -> return (Intermediate.Literal c)
+    | Ast.UnOp(_, o, e) -> 
       let* x = aux e in return (Intermediate.UnOp(o,x))
-    | Ast.BinOp(o, e1, e2) -> 
+    | Ast.BinOp(_, o, e1, e2) -> 
       let* e1 = aux e1 and* e2 = aux e2 in 
         return (Intermediate.BinOp(o,e1,e2))
-    | Ast.Ref(b,e) ->
+    | Ast.Ref(_, b,e) ->
       let* e = aux e in
       let (p,c) = pathOfExpression e in 
       let _ = write c in
       return (Intermediate.Ref(b, p))
-    | Ast.Deref(e) ->
+    | Ast.Deref(_, e) ->
       let* e = aux e in
         let (p0, c) = pathOfExpression e in
         let _ = write c in
         return (Intermediate.Path (Intermediate.Deref(p0)))
-    | Ast.ArrayRead(_,_) -> raise (NotSupportedInCoreSail "arrays")
-    | Ast.ArrayStatic(_) -> raise (NotSupportedInCoreSail "arrays")
+    | Ast.ArrayRead(_, _,_) -> raise (NotSupportedInCoreSail "arrays")
+    | Ast.ArrayStatic(_, _) -> raise (NotSupportedInCoreSail "arrays")
  (*   | Ast.ArrayRead (e1, e2) -> 
       let* e1 = aux e1 and* e2 = aux e2 in
         let (p0, c) = pathOfExpression e1 in
@@ -88,20 +88,20 @@ let removeCalls (p : Common.moduleSignature list) (e : Ast.expression) : Interme
     | Ast.ArrayStatic (el) -> 
         let* el = listMapM aux el in 
         return (Intermediate.ArrayAlloc el)*)
-    | Ast.StructRead (e,f) -> 
+    | Ast.StructRead (_, e,f) -> 
         let* e = aux e in 
         let (p0, c) = pathOfExpression e in
         let _ = write c in
           return (Intermediate.Path (Intermediate.StructField(p0,f)))
-    | Ast.StructAlloc (x, fel) -> 
+    | Ast.StructAlloc (_, x, fel) -> 
         let l = FieldMap.fold (fun x a y -> (x,a)::y) fel [] in    
         let* l = listMapM (pairMap2 aux) l in
         let m = List.fold_left (fun x (y,e) -> FieldMap.add y e x) FieldMap.empty l in
         return (Intermediate.StructAlloc(x,m)) 
-    | Ast.EnumAlloc (x,el) ->
+    | Ast.EnumAlloc (_, x,el) ->
         let* el = listMapM aux el in 
           return (Intermediate.EnumAlloc(x, el))
-    | Ast.MethodCall (id, el) ->
+    | Ast.MethodCall (_, id, el) ->
       if (id = "box") then
         match el with
           [e] -> let* e = aux e in return (Intermediate.Box e)
@@ -142,35 +142,35 @@ let rec normalize (c : Intermediate.statement) : Intermediate.statement =
 let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermediate.statement  = 
   let rec aux t : Intermediate.statement = 
   match t with 
-      | Ast.DeclVar (b,x,t,e) -> 
+      | Ast.DeclVar (_pos, b,x,t,e) -> 
         begin match e with 
             None -> Intermediate.DeclVar(b,x,t,None)
           | Some e -> 
             let (e,l) = removeCalls p e in
             seq_oflist (l@[Intermediate.DeclVar(b,x,t,Some e)])
         end
-      | Ast.DeclSignal (s) -> Intermediate.DeclSignal(s)
-      | Ast.Skip -> Intermediate.Skip
-      | Ast.Assign (e1, e2) ->
+      | Ast.DeclSignal (_, s) -> Intermediate.DeclSignal(s)
+      | Ast.Skip _ -> Intermediate.Skip
+      | Ast.Assign (_, e1, e2) ->
         let (e1, l1) = removeCalls p e1 in
         let (p0, l3) = pathOfExpression e1 in 
         let (e2, l2) = removeCalls p e2 in 
           seq_oflist (l1@l2@l3@[Intermediate.Assign(p0,e2)])
-      | Ast.Seq (c1, c2) -> Intermediate.Seq(aux c1, aux c2)
-      | Ast.If(e, t1, t2) -> 
+      | Ast.Seq (_, c1, c2) -> Intermediate.Seq(aux c1, aux c2)
+      | Ast.If(_, e, t1, t2) -> 
           let t1 = aux t1 in
           let t2 = begin match t2 with None -> Intermediate.Skip | Some t2 -> aux t2 end in            
           let (e, l) = removeCalls p e in 
           seq_oflist (l @ [Intermediate.If(e, t1, t2)])
-      | Ast.While (e, t) -> 
+      | Ast.While (_, e, t) -> 
           let t = aux t in 
           let (e, l) = removeCalls p e in 
           seq_oflist (l @ [Intermediate.While(e, t)])
-      | Ast.Case(e, pl) -> 
+      | Ast.Case(_, e, pl) -> 
           let (e,l) = removeCalls p e in 
             let pl = (List.map (fun (x,y) -> (x, aux y) ) pl) in
             seq_oflist (l @ [Intermediate.Case(e, pl)])
-      | Ast.Invoke(target, m, el) -> 
+      | Ast.Invoke(_, target, m, el) -> 
         Logs.debug (fun m -> m "Here 0"); 
         let l = List.map (removeCalls p) el in 
         let l1 = List.map fst l in 
@@ -188,19 +188,19 @@ let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermedia
             | None ->
                 seq_oflist (l2 @ [Intermediate.Invoke (m, l1)])
         end
-      | Return None -> Intermediate.Return 
-      | Return (Some e) -> 
+      | Return (_, None) -> Intermediate.Return 
+      | Return (_, Some e) -> 
           let (e,l) = removeCalls p e in
           seq_oflist (l @ [Intermediate.Assign(Intermediate.Deref(Intermediate.Variable resvar), e);Intermediate.Return])
-      | Ast.Loop c -> 
+      | Ast.Loop (_, c) -> 
         Intermediate.While (Literal (Common.LBool true), aux c)
       | Run _ -> failwith "processes not supported yet"
-      | Ast.Emit(s) -> Intermediate.Emit(s)
-      | When (s, c) -> Intermediate.When(s, aux c)
-      | Watching (s, c) -> Intermediate.Watching(s, aux c)
-      | Await (s) -> Intermediate.When(s, Skip)
-      | Par (c1, c2) -> Intermediate.Par (aux c1, aux c2)
-      | Block (c) -> Intermediate.Block(aux c)
+      | Ast.Emit(_, s) -> Intermediate.Emit(s)
+      | When (_, s, c) -> Intermediate.When(s, aux c)
+      | Watching (_, s, c) -> Intermediate.Watching(s, aux c)
+      | Await (_, s) -> Intermediate.When(s, Skip)
+      | Par (_, c1, c2) -> Intermediate.Par (aux c1, aux c2)
+      | Block (_, c) -> Intermediate.Block(aux c)
         in aux t
 
 (* If the return type is non void, we add a parameter to hold the result *)
@@ -211,6 +211,7 @@ let method_translator (prg :  Common.moduleSignature list) (m : Ast.statement Co
     | Some t -> m.m_params@[(resvar, RefType(t,true))]
   in
   {
+    m_pos = m.m_pos;
     m_name = m.m_name; 
     m_generics = m.m_generics;
     m_params = params;
@@ -220,6 +221,7 @@ let method_translator (prg :  Common.moduleSignature list) (m : Ast.statement Co
 
 let process_translator (prg : Common.moduleSignature list)  (p : Ast.statement Common.process_defn) : Intermediate.statement Common.process_defn =
   {
+  p_pos = p.p_pos;
   p_name  = p.p_name;
   p_generics = p.p_generics;
   p_interface = p.p_interface;

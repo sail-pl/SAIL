@@ -22,6 +22,8 @@
 
 module FieldMap = Map.Make (String)
 
+type loc = Lexing.position
+
 type sailtype =
   | Bool 
   | Int 
@@ -52,6 +54,7 @@ type pattern =
 
   type struct_defn = 
   {  
+    s_pos : loc;
     s_name : string;
     s_generics : string list;
     s_fields : (string * sailtype) list;
@@ -59,6 +62,7 @@ type pattern =
 
 type enum_defn = 
 {
+  e_pos : loc;
   e_name : string;
   e_generics : string list;
   e_injections :  (string * sailtype list) list;
@@ -66,6 +70,7 @@ type enum_defn =
 
 type 'a process_defn = 
   {
+    p_pos : loc;
     p_name : string;
     p_generics : string list;
     p_interface : (string * sailtype) list * string list;
@@ -74,6 +79,7 @@ type 'a process_defn =
 
 type 'a method_defn =  
   {
+    m_pos : loc;
     m_name : string; 
     m_generics : string list;
     m_params : (string * sailtype) list;
@@ -98,8 +104,8 @@ type 'a method_defn =
       name = m.name;
       structs = m.structs;
       enums = m.enums;
-      methods = List.map (fun m -> {m_name=m.m_name; m_generics=m.m_generics;m_params=m.m_params;m_rtype=m.m_rtype;m_body=()}) m.methods;
-      processes = List.map (fun p-> {p_name=p.p_name; p_generics=p.p_generics;p_interface=p.p_interface;p_body=()}) m.processes
+      methods = List.map (fun m -> {m_pos=m.m_pos;m_name=m.m_name; m_generics=m.m_generics;m_params=m.m_params;m_rtype=m.m_rtype;m_body=()}) m.methods;
+      processes = List.map (fun p-> {p_pos=p.p_pos;p_name=p.p_name; p_generics=p.p_generics;p_interface=p.p_interface;p_body=()}) m.processes
     }
 
   

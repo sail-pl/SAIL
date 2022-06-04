@@ -19,9 +19,9 @@ process Main(){
     print_int(y.x);
     print_int(1);
 
-    var z : array<int> = [1,2,3];
-    z[0]=5;
-    print_int(z[0]);
+    //var z : array<int> = [1,2,3];
+    //z[0]=5;
+    //print_int(z[0]);
 
     var a : t = t { x: box(1)};
     *(a.x) = 18;

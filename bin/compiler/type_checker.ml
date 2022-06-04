@@ -158,34 +158,34 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
 
   and analyse_expression (e:expression) (ts : varTypesMap) (sc : sailor_callables) : sailtype * sailor_callables =
   let rec aux e sc = match e with
-  | Variable s -> get_var ts s, sc
-  | MethodCall (name,el) -> 
+  | Variable (_, s) -> get_var ts s, sc
+  | MethodCall (_, name,el) -> 
     begin
       match construct_call name el ts sc with
       | None,_ -> "trying to use the result of void function " ^ name |> failwith
       | Some t,sc -> t,sc
     end
-  | Literal l -> sailtype_of_literal l, sc
-  | StructRead (_,_) -> failwith "todo"
-  | ArrayRead (e,_) -> 
+  | Literal (_, l) -> sailtype_of_literal l, sc
+  | StructRead (_, _,_) -> failwith "todo"
+  | ArrayRead (_, e,_) -> 
     begin 
       match aux e sc with
       | (ArrayType t,sc) -> t,sc
       | _ -> failwith "not an array !"
     end
-  | UnOp (_,e) -> aux e sc
-  | BinOp (_,e1,e2) -> 
+  | UnOp (_,_,e) -> aux e sc
+  | BinOp (_,_,e1,e2) -> 
     let t1,sc' = aux e1 sc in let t2,sc' = aux e2 sc' in
     if t1 <> t2 then failwith "operands do not have the same type !" else t1,sc'
 
-  | Ref (m,e) -> let t,sc' = aux e sc in RefType (t,m),sc'
-  | Deref e -> let t,sc' = aux e sc in
+  | Ref (_,m,e) -> let t,sc' = aux e sc in RefType (t,m),sc'
+  | Deref (_, e) -> let t,sc' = aux e sc in
     begin
       match t with
       | RefType _ -> t,sc'
       | _ -> failwith "can't deref a non-reference!"
     end
-  | ArrayStatic (e::h) -> 
+  | ArrayStatic (_, e::h) -> 
     let first_t,sc' = aux e sc in
     let t,v = List.fold_left (
       fun (last_t,sc') e -> 
@@ -193,40 +193,40 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
         if next_t <> last_t then failwith "mixed type array !" else (next_t,next_ts)
     ) (first_t,sc') h in
     ArrayType t,v
-  | ArrayStatic [] -> failwith "error : empty array"
-  | StructAlloc (_,_) -> failwith "todostruct"
-  | EnumAlloc (_,_) -> failwith "todoenum"
+  | ArrayStatic (_, []) -> failwith "error : empty array"
+  | StructAlloc (_, _,_) -> failwith "todo"
+  | EnumAlloc (_, _,_) -> failwith "todo"
   in aux e sc
   
     (*todo : more checks (arrays...) *)
   and analyse_statement (st:statement) (ts : varTypesMap) (sc : sailor_callables) : varTypesMap * sailor_callables = match st with
-  | Invoke (_,name,el) -> let rt,sc' = construct_call name el ts sc in 
+  | Invoke (_, _,name,el) -> let rt,sc' = construct_call name el ts sc in 
     if Option.is_some rt then
       Logs.warn (fun m -> m "result of non-void function %s is discarded" name);
     ts,sc'
 
-  | DeclVar (_,name,t,None) -> declare_var ts name t,sc
-  | DeclVar (_,name,t,Some e) -> 
+  | DeclVar (_, _,name,t,None) -> declare_var ts name t,sc
+  | DeclVar (_, _,name,t,Some e) -> 
     let t_r,sc' = analyse_expression e ts sc in 
     if t <> t_r then failwith "type declared and assigned mismatch !"
     else declare_var ts name t,sc'
 
-  | Block s -> let new_ts,sc' = analyse_statement s (new_frame ts) sc in pop_frame new_ts,sc'
-  | Seq (s1,s2) -> let ts',sc' = analyse_statement s1 ts sc in analyse_statement s2 ts' sc'
-  | Assign (el,er) -> 
+  | Block (_, s) -> let new_ts,sc' = analyse_statement s (new_frame ts) sc in pop_frame new_ts,sc'
+  | Seq (_, s1,s2) -> let ts',sc' = analyse_statement s1 ts sc in analyse_statement s2 ts' sc'
+  | Assign (_, el,er) -> 
     let t_l,sc_l = analyse_expression el ts sc in
     let t_r,sc_r = analyse_expression er ts sc_l in 
     if t_l <> t_r then failwith "type declared and assigned mismatch !" else ts,sc_r
 
-  | If (e,s1, Some s2) -> let sc' = analyse_expression e ts sc |> snd in
+  | If (_, e,s1, Some s2) -> let sc' = analyse_expression e ts sc |> snd in
     let sc' = analyse_statement s1 ts sc' |> snd in analyse_statement s2 ts sc'
 
-  | If (e,s, None) -> let sc' = analyse_expression e ts sc |> snd in analyse_statement s ts sc'
-  | While (e,s) -> let sc' = analyse_expression e ts sc |> snd in analyse_statement s ts sc'
+  | If (_, e,s, None) -> let sc' = analyse_expression e ts sc |> snd in analyse_statement s ts sc'
+  | While (_, e,s) -> let sc' = analyse_expression e ts sc |> snd in analyse_statement s ts sc'
   (* todo : check return type *)
-  | Return Some e -> let sc' = analyse_expression e ts sc |> snd in ts,sc'
-  | Return None -> ts,sc
-  | Loop s -> analyse_statement s ts sc
+  | Return (_, Some e) -> let sc' = analyse_expression e ts sc |> snd in ts,sc'
+  | Return (_, None) -> ts,sc
+  | Loop (_, s) -> analyse_statement s ts sc
   | _ -> ts,sc (* todo : other stuffs *)
   
   in 
