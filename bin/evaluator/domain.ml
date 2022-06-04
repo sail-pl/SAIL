@@ -36,9 +36,10 @@ type tag = Field of string | Indice of int
 
 type offset = tag list
 
-type location = Heap.address * offset
 
-type kind = Owned | Borrowed of bool
+type kind = Owned | Borrowed of offset
+
+type location = Heap.address * kind
 
 (** kind : wether the location is owned or (mutually) borrowed *)
 type value =
@@ -50,8 +51,16 @@ type value =
   | VArray of value list
   | VStruct of string * value FieldMap.t
   | VEnum of string * value list
-  | VLoc of location * kind
-  | Moved of Heap.address
+  | VLoc of location
+  | Moved 
+
+let valueOfLiteral c =
+  match c with
+  | LBool x -> VBool x
+  | LInt x -> VInt x
+  | LFloat x -> VFloat x
+  | LChar x -> VChar x
+  | LString x -> VString x
 
 let rec readValue (v : value) (o : offset) : value option =
   match (v, o) with
@@ -146,3 +155,34 @@ type error =
 module Result = ErrorMonadEither.Make(struct type t = error end)
 
 
+let mapM (f : 'a -> 'b Result.t) (s : 'a FieldMap.t) : 'b FieldMap.t Result.t =
+  let open Result in
+  let open MonadSyntax (Result) in
+  let rec aux (l : (string * 'a) Seq.t) : (string * 'b) Seq.t Result.t =
+    match l () with
+    | Seq.Nil -> return (fun () -> Seq.Nil)
+    | Seq.Cons ((x, a), v) -> (
+        match (f a, aux v) with
+        | Either.Left u, _ -> throwError u
+        | Either.Right u, Either.Right l' ->
+            return (fun () -> Seq.Cons ((x, u), l'))
+        | Either.Right _, Either.Left l' -> throwError l')
+  in
+  match aux (FieldMap.to_seq s) with
+  | Either.Right s -> Either.Right (FieldMap.of_seq s)
+  | Either.Left e -> Either.Left e
+
+  let foldM (f : 'a -> (string * 'b) -> 'a Result.t) (x :'a) (y : 'b FieldMap.t) : 'a Result.t =  
+    let open Result in
+    let open MonadSyntax (Result) in
+    let rec aux (l : (string * 'b) Seq.t) : 'a Result.t =
+        match l () with 
+            Seq.Nil -> return x
+        |   Seq.Cons ((y, a), v) -> (
+                match aux v with 
+                    Either.Left u -> throwError u
+                |   Either.Right u ->  f u (y, a)
+        )
+    in match aux (FieldMap.to_seq y) with 
+    | Either.Right s -> Either.Right s
+    | Either.Left e -> Either.Left e 

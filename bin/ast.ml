@@ -22,8 +22,6 @@
 
 open Common
 
-
-
 (* expressions are control free *)
 type expression = 
   Variable of string 

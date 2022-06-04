@@ -15,10 +15,10 @@ let pp_print_offset (pf : Format.formatter) (o : Domain.offset) : unit =
 let pp_print_kind pf (k : kind) = 
   match k with 
     | Owned -> Format.pp_print_string pf "Ow"
-    | Borrowed b ->  Format.fprintf pf "B%s" (if b then "w" else "")
+    | Borrowed o ->  Format.fprintf pf "B%a" pp_print_offset o 
 
-let pp_print_location pf (a, o) =
-  Format.fprintf pf "(%a,%a)" Heap.pp_address a pp_print_offset o
+let pp_print_location pf (a, k) =
+  Format.fprintf pf "(%a,%a)" Heap.pp_address a pp_print_kind k
 
 let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
   match v with
@@ -40,8 +40,8 @@ let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
       Format.fprintf pf "%s(%a)" c
         (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_value)
         l
-  | VLoc (l, k) -> Format.fprintf pf "0x%a %a" pp_print_location l pp_print_kind k
-  | Moved a -> Format.fprintf pf "Moved(%a)" Heap.pp_address a 
+  | VLoc l -> Format.fprintf pf "0x%a" pp_print_location l
+  | Moved -> Format.fprintf pf "Moved" 
 let pp_print_heapValue pf v =
   match v with Either.Left v -> pp_print_value pf v | Either.Right b -> Format.pp_print_bool pf b
 
