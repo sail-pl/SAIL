@@ -69,10 +69,10 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
     | Char,Char -> Char,g
     | String,String -> String,g
     | ArrayType at,ArrayType mt -> let t,g = aux at mt g in ArrayType t,g
-    | CompoundType _, CompoundType _ -> failwith "todo"
-    | Box _at, Box _mt -> failwith "todo"
-    | RefType (_at,_am), RefType (_mt,_mm) -> failwith "todo"
-    | GenericType _,_ -> failwith "can't have generic argument"
+    | CompoundType _, CompoundType _ -> failwith "todocompoundtype"
+    | Box _at, Box _mt -> failwith "todobox"
+    | RefType (at,am), RefType (mt,mm) -> if am <> mm then failwith "different mutability" else aux at mt g
+    | GenericType _,_ -> failwith "can't have generic argument at this point"
     | at,GenericType gt -> 
       begin
       if List.mem gt generics then
@@ -87,9 +87,7 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
            (string_of_sailtype (Some a))
           |> failwith 
     in
-    match arg with
-    | GenericType _ -> failwith "can't have generic argument"
-    | _ -> aux arg m_param resolved_generics
+    aux arg m_param resolved_generics
     
   in
 
@@ -109,13 +107,12 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
 
   let rec construct_call (calle:string) (el:expression list) (ts : varTypesMap) (sc:sailor_callables) : sailtype option * sailor_callables = 
     Logs.debug (fun m -> m "found call to %s" calle);
-    
     (* we construct the types of the args (and collect extra new calls) *)
-    let call_args,sc' = List.fold_left (
-      fun (l,sc) e -> let t,sc' = analyse_expression e ts sc in (t::l,sc')
-    ) ([],sc) el in
+    let call_args,sc' = List.fold_right (
+      fun e (l,sc)-> 
+        let t,sc' = analyse_expression e ts sc in (t::l,sc')
+    )  el ([],sc) in
 
-    let call_args = List.rev call_args in
     (* we check if the calle is external *)
     match List.assoc_opt calle ext with
     | None -> 
@@ -142,6 +139,7 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
           if the generic already exists with the same type as the new one, we are good else we fail 
         *)
 
+        (* let call_args = List.rev_map (fun args -> degenerifyType args sc.,sc ) call_args in *)
         let args_name,args_type = List.split args in
         let resolved_generics = check_args call_args args_type generics in
         let ret = match r_type with
@@ -196,8 +194,8 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
     ) (first_t,sc') h in
     ArrayType t,v
   | ArrayStatic [] -> failwith "error : empty array"
-  | StructAlloc (_,_) -> failwith "todo"
-  | EnumAlloc (_,_) -> failwith "todo"
+  | StructAlloc (_,_) -> failwith "todostruct"
+  | EnumAlloc (_,_) -> failwith "todoenum"
   in aux e sc
   
     (*todo : more checks (arrays...) *)
@@ -247,9 +245,10 @@ let process_start_env (p:Ast.statement process_defn) : sailtype FieldMap.t =
 let analyse_method (m: Ast.statement method_defn) (sm : Ast.statement sailModule) (ext:sailor_externals) (sc:sailor_callables) : sailor_callables = 
   let methodMap = 
     if m.m_generics = [] then
-    (* method isn't generic, we add it *)
-      let name = mangle_method_name m.m_name (List.split m.m_params |> snd) in 
-      let methd = {body=m.m_body; decl={ret=m.m_rtype; args=m.m_params}; generics=[]} in
+      (* method isn't generic, we add it *)
+      let args = m.m_params in
+      let name = mangle_method_name m.m_name (List.split args |> snd) in 
+      let methd = {body=m.m_body; decl={ret=m.m_rtype; args}; generics=[]} in
       FieldMap.add name methd sc.methodMap
   else
     sc.methodMap
@@ -259,8 +258,8 @@ let analyse_method (m: Ast.statement method_defn) (sm : Ast.statement sailModule
 let analyse_process (p:Ast.statement process_defn) (sm : Ast.statement sailModule) (ext:sailor_externals) (sc:sailor_callables) : sailor_callables =
   let processMap = 
     if p.p_generics = [] then
-      let args = p.p_interface |> fst in 
-    (* process isn't generic, we add it *)
+      (* process isn't generic, we add it *)
+      let args = fst p.p_interface in 
       let name = mangle_method_name p.p_name (List.split args |> snd) in
       let proc = {body=p.p_body; args; generics=[]} in
       FieldMap.add name proc sc.processMap

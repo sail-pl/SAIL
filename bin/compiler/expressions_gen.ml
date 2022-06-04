@@ -59,7 +59,7 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression)  : (sailtype
     | t ->  Printf.sprintf "typechecker is broken : 'array' type for %s is %s" (value_name array_val) (string_of_sailtype (Some t)) |> failwith
     in
     let _,index = eval_r env llvm index_exp  in
-    let llvm_array = build_in_bounds_gep (build_load array_val "" llvm.b) [| (const_int (i64_type llvm.c) 0) ; index|] "" llvm.b in 
+    let llvm_array = build_in_bounds_gep array_val [|(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
     RefType (t,true),llvm_array
   | StructRead _ -> failwith "struct assign unimplemented"
   | StructAlloc (_, _) -> failwith "struct allocation unimplemented"
@@ -81,18 +81,19 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : (sailtype * llv
       and _,l2 = eval_r env llvm e2 
       in t,binary op t l1 l2 llvm.b
   | StructRead (_, _) -> failwith "struct read undefined"
-  | ArrayRead _ -> 
+  | ArrayRead _ -> let v_t,v = eval_l env llvm x in
     begin
-    match eval_l env llvm x  with
-    | RefType (t,true),v -> t,build_load v "" llvm.b
-    | _ -> failwith "something is wrong"
-  end
+    match v_t with
+    | RefType (t,_) -> t,(build_load v "" llvm.b)
+    | _ -> failwith "type system is broken"
+    end
+  
   | Ref (_,e) -> eval_l env llvm e 
   | Deref e -> 
     begin
       match eval_l env llvm e with
       | RefType (t,_),l -> t,build_load l "" llvm.b
-      | _ -> failwith "something is wrong"
+      | _ -> failwith "type system is broken"
       end
   | ArrayStatic elements -> 
     begin
@@ -101,29 +102,26 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : (sailtype * llv
     let array_values = Array.of_list array_values in
     let array_type = array_type ty (List.length elements) in 
     let array = const_array array_type array_values in
-    (ArrayType (List.hd array_types)),define_global "const_array" array llvm.m
+    let array = define_global "const_array" array llvm.m in
+    set_linkage Linkage.Private array;
+    set_unnamed_addr true array;
+    set_global_constant true array;
+    (ArrayType (List.hd array_types)),build_load array "" llvm.b
     end
   | StructAlloc _ -> failwith "struct alloc is not a rvalue"
   | EnumAlloc _   -> failwith "enum alloc is not a rvalue"
   | MethodCall (name, args) -> 
-    let t,c = construct_call name args env llvm eval_r in
+    let t,c = construct_call name args env llvm in
     (Option.get t),c
   
-  and construct_call (name:string) (args:Ast.expression list) (env:SailEnv.t) (llvm:llvm_args) eval_r : sailtype option * llvalue = 
-    let args_type,args = List.map (eval_r env llvm) args |> List.split in
-    let args = List.map (
-      fun v -> 
-        let ty = type_of v in
-        match element_type ty |> classify_type with
-        | TypeKind.Array -> 
-          build_gep v [| (const_int (i64_type llvm.c) 0) ; (const_int (i64_type llvm.c) 0) |] "" llvm.b
-        | _ -> v
-      ) args
+  and construct_call (name:string) (args:Ast.expression list) (env:SailEnv.t) (llvm:llvm_args) : sailtype option * llvalue = 
+    let args_type,args = List.map (eval_r env llvm) args |> List.split
     in
     let mname = mangle_method_name name args_type in 
     let args = Array.of_list args in
     match SailEnv.get_method env mname with 
     | None -> None,external_methods name args llvm env
     | Some {ret;proto} -> ret,build_call proto args "" llvm.b
+    
 
 

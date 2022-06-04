@@ -48,7 +48,7 @@ let rec string_of_sailtype (t : sailtype option) : string =
   | Some Box(t) -> sprintf "ref<%s>" (string_of_sailtype (Some t))
   | Some RefType (t,b) -> 
       if b then sprintf "&mut %s" (string_of_sailtype (Some t))
-      else sprintf "& %s" (string_of_sailtype (Some t))
+      else sprintf "&%s" (string_of_sailtype (Some t))
   | Some GenericType(s) -> s
   | None -> "void"
 
@@ -72,7 +72,7 @@ let degenerifyType (t: sailtype) (generics: sailor_args) : sailtype =
   | CompoundType (_name, _tl)-> aux t
   | Box t -> Box (aux t) 
   | RefType (t,m) -> RefType (aux t, m)
-  | GenericType _ when generics = [] -> failwith "generic type preset but empty generics list"
+  | GenericType _ when generics = [] -> failwith "generic type present but empty generics list"
   | GenericType n -> 
     begin
       match List.assoc_opt n generics with
