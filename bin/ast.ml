@@ -21,42 +21,41 @@
 (**************************************************************************)
 
 open Common
-open Lexing
 
 (* expressions are control free *)
 type expression = 
-  Variable of string 
-  | Deref of expression 
-  | StructRead of expression * string
-  | ArrayRead of expression * expression  
-  | Literal of literal
-  | UnOp of unOp * expression
-  | BinOp of binOp * expression * expression
-  | Ref of bool * expression
-  | ArrayStatic of expression list
-  | StructAlloc of string * expression FieldMap.t
-  | EnumAlloc of (string * expression list) 
-  | MethodCall of string * expression list
+  Variable of loc * string 
+  | Deref of loc * expression 
+  | StructRead of loc * expression * string
+  | ArrayRead of loc * expression * expression  
+  | Literal of loc * literal
+  | UnOp of loc * unOp * expression
+  | BinOp of loc * binOp * expression * expression
+  | Ref of loc * bool * expression
+  | ArrayStatic of loc * expression list
+  | StructAlloc of loc * string * expression FieldMap.t
+  | EnumAlloc of loc * string * expression list 
+  | MethodCall of loc * string * expression list
       
 type statement =
-  | DeclVar of bool * string * sailtype * expression option 
-  | DeclSignal of string
-  | Skip
-  | Assign of expression * expression
-  | Seq of statement * statement
-  | Par of statement * statement
-  | If of expression * statement * statement option
-  | While of expression * statement
-  | Case of expression * (pattern * statement) list
-  | Invoke of string option * string * expression list
-  | Return of expression option
-  | Run of string * expression list
-  | Loop of statement
-  | Emit of string
-  | Await of string
-  | When of string * statement
-  | Watching of string * statement
-  | Block of statement
+  | DeclVar of loc * bool * string * sailtype * expression option 
+  | DeclSignal of loc * string
+  | Skip of loc
+  | Assign of loc * expression * expression
+  | Seq of loc * statement * statement
+  | Par of loc * statement * statement
+  | If of loc * expression * statement * statement option
+  | While of loc * expression * statement
+  | Case of loc * expression * (pattern * statement) list
+  | Invoke of loc * string option * string * expression list
+  | Return of loc * expression option
+  | Run of loc * string * expression list
+  | Loop of loc * statement
+  | Emit of loc * string
+  | Await of loc * string
+  | When of loc * string * statement
+  | Watching of loc * string * statement
+  | Block of loc * statement
 
 type defn =
   | Struct of struct_defn

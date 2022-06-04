@@ -49,9 +49,9 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
 let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression)  : (sailtype * llvalue) = 
   let open Ast in
   match x with
-  | Variable x -> SailEnv.get_var env x
-  | Deref x-> eval_r env llvm x 
-  | ArrayRead (array_exp, index_exp) -> 
+  | Variable (_, x) -> SailEnv.get_var env x
+  | Deref (_, x) -> eval_r env llvm x 
+  | ArrayRead (_, array_exp, index_exp) -> 
     let array_t,array_val = eval_l env llvm array_exp in
     let t =
     match array_t with
@@ -62,8 +62,8 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression)  : (sailtype
     let llvm_array = build_in_bounds_gep (build_load array_val "" llvm.b) [| (const_int (i64_type llvm.c) 0) ; index|] "" llvm.b in 
     RefType (t,true),llvm_array
   | StructRead _ -> failwith "struct assign unimplemented"
-  | StructAlloc (_, _) -> failwith "struct allocation unimplemented"
-  | EnumAlloc (_, _) -> failwith "enum allocation unimplemented"
+  | StructAlloc (_, _, _) -> failwith "struct allocation unimplemented"
+  | EnumAlloc (_, _, _) -> failwith "enum allocation unimplemented"
   | ArrayStatic _ -> failwith "array alloc is not a lvalue"
   | Literal _ ->  failwith "literal is not a lvalue"
   | UnOp _ -> failwith "unary operator is not a lvalue"
@@ -74,27 +74,27 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression)  : (sailtype
 and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : (sailtype * llvalue) = 
   match x with
   | Variable _ ->  let t,v = eval_l env llvm x in t,build_load v "" llvm.b
-  | Literal l ->  Type_checker.sailtype_of_literal l,getLLVMLiteral l llvm
-  | UnOp (op,e) -> let t,l = eval_r env llvm e  in t,unary op (t,l)
-  | BinOp (op,e1, e2) -> 
+  | Literal (_, l) ->  Type_checker.sailtype_of_literal l,getLLVMLiteral l llvm
+  | UnOp (_, op,e) -> let t,l = eval_r env llvm e  in t,unary op (t,l)
+  | BinOp (_, op,e1, e2) -> 
       let t,l1 = eval_r env llvm e1 
       and _,l2 = eval_r env llvm e2 
       in t,binary op t l1 l2 llvm.b
-  | StructRead (_, _) -> failwith "struct read undefined"
+  | StructRead (_, _, _) -> failwith "struct read undefined"
   | ArrayRead _ -> 
     begin
     match eval_l env llvm x  with
     | RefType (t,true),v -> t,build_load v "" llvm.b
     | _ -> failwith "something is wrong"
   end
-  | Ref (_,e) -> eval_l env llvm e 
-  | Deref e -> 
+  | Ref (_, _,e) -> eval_l env llvm e 
+  | Deref (_, e) -> 
     begin
       match eval_l env llvm e with
       | RefType (t,_),l -> t,build_load l "" llvm.b
       | _ -> failwith "something is wrong"
       end
-  | ArrayStatic elements -> 
+  | ArrayStatic (_, elements) -> 
     begin
     let array_types,array_values = List.map (eval_r env llvm ) elements |> List.split in
     let ty = List.hd array_values |> type_of in
@@ -105,7 +105,7 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : (sailtype * llv
     end
   | StructAlloc _ -> failwith "struct alloc is not a rvalue"
   | EnumAlloc _   -> failwith "enum alloc is not a rvalue"
-  | MethodCall (name, args) -> 
+  | MethodCall (_, name, args) -> 
     let t,c = construct_call name args env llvm eval_r in
     (Option.get t),c
   

@@ -1,0 +1,68 @@
+We note $\offsets$ the set of offsets, noted $\offset$, defined by
+$$
+  o ::= \epsilon \mid f;o
+$$
+We note $c$ the value corresponding to the litteral $c$ and $\ominus, \oplus$ an arbitrary operator.
+Each operator is assumed to have a semantics, using the same notation.
+We define the set $\locations$ of memory locations, noted $\location$ as $\locations = \addresses \times \offsets$.
+The semantics of expressions is devised in two functions
+$$
+  \begin{array}{lcl}
+    {\mathit{eval_L}} & : & \paths{} \times \stacks{} \times \heaps{} \rightharpoonup \locations{}\\
+    {\mathit{eval}}   & : & \expressions{} \times \stacks{} \times \heaps{}\rightharpoonup \values{} \times \heaps
+  \end{array}
+$$
+
+$$
+  \begin{array}{c}
+    \cfrac{\env(x) = \address}
+    {\evalLeft{x}{\env}{\heap} = (\address, \epsilon)}
+    \qquad
+    \cfrac{\evalLeft{p}{\env}{\heap} = (\address,o)}
+    {\evalLeft{p.f}{\env}{\heap} = (\address, o.f)}
+    \\\\
+    \cfrac{\evalLeft{p}{\env}{\heap} = (\address_\star,o) \qquad \sigma(\address)[o] = (\address_\star',o')}
+    {\evalLeft{*p}{\env}{\heap} = (\address_\star',o')}
+    \\\\
+    \cfrac{\evalLeft{p}{\env}{\heap} = (\address_\star,o) \qquad \sigma(\address)[o] = v \qquad Move(v)}
+    {\eval{p}{\env}{\heap} = v, \heap[\address.o \mapsto \bot]}
+    \\\\
+    \cfrac{\evalLeft{p}{\env}{\heap} = (\address_\star,o) \qquad \sigma(\address)[o] = v \qquad Copy(v)}
+    {\eval{p}{\env}{\heap} = v, \heap}
+    \\\\
+    \cfrac{}{\eval{c}{\env}{\heap} = c,\heap}
+    \qquad
+    \cfrac{\eval{e}{\env}{\heap} = v, \heap'}
+    {\eval{\varominus e}{\env}{\heap} = \varominus v, \heap'}
+    \\\\
+    \cfrac{
+        \eval{e_1}{\env}{\heap} = v_1,\heap'' \qquad 
+        \eval{e_2}{\env}{\heap''} = v_2, \heap'}
+    {\eval{e_1 \varoplus e_2}{\env}{\heap} = v_1 \varoplus v_2, \heap'}
+    \\\\
+    \cfrac{
+
+      \eval{e_k}{\env}{\heap_k} = v_k,\heap_{k+1},~k\in \set{1,\ldots,n} \qquad 
+      \sigma =\sigma_1 \qquad \sigma'=\sigma_{n+1}
+    }
+    {
+      \eval{\valstruct{\field{f_i}{e_i}}_{i=1}^n}{\env}{\heap} = \valstruct{\field{f_i}{v_i}}_{i=1}^n, \heap'
+    }
+    \\\\
+    \cfrac{
+    \eval{e_k}{\env}{\heap_k} = v_k,\heap_{k+1}~k\in \set{1,\ldots,n} \qquad 
+    \sigma =\sigma_1 \qquad \sigma'=\sigma_{n+1}
+    }
+    {\eval{C(e_1,\ldots,e_n)}{\env}{\heap} = C(v_1,\ldots,v_n) }
+    \\\\
+    \cfrac{\evalLeft{p}{\env}{\heap} = (\address, \offset)}
+    {\eval{\&p}{\env}{\heap} = \address_o,\heap}
+    \qquad{}
+    \cfrac{
+        \eval{e}{\env}{\heap'} = (v,\heap'') \qquad{
+        (a,\heap') = {\mathit{fresh}}(\heap'') 
+        }
+    }
+    {\eval{{\mathit{box}(e)}}{\env}{\heap} =  a,\heap'[a.\epsilon \mapsto v]}
+  \end{array}
+$$

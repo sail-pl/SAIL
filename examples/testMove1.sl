@@ -4,7 +4,7 @@ process Main(){
     var x : box<int>;
     var y : box<int>;
     var z : box<int>;
-    x = box(1);
-    y = x;
-    z = x
+    //x = box(1);
+    //y = x;
+    //z = x
 }

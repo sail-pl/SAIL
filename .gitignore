@@ -33,3 +33,26 @@ setup.log
 _opam/
 .DS_Store
 .ocamlformat
+
+# latex 
+*.aux
+*.lof
+*.log
+*.lot
+*.fls
+*.out
+*.toc
+*.fmt
+*.fot
+*.cb
+*.cb2
+.*.lb
+*.fdb_latexmk
+*.synctex
+*.synctex(busy)
+*.synctex.gz
+*.synctex.gz(busy)
+*.pdfsync
+
+# vscode
+.vscode

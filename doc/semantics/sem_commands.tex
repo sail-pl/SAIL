@@ -1,0 +1,388 @@
+The semantics of commands is divided in several levels. First we have microsteps which are given
+by rules of the form $c,\rho,\sigma \rightarrow K, \omega,\heap'$. In a microstep, each component
+is executed one time until it is terminated or suspended.
+The status $K \in\{\continue, \suspend~c, \ret\}$ tells us if the command is terminated ($\continue$), suspended
+with the continuation $c$ to resume ($\suspend~c$) or returning control to the caller ($\ret$).
+The frame $\omega$ denotes the part of the stack allocated during the micro-steps. Commands containing blocks
+of the form $\{.\}_\omega$ is a suspened command in which $\omega$ was recorded when the command suspends.
+As mentioned earlier, we use these annotations to distribute the stack over commands.
+\begin{figure}
+  $$
+    \begin{array}{c}
+      \cfrac{x \not \in \dom (\rho) \qquad (\address,\heap') = {\mathit{fresh}}(\heap)}{
+
+        \variable~[mut]~x:\tau, \env,\heap \rightarrow
+        \continue, [x\mapsto \alpha],\heap'_{\address \leadsto {\mathit{undef}}}
+      }
+      \qquad
+      \cfrac{s \not \in \dom(\rho) \qquad (\address,\heap') = {\mathit{fresh}}(\heap)}{
+        \signal~\sig, \env, \heap\rightarrow
+        \continue, [\sig \mapsto \address], \heap'_{\address \mapsto \absent}
+      }
+      \\
+      \cfrac{}{\skipp,\env ,\sigma \rightarrow \continue, \varnothing,\sigma}
+      \qquad{}
+      \cfrac{}{\stopp,\env ,\sigma \rightarrow \continue, \varnothing,\sigma}
+      \\\\
+      \cfrac{
+        \begin{array}{c}
+          \evalLeft{p}{\env}{\heap} = (\address,o) \qquad
+          \eval{e}{\env}{\heap} = (v, \heap')\\
+          \heap(a.o) = v' \qquad \heap'' = {\mathit{drop}}(\heap',v')
+        \end{array}
+      }{
+        p := e, \env,\heap \rightarrow
+        \continue, \varnothing,\heap'[\address.o \mapsto v]
+      }
+    %   \\\\
+    %   \cfrac{
+    %     \begin{array}{c}
+    %       \evalLeft{e_1}{\env}{\heap} = (\alpha,o) \qquad
+    %       \evalRight{e_2}{\env}{\heap} = v \\
+    %       \heap(\alpha) = v_\alpha \qquad \alpha' \not \in \dom(\heap)
+    %       \qquad v' = \updateValue(v_\alpha,p,\alpha')
+    %     \end{array}
+    %   }{
+    %     e_1 := {\tt{box}}(e_2), \env,\heap \rightarrow
+    %     \continue, \varnothing,\heap_{\alpha' \leadsto v, \alpha \mapsto v'}
+    %   }
+      \\\\
+      \cfrac{
+        c_1, \env \cdot \omega,\heap \rightarrow \continue, \omega_1,\heap''\qquad
+        c_2, \env \cdot \omega\omega_1,\heap'' \rightarrow \mathcal{K},\omega_2,\heap'
+      }{
+        c_1;c_2,\env \cdot \omega ,\heap \rightarrow \mathcal{K},\omega_1\omega_2,\heap'
+      }
+      \\\\
+      \cfrac{
+        c_1, \env,\heap\rightarrow \suspend~c_1', \omega,\heap'
+      }{
+        c_1;c_2,\env,\heap \rightarrow \suspend~c_1';c_2,\omega,\heap'
+      }
+      \qquad
+      \cfrac{
+        c_1, \env,\heap \rightarrow \ret, \omega,\heap'
+      }{
+        c_1;c_2,\env,\heap \rightarrow \ret,\omega,\heap'
+      }
+      \\\\
+      \cfrac{
+      c, \env \cdot \omega, \heap \rightarrow \suspend~c', \omega', \heap'
+      }{
+      \{c\}_{\omega},\env, \heap \rightarrow \suspend~\{c'\}_{\omega\omega'}, [~],\heap'
+      }
+      \\\\
+      \cfrac{
+      c, \env \cdot \omega, \heap \rightarrow
+      \mathcal{K}, \omega', \heap' \qquad {\mathit{values}}(\omega\omega') = \overline{v}
+      \qquad \mathcal{K} \in \continue,\ret \qquad
+      \heap'' = drop(\heap', \overline{v})
+      }{
+      \{c\}_{\omega},\env, \heap \rightarrow \mathcal{K}, \varnothing,\heap''
+      }
+      \\\\
+      \cfrac{
+        \eval{e}{\env}{\heap} = ({\tt{true}}, \heap')
+        \qquad \{c_1\}, \env,\heap' \rightarrow \mathcal{K},\omega,\heap''
+      }{
+        \ite{e}{\{c_1\}}{\{c_2\}},\env,\heap \rightarrow \mathcal{K},\omega,\heap''
+      }
+      \\\\
+      \cfrac{
+        \evalRight{e}{\env}{\heap} = ({\tt{false}}, \sigma') \qquad \{c_2\}, \rho,\heap'
+        \rightarrow \mathcal{K},\omega,\heap'
+      }{
+        \ite{e}{\{c_1\}}{\{c_2\}},\env,\sigma \rightarrow \mathcal{K},\omega,\sigma'
+      }
+      \\\\
+      \cfrac{
+        \evalRight{e}{\env}{\heap} = {\tt{true}}\qquad \{c\}_\varnothing; \while{e}{c},\env,\heap \rightarrow \mathcal{K}, \omega,\heap'
+      }{
+        \while{e}{c}, \env, \heap \rightarrow \mathcal{K},\omega,\heap'
+      }
+      \\\\
+      \cfrac{
+        \evalRight{e}{\env}{\heap} ={\tt{false}}
+      }{
+        \while{e}{c}, \env, \heap \rightarrow \continue,\varnothing,\heap
+      }
+    \end{array}
+  $$
+  \caption{Microsteps}
+  \label{fig:sem1}
+\end{figure}
+\begin{figure}
+  $$
+    \begin{array}{c}
+      \cfrac{
+      \begin{array}{c}
+        \evalRight{e_i}{\env}{\heap} \Downarrow v_i \qquad 0\leq i \leq n-1                                                                                 \\
+        {\tt{method}}~m\langle A_0,\ldots,A_{m-1}\rangle(\field{x_0}{\tau_0},\ldots,\field{x_{n-1}}{\tau_{n-1}})\lceil :\tau\rceil~c \in {\mathit{Methods}} \\
+        \{c\}_{[x_i \mapsto v_i]_{i=0}^{n-1}},\epsilon, \heap \rightarrow \ret(v), \omega, \heap'
+      \end{array}
+      }{
+      m(e_0,\ldots,e_{n-1}), \env, \heap \rightarrow \continue, \omega, \heap'
+      }
+      \\\\
+      \cfrac{
+        \begin{array}{c}
+          \evalRight{e}{\env}{\heap} = v \qquad
+          filter(p,v) = {\mathit{undef}} \\
+          {\tt{case}}~e~\{\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K},\omega, \heap'
+        \end{array}
+      }{
+        {\tt{case}}~e~\{p:c,\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K},\omega, \heap'
+      }
+      \\\\
+      \cfrac{
+        \begin{array}{c}
+          \evalRight{e}{\env}{\heap} = v \qquad
+          filter(p,v) = [(x_i,v_i)]_{i=0}^{n-1}              \\
+          \{\ell_i\}_{i=0}^{n-1} \cap \dom(\heap)= \emptyset \\
+          \{c\}_{[x_i \mapsto \ell_i]_{i=0}^{n-1}}, \env, \heap_{\{\ell_i, \mapsto v_i\}_{i=0}^{n-1}}
+          \rightarrow \mathcal{K},\omega,\heap'
+        \end{array}
+      }{
+        {\tt{case}}~e~\{p:c,\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K}, \omega , \heap'
+      }
+      % A PRIORI OMEGA = VIDE ICI
+      % CE QUI EST LE CAS A CHAQUE FOIS QUE L'ON INSERE UN BLOC, FAIRE DEUX TYPES DE REGLES BLOCK OU NON BLOCK
+      % CONTEXTE OOU NON CONTEXTE
+      % NOTE {C} for {C}_[]
+      \\\\
+    \end{array}
+  $$
+  \caption{Microsteps}
+  \label{fig:sem2}
+\end{figure}
+\begin{figure}
+  $$
+    \begin{array}{c}
+      \cfrac{
+        \begin{array}{c}
+          \env(s) = \ell \qquad \sigma(\ell) = \present
+          \qquad c,\env\cdot \varnothing,\heap,\rightarrow \mathcal{K},\omega',\heap'
+          \qquad \mathcal{K} \in \continue,\ret \\
+          \omega\omega' \lightning \overline{\alpha} \qquad
+          \sigma'' = {\mathit{drop}}(\omega,\overline{\alpha})
+        \end{array}
+      }{
+        \when{s}{\{c\}_\omega},\env,\heap\rightarrow
+        \mathcal{K},\varnothing,\heap''
+      }
+      \\\\
+      \cfrac{
+      \env(s) = \ell \qquad \sigma(\ell) = \present \qquad
+      c,\env \cdot \omega,\heap \rightarrow \suspend~c',\omega',\heap'
+      }
+      {
+      \when{s}{\{c\}_\omega},\env,\heap\rightarrow
+      \suspend~\when{s}{\{c'\}_{\omega\omega'}},\varnothing,\heap'
+      }
+      \\\\
+      \cfrac{
+      \env(s) = \ell \qquad \sigma(\ell)= {\bf{0}}
+      }{
+      \when{s}{\{c\}_\omega},\env,\heap \rightarrow
+      \suspend~\when{s}{\{c\}_\omega},\varnothing,\heap
+      }
+      \\\\
+      \cfrac{
+        \begin{array}{c}
+          c,\env \cdot \omega,\heap \rightarrow \mathcal{K},\omega',\heap'
+          \qquad \mathcal{K} \in \continue,\ret \\
+          \omega\omega' \lightning \overline{\alpha} \qquad
+          \sigma'' = {\mathit{drop}}(\omega,\overline{\alpha})
+        \end{array}
+      }{
+        \watching{s}{\{c\}_\omega},\env,\heap\rightarrow \mathcal{K}, \varnothing,\heap''
+      }
+      \\\\
+      \cfrac{
+      c,\env \cdot \omega,\heap\rightarrow \suspend~c',\omega',\heap'
+      }{
+      \watching{s}{\{c\}_\omega},\env,\heap \rightarrow \suspend~\watching{s}{\{c'\}_{\omega\omega'}},\varnothing,\heap'
+      }
+      \\\\
+      \cfrac{
+      \begin{array}{c}
+        c_1, \env \cdot \omega_1, \heap \rightarrow
+        \continue ,\omega_1' , \heap''
+        \qquad
+        c_2, \env \cdot \omega_2 , \heap'' \rightarrow
+        \continue ,\env \cdot \omega_2' ,\heap'''
+        \\
+        \omega_1\omega_2\omega_1'\omega_2' \lightning \overline{\alpha} \qquad \heap''={\mathit{drop}}(\heap, \overline{\alpha})
+      \end{array}
+      }{
+      \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2}, \env ,\heap \rightarrow
+      \continue, \varnothing,\heap''
+      }
+      \\\\
+      \cfrac{
+      \begin{array}{c}
+        c_1, \env \cdot \omega_1, \heap \rightarrow
+        \suspend(c_1') ,\omega_1' , \heap''
+        \qquad
+        c_2, \env \cdot \omega_2 , \heap'' \rightarrow
+        \suspend(c_2') ,\omega_2' ,\heap'
+      \end{array}
+      }{
+      \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2}, \env ,\heap \rightarrow
+      \suspend~\{c_1\}_{\omega_1\omega_1'} \parallel \{c_2\}_{\omega_2\omega_2'}, \varnothing, \heap'
+      }
+      \\\\
+      \cfrac{
+      \begin{array}{c}
+        \{c_1\}, \env \cdot \omega_1, \heap \rightarrow
+        \suspend(c_1') ,\omega_1' , \heap''
+        \qquad
+        \{c_2\}, \env \cdot \omega_2 , \heap'' \rightarrow
+        \continue ,\omega_2' ,\heap'''
+      \end{array}
+      }{
+      \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2}, \env ,\heap \rightarrow
+      \suspend~\{c_1'\}_{\omega_1\omega_1'} \parallel \{\skipp\}_{\omega_2\omega_2'}, \varnothing,\heap'
+      }
+      \\\\
+      \cfrac{
+        \begin{array}{c}
+          c \equiv c' \qquad c',\env,\heap \rightarrow K',\omega,\heap' \qquad K' \equiv K
+        \end{array}
+      }{
+        c, \env ,\heap \rightarrow
+        K,\omega,\heap'
+      }
+    \end{array}
+  $$
+  \caption{Microsteps}
+  \label{fig:sem3}
+\end{figure}
+$$
+  \begin{array}{c}
+    \cfrac{}{c \equiv c} \qquad
+    \cfrac{}
+    {
+    \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2} \equiv
+    \{c_2\}_{\omega_2} \parallel \{c_1\}_{\omega_1}
+    }
+    \\\\
+    \cfrac{}{K \equiv K} \qquad
+    \cfrac{c \equiv c'}{\suspend~c \equiv \suspend~c'}
+  \end{array}
+$$
+
+\def\kill{{\mathit{kill}}}
+\def\collect{{\mathit{collect}}}
+\newcommand{\addressOf}[1]{#1\lightning}
+
+\def\suspended{{\mathit{suspended}}}
+\def\unlock{{\mathit{unlock}}}
+
+\subsection{steps and instants}
+
+The execution of an instant is a succession of microsteps. We perform microsteps until
+the command is either terminated or suspended (predicate $\suspended$).If the
+command is suspended, we perform preemption (function $\unlock$) before to run a new instant.
+The computation of instants is given in figure \ref{fig:instants}.
+$$
+  \begin{array}{c}
+    \cfrac{
+      \suspended(c,\env \cdot \omega,\heap)
+    }{
+      \suspended(\{c\}_\omega,\env,\heap)
+    }
+    \qquad
+    \cfrac{
+      \suspended(c_1,\env,\heap)
+    }{
+      \suspended(c_1;c_2,\env,\heap)
+    }
+    \\\\
+    \cfrac{
+      \env(s)=\alpha \qquad
+      \heap(\alpha)=\absent \vee (\heap(\alpha)=\present \wedge
+        {\mathit{suspended}}(c,\env \cdot \omega,\heap))
+    }
+    {{\mathit{suspended}}(\when{s}{\{c\}_\omega},\env,\heap)}
+    \\\\
+    \cfrac{
+      \suspended(c,\env\cdot \omega,\heap)
+    }{
+      \suspended(\watching{s}{\{c\}_\omega},\env,\heap)
+    }
+    \\\\
+    \cfrac{
+      \suspended(c_1,\env \cdot \omega_1,\heap) \vee
+      \suspended(c_2,\env \cdot \omega_2,\heap)
+    }{
+      \suspended({c_1} \parl{\omega_1}{\omega_2} {c_2}, \env, \heap)
+    }
+  \end{array}
+$$
+The function $\unlock$ terminates preemption blocks if the watched signal is present.
+$$
+  \begin{array}{lcll}
+    \unlock(\{c\}_\omega, \env,\sigma)                      & = & \{c'\}_\omega                      & {\text{where }} c'=\unlock(c,\env\cdot\omega,\heap)                                              \\
+    \unlock(c_1;c_2, \env,\sigma)                           & = & c_1';c_2                           & {\text{where }} c_1'=\unlock(c_1,\env,\heap)                                                     \\
+    \unlock(\when{s}{\{c\}_\omega})                         & = & \when{s}{\{c'\}_\omega}            & {\text{where }} c'=\unlock(c,\env\cdot\omega,\heap)                                              \\
+    \unlock(\watching{s}{\{c\}_\omega})                     & = & \skipp                             & {\text{if $\rho(s)=\alpha$ and $\sigma(\alpha)=\present$}}                                       \\
+    \unlock(\watching{s}{\{c\}_\omega})                     & = & \watching{s}{\{c'\}_\omega}        & {\text{if $\rho(s)=\alpha$, $\sigma(\alpha)=\absent$ and $c'=\unlock(c,\env\cdot\omega,\heap)$}} \\
+    \unlock(c_1 \parl{\omega_1}{\omega_2} c_2, \env, \heap) & = & c_1'\parl{\omega_1}{\omega_2} c_2' & {\text{where }} c_i' = \unlock(c_i,\env\cdot\omega_i,\heap),~i=1,2
+  \end{array}
+$$
+
+We note $(c,\heap) \rightarrow (c', \heap)$ for $(c,\epsilon,\heap) \rightarrow (c',\varnothing,\heap')$,
+$\suspended(c,\heap)$ for $\suspended(c,\varnothing,\heap)$ and
+$\unlock(c,\heap)$ for $\unlock(c,\varnothing,\heap)$.
+$$
+  \begin{array}{c}
+    \cfrac{
+      (c,\heap) \rightarrow (\continue,\heap')
+    }{
+      (c,\heap) \Rightarrow \heap'
+    }
+    \qquad
+    \cfrac{
+      (c,\heap) \rightarrow (\suspend~c',\heap') \qquad
+      \suspended (c',\heap')
+    }{
+      (c,\heap) \Rightarrow (c', \heap')
+    }
+    \\\\
+    \cfrac{
+      (c,\heap) \rightarrow (\suspend~c',\heap') \qquad
+      \neg \suspended (c',\heap') \qquad (c',\heap') \Rightarrow (c'',\heap'')
+    }{
+      (c,\heap) \Rightarrow (c'', \heap'')
+    }
+  \end{array}
+$$
+\begin{figure}
+  $$
+    \begin{array}{c}
+      \cfrac{
+        (c,\heap) \Rightarrow \heap'
+      }{
+        (c,\heap) \Longmapsto \heap'
+      }
+      \qquad
+      \cfrac{
+        (c,\heap) \Rightarrow (c',\heap')
+      }{
+        (c,\heap) \Longmapsto (c', \heap')
+      }
+      \\\\\
+      \cfrac{
+        (c,\heap) \Longmapsto (c', \heap') \qquad \unlock(c',\heap) = c'' \qquad (c'', \heap') \Longmapsto (c''',\heap')
+      }{
+        (c,\heap) \Longmapsto (c''', \heap')
+      }
+    \end{array}
+  $$
+  \label{fig:instants}
+  \caption{Instants}
+\end{figure}
+\begin{paragraph}{Execution of a program}
+  Given a command $c$, the initial state is $\{c\}_\varnothing,\epsilon,h_\emptyset$
+\end{paragraph}

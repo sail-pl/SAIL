@@ -39,21 +39,21 @@ let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:l
 
   let rec aux x env : SailEnv.t = 
     match x with 
-  | Ast.DeclVar (mut, name, t, exp) -> declare_var mut name t exp env 
+  | Ast.DeclVar (_, mut, name, t, exp) -> declare_var mut name t exp env 
 
   | DeclSignal _ -> failwith "unimplemented2"
-  | Skip -> env
-  | Assign (e1,e2) -> 
+  | Skip _ -> env
+  | Assign (_, e1,e2) -> 
     let lvalue = eval_l env llvm e1 |> snd
     and rvalue = eval_r env llvm e2 |> snd in
     build_store rvalue lvalue llvm.b |> ignore;
     env
 
-  | Seq (s1,s2)-> (* SailEnv.print_env env; *)  let new_env = aux s1 env in (* SailEnv.print_env new_env; *) aux s2 new_env
+  | Seq (_, s1,s2)-> (* SailEnv.print_env env; *)  let new_env = aux s1 env in (* SailEnv.print_env new_env; *) aux s2 new_env
 
-  | Par (_,_) ->  failwith "unimplemented6"
+  | Par (_, _,_) ->  failwith "unimplemented6"
 
-  | If (cond_exp, then_s, opt_else_s) -> 
+  | If (_, cond_exp, then_s, opt_else_s) -> 
     let cond = eval_r env llvm cond_exp |> snd
     and start_bb = insertion_block llvm.b  
     and then_bb = append_block llvm.c "then" m 
@@ -89,7 +89,7 @@ let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:l
       build_unreachable llvm.b |> ignore 
     ); env
 
-  | While (e, s) -> 
+  | While (_, e, s) -> 
       let start_bb = insertion_block llvm.b in
       let while_bb = append_block llvm.c "while" m in
       let do_bb = append_block  llvm.c "do" m in
@@ -109,11 +109,11 @@ let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:l
       s_ret
 
 
-  | Case (_,  _) ->  failwith "case unimplemented"
+  | Case (_, _,  _) ->  failwith "case unimplemented"
 
-  | Invoke (_, name, args) -> construct_call name args env llvm eval_r |> ignore; env
+  | Invoke (_, _, name, args) -> construct_call name args env llvm eval_r |> ignore; env
 
-  | Return opt_e -> 
+  | Return (_, opt_e) -> 
     let current_bb = insertion_block llvm.b in
     if block_terminator current_bb |> Option.is_some then
       failwith "a return statement for the current block already exists !"
@@ -123,13 +123,13 @@ let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:l
         | None ->  build_ret_void
       in ret llvm.b |> ignore; env
 
-  | Run (_, _) ->  failwith "run unimplemented"
+  | Run (_, _, _) ->  failwith "run unimplemented"
   | Loop _ ->  failwith "loop unimplemented"
   | Emit _ ->  failwith "emit unimplemented"
   | Await _ ->  failwith "await unimplemented"
-  | When (_, _) ->  failwith "when unimplemented"
-  | Watching (_, _) -> failwith "watching unimplemented"
-  | Block s -> 
+  | When (_, _, _) ->  failwith "when unimplemented"
+  | Watching (_, _, _) -> failwith "watching unimplemented"
+  | Block (_, s) -> 
     (* we create a new frame for inside the block and unstack it on return *)
     let new_env = aux s (SailEnv.new_frame env) in
     SailEnv.pop_frame new_env
