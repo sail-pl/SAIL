@@ -21,11 +21,12 @@
 (**************************************************************************)
 
 open Common
+open Lexing
 
 (* expressions are control free *)
 type expression = 
   Variable of string 
-  | Deref of expression
+  | Deref of expression 
   | StructRead of expression * string
   | ArrayRead of expression * expression  
   | Literal of literal
