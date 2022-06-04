@@ -1,28 +1,7 @@
 open Expressions_gen
 open Compiler_common
 open Sail_env
-open Externals
 open Llvm
-
-
-let declare_var (methd:llvalue) (mut:bool) (name:string) (ty:Common.sailtype) (exp:Ast.expression option) (llvm:llvm_args) (env:SailEnv.t) : SailEnv.t =
-  let _ = mut in (* todo manage mutable types *)
-  let var_type = getLLVMType ty llvm.c llvm.m  in
-  let entry_b = entry_block methd |> instr_begin |> builder_at llvm.c in
-  let v =  
-    match (ty,exp) with
-    | (ArrayType _, Some e) -> 
-      let array = eval_r env llvm e in
-      let array_alloc = build_alloca (type_of array) name entry_b in 
-      build_store array array_alloc llvm.b |> ignore ; array_alloc
-    | (ArrayType _,None) -> failwith "Error : array must have an initializer"   
-    | (_, Some e) -> let x = build_alloca var_type name entry_b in 
-        build_store (eval_r env llvm e) x llvm.b |> ignore; x  
-    | _ -> build_alloca var_type name entry_b
-  in
-  SailEnv.declare_var env name v
-
-
 
 let rec block_returns (bb:llbasicblock) : bool = 
   match block_terminator bb with
@@ -37,25 +16,45 @@ and branch_returns (br:llvalue) : bool =
 
 
   
-let statementToIR (m:llvalue) (x: Ast.statement) (llvm:llvm_args) (env :SailEnv.t) : unit =
+let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) : unit =
+  let declare_var (mut:bool) (name:string) (ty:Common.sailtype) (exp:Ast.expression option) (env:SailEnv.t) : SailEnv.t =
+    let _ = mut in (* todo manage mutable types *)
+    let ty = degenerifyType ty generics in
+    let var_type = getLLVMType ty llvm.c llvm.m  in
+    let entry_b = entry_block m |> instr_begin |> builder_at llvm.c in
+    let v =  
+      match (ty,exp) with
+      | (ArrayType _, Some e) -> 
+        let _,array = eval_r env llvm e  in
+        let array_alloc = build_alloca (type_of array) name entry_b in 
+        build_store array array_alloc llvm.b |> ignore ; array_alloc
+      | (ArrayType _,None) -> failwith "Error : array must have an initializer"   
+      | (_, Some e) -> let x = build_alloca var_type name entry_b in 
+          build_store (eval_r env llvm e |> snd) x llvm.b |> ignore; x  
+      | _ -> build_alloca var_type name entry_b
+    in
+    Logs.debug (fun m -> m "declared %s with type %s " name (string_of_sailtype (Some ty))) ;
+    SailEnv.declare_var env name (ty,v)
+  in
+
   let rec aux x env : SailEnv.t = 
     match x with 
-  | Ast.DeclVar (mut, name, t, exp) -> declare_var m mut name t exp llvm env
+  | Ast.DeclVar (mut, name, t, exp) -> declare_var mut name t exp env 
 
   | DeclSignal _ -> failwith "unimplemented2"
   | Skip -> env
   | Assign (e1,e2) -> 
-    let lvalue = eval_l env llvm e1
-    and rvalue = eval_r env llvm e2 in
+    let lvalue = eval_l env llvm e1 |> snd
+    and rvalue = eval_r env llvm e2 |> snd in
     build_store rvalue lvalue llvm.b |> ignore;
     env
 
-  | Seq (s1,s2)-> SailEnv.print_env env;  let new_env = aux s1 env in  SailEnv.print_env new_env; aux s2 new_env
+  | Seq (s1,s2)-> (* SailEnv.print_env env; *)  let new_env = aux s1 env in (* SailEnv.print_env new_env; *) aux s2 new_env
 
   | Par (_,_) ->  failwith "unimplemented6"
 
   | If (cond_exp, then_s, opt_else_s) -> 
-    let cond = eval_r env llvm cond_exp
+    let cond = eval_r env llvm cond_exp |> snd
     and start_bb = insertion_block llvm.b  
     and then_bb = append_block llvm.c "then" m 
     and else_bb = append_block llvm.c "else" m
@@ -100,7 +99,7 @@ let statementToIR (m:llvalue) (x: Ast.statement) (llvm:llvm_args) (env :SailEnv.
       build_br while_bb llvm.b |> ignore;
 
       position_at_end while_bb llvm.b;
-      let cond = eval_r env llvm e in
+      let cond = eval_r env llvm e |> snd in
       build_cond_br cond do_bb finally_bb llvm.b |> ignore;
 
       position_at_end do_bb llvm.b;
@@ -111,14 +110,8 @@ let statementToIR (m:llvalue) (x: Ast.statement) (llvm:llvm_args) (env :SailEnv.
 
 
   | Case (_,  _) ->  failwith "case unimplemented"
-  | Invoke (_, name, args) ->  
-    begin
-      match lookup_function name llvm.m with  
-      | None -> external_methods eval_r name args llvm env |> ignore; env
-      | Some f -> 
-        let args = List.map (eval_r env llvm) args |> Array.of_list in
-        build_call f  args "" llvm.b |> ignore; env
-    end 
+
+  | Invoke (_, name, args) -> construct_call name args env llvm eval_r |> ignore; env
 
   | Return opt_e -> 
     let current_bb = insertion_block llvm.b in
@@ -126,7 +119,7 @@ let statementToIR (m:llvalue) (x: Ast.statement) (llvm:llvm_args) (env :SailEnv.
       failwith "a return statement for the current block already exists !"
     else 
       let ret = match opt_e with
-        | Some r ->  let v = eval_r env llvm r in build_ret v
+        | Some r ->  let v = eval_r env llvm r |> snd in build_ret v
         | None ->  build_ret_void
       in ret llvm.b |> ignore; env
 

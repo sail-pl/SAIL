@@ -1,90 +1,91 @@
 open Compiler_common
 open Sail_env
+open Common
 open Statements_gen
 open Llvm
 
-let methodToIR (method_proto : llvalue) (m_args : (llbuilder->llvalue) array) (p_body : Ast.statement) (llc:llcontext) (llm:llmodule) (env:SailEnv.t) : unit =
-  let builder = builder llc in
-  let bb = append_block llc "" method_proto in
-  position_at_end bb builder;
-  let env,args = Array.fold_left_map (
-    fun env x -> 
-      let v = x builder in 
-      let new_env = SailEnv.declare_var env (value_name v) v in 
-      (new_env,v)
-    ) env m_args
-
-  in Array.iteri (fun i arg -> build_store (param method_proto i) arg builder |> ignore ) args;
-  let llvm_args = {c = llc; b = builder; m = llm} in
-  statementToIR method_proto p_body llvm_args env;
+(* todo generalise method / process  *)
+let constructMethod (method_proto : llvalue) (m_args : (sailtype * llvalue) array) (m_generics:sailor_args) (p_body : Ast.statement) (llvm:llvm_args) (env:SailEnv.t) : unit =
+  let new_env,args = Array.fold_left_map (
+    fun env tyvar -> 
+      let new_env = SailEnv.declare_var env (value_name (snd tyvar)) tyvar in 
+      (new_env, snd tyvar)
+    ) env m_args 
+  in Array.iteri (fun i arg -> build_store (param method_proto i) arg llvm.b |> ignore ) args;
+  
+  statementToIR method_proto p_body m_generics llvm new_env;
   let ret_ty = (type_of method_proto |> return_type |> subtypes).(0) in
-  match block_terminator (insertion_block builder) with
+  match block_terminator (insertion_block llvm.b) with
   (* assuming the builder is on the last block of the method *)
   | Some _ -> ()
   | None when classify_type ret_ty = TypeKind.Void ->   
     (* allow not to have a return for void methods*)
-    build_ret_void builder |> ignore
+    build_ret_void llvm.b |> ignore
   | _ ->         
     (* there must always be a return if return type is not void *)
     failwith "ERROR : method doesn't always return !"
 
-let processToIR (method_proto : llvalue) (p_body : Ast.statement) (llc:llcontext) (llm:llmodule) (env:SailEnv.t) : unit =
-    let builder = builder llc in
-    let bb = append_block llc "" method_proto in
-    position_at_end bb builder;
-    let llvm_args = {c = llc; b = builder; m = llm} in
-    statementToIR method_proto p_body llvm_args env |> ignore;
-    let bt = block_terminator (insertion_block builder) in
-    if (Option.is_none bt) then
-          build_ret_void builder |> ignore
 
-let methodArgs (args: (string * Common.sailtype) list ) (llc:llcontext) (llm:llmodule) : (llbuilder->llvalue) array = 
-    let llvalue_list = List.map (
-      fun (name, t) -> 
-        let  ty = getLLVMType t llc llm in
-        build_alloca ty name
-    ) args in
-    Array.of_list llvalue_list
-
-
-let parse_method (s : Ast.statement Common.method_defn) (llc:llcontext) (llm:llmodule) (env:SailEnv.t) : unit =
-  let method_rt = match s.m_rtype with
-  | Some t -> getLLVMType t llc llm
-  | None -> void_type llc
+let constructProcess (process_proto : llvalue) (p_args : (sailtype * llvalue) array) (p_generics: sailor_args) (p_body : Ast.statement) (llvm:llvm_args) (env:SailEnv.t) : unit =
+  let new_env,args = Array.fold_left_map (
+    fun env tyvar -> 
+      let new_env = SailEnv.declare_var env (value_name (snd tyvar)) tyvar in 
+      (new_env, snd tyvar)
+    ) env p_args 
   in
-  let method_t = 
-    let args_type = List.map (fun (_,arg) -> getLLVMType arg llc llm) s.m_params |> Array.of_list in
-    function_type method_rt args_type 
-  in
-  let method_proto = match lookup_function s.m_name llm with
-    | None -> declare_function s.m_name method_t llm
-    | Some f -> 
-      if block_begin f <> At_end f then
-        "redefinition of method " ^  s.m_name |> failwith
-      else f
-  in 
-  let args = methodArgs s.m_params llc llm in
-    methodToIR method_proto args s.m_body llc llm env |> ignore;
-    if not (Llvm_analysis.verify_function method_proto) then
-      begin
-      "problem with method " ^ s.m_name |> print_endline;
-      dump_value method_proto
-      end
+  Array.iteri (fun i arg -> build_store (param process_proto i) arg llvm.b |> ignore ) args;
 
-let parse_process (s: Ast.statement Common.process_defn) (llc:llcontext) (llm:llmodule) (env:SailEnv.t)  : unit =
-    let args : lltype Array.t = [||] in
-    let name = if String.equal "Main" s.p_name then "main" else s.p_name in
-    let process_t = function_type (void_type llc) args in
-    let process_proto = match lookup_function name llm with
-      | None -> declare_function name process_t llm
-      | Some f -> 
-        if block_begin f <> At_end f then
-          failwith ("redefinition of process " ^  name)
-        else f
-    in 
-    processToIR process_proto s.p_body llc llm env  |> ignore;
-    if not (Llvm_analysis.verify_function process_proto) then
+  statementToIR process_proto p_body p_generics llvm new_env |> ignore;
+
+  let bt = block_terminator (insertion_block llvm.b) in
+  if (Option.is_none bt) then
+        build_ret_void llvm.b |> ignore 
+
+
+let toLLVMArgs (args: (string * Common.sailtype) list ) (llvm:llvm_args) : (sailtype * llvalue) array = 
+  let llvalue_list = List.map (
+    fun (name, t) -> 
+      let ty = getLLVMType t llvm.c llvm.m in
+      t,build_alloca ty name llvm.b
+  ) args in
+  Array.of_list llvalue_list
+
+
+let methodToIR (llc:llcontext) (llm:llmodule) (env:SailEnv.t) (name : string) (m : sailor_method) : unit =
+  let builder = builder llc in
+  let llvm = {b=builder; c=llc ; m = llm} in
+  match SailEnv.get_method env name with
+  | None -> Printf.sprintf "method %s doesn't exist !" name |> failwith
+  | Some {ret=_;proto} -> 
+      if block_begin proto <> At_end proto then
+        failwith ("redefinition of method " ^  name);
+
+      let bb = append_block llvm.c "" proto in
+      position_at_end bb llvm.b;
+      let args = toLLVMArgs m.decl.args llvm in
+      constructMethod proto args m.generics m.body llvm env |> ignore;
+
+      if not (Llvm_analysis.verify_function proto) then
+        begin
+        "problem with method " ^ name |> print_endline;
+        dump_value proto
+        end
+
+let processToIR (llc:llcontext) (llm:llmodule) (env:SailEnv.t)  (name : string) (p : sailor_process) : unit =
+  let builder = builder llc in
+  let llvm = {b=builder; c=llc ; m = llm} in
+  match SailEnv.get_method env name with
+  | None -> Printf.sprintf "process %s doesn't exist !" name |> failwith
+  | Some {ret=_;proto} -> 
+      if block_begin proto <> At_end proto then
+        failwith ("redefinition of process " ^  name);
+
+    let bb = append_block llvm.c "" proto in
+    position_at_end bb llvm.b;
+    let args = toLLVMArgs p.args llvm in
+    constructProcess proto args p.generics p.body llvm env  |> ignore;
+    if not (Llvm_analysis.verify_function proto) then
       begin
-      "problem with method " ^ s.p_name |> print_endline;
-      dump_value process_proto
+      "problem with process " ^ name |> print_endline;
+      dump_value proto
       end
