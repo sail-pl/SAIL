@@ -45,7 +45,7 @@ let constructProcess (process_proto : llvalue) (p_args : (sailtype * llvalue) ar
 let toLLVMArgs (args: (string * Common.sailtype) list ) (llvm:llvm_args) : (sailtype * llvalue) array = 
   let llvalue_list = List.map (
     fun (name, t) -> 
-      let ty = getLLVMType t llvm.c llvm.m in
+      let ty = getLLVMType t llvm.c llvm.m in 
       t,build_alloca ty name llvm.b
   ) args in
   Array.of_list llvalue_list
