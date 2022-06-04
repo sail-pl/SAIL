@@ -68,7 +68,7 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
     | Float,Float -> Float,g
     | Char,Char -> Char,g
     | String,String -> String,g
-    | ArrayType at,ArrayType mt -> let t,g = aux at mt g in ArrayType t,g
+    | ArrayType (at,s),ArrayType (mt,s') when s = s'-> let t,g = aux at mt g in ArrayType (t,s),g
     | CompoundType _, CompoundType _ -> failwith "todocompoundtype"
     | Box _at, Box _mt -> failwith "todobox"
     | RefType (at,am), RefType (mt,mm) -> if am <> mm then failwith "different mutability" else aux at mt g
@@ -170,7 +170,7 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
   | ArrayRead (_, e,_) -> 
     begin 
       match aux e sc with
-      | (ArrayType t,sc) -> t,sc
+      | (ArrayType (t,_s),sc) -> t,sc
       | _ -> failwith "not an array !"
     end
   | UnOp (_,_,e) -> aux e sc
@@ -192,7 +192,7 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
         let next_t,next_ts = aux e sc' in
         if next_t <> last_t then failwith "mixed type array !" else (next_t,next_ts)
     ) (first_t,sc') h in
-    ArrayType t,v
+    ArrayType (t, List.length (e::h)),v
   | ArrayStatic (_, []) -> failwith "error : empty array"
   | StructAlloc (_, _,_) -> failwith "todo"
   | EnumAlloc (_, _,_) -> failwith "todo"

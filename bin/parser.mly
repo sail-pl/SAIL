@@ -221,7 +221,7 @@ sailtype:
 | TYPE_FLOAT {Float}
 | TYPE_CHAR {Char}
 | TYPE_STRING {String}
-| ARRAY LANGLE typ = sailtype RANGLE {ArrayType (typ)}
+| ARRAY LANGLE typ = sailtype SEMICOLON size=INT RANGLE {ArrayType (typ, size)}
 | id = ID params=instance {CompoundType(id,params)}
 | name = UID {GenericType(name)}
 | REF b=mut t = sailtype {RefType(t,b)}

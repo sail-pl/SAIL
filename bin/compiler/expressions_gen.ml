@@ -55,7 +55,7 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression)  : (sailtype
     let array_t,array_val = eval_l env llvm array_exp in
     let t =
     match array_t with
-    | ArrayType t -> t
+    | ArrayType (t,_s) -> t
     | t ->  Printf.sprintf "typechecker is broken : 'array' type for %s is %s" (value_name array_val) (string_of_sailtype (Some t)) |> failwith
     in
     let _,index = eval_r env llvm index_exp  in
@@ -107,7 +107,7 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : (sailtype * llv
     set_linkage Linkage.Private array;
     set_unnamed_addr true array;
     set_global_constant true array;
-    (ArrayType (List.hd array_types)),build_load array "" llvm.b
+    (ArrayType (List.hd array_types, List.length elements)),build_load array "" llvm.b
     end
   | StructAlloc _ -> failwith "struct alloc is not a rvalue"
   | EnumAlloc _   -> failwith "enum alloc is not a rvalue"

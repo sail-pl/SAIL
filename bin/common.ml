@@ -30,7 +30,7 @@ type sailtype =
   | Float 
   | Char 
   | String
-  | ArrayType of sailtype
+  | ArrayType of sailtype * int
   | CompoundType of string * sailtype list
   | Box of sailtype
   | RefType of sailtype * bool

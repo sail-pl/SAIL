@@ -39,7 +39,7 @@ let pp_binop pf b =
       | Float -> pp_print_string pf "float"
       | Char -> pp_print_string pf "char"
       | String -> pp_print_string pf "string"
-      | ArrayType t -> Format.fprintf pf "array<%a>" pp_type t
+      | ArrayType (t,s) -> Format.fprintf pf "array<%a;%d>" pp_type t s
       | CompoundType (x, tl) -> 
           Format.fprintf pf "%s<%a>" x (pp_print_list ~pp_sep:pp_comma pp_type) tl
       | Box(t) -> Format.fprintf pf "ref<%a>" pp_type t

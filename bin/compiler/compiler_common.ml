@@ -43,7 +43,7 @@ let rec string_of_sailtype (t : sailtype option) : string =
   | Some Float -> "float"
   | Some Char -> "char"
   | Some String -> "string"
-  | Some ArrayType t -> sprintf "array<%s>" (string_of_sailtype (Some t))
+  | Some ArrayType (t,s) -> sprintf "array<%s;%d>" (string_of_sailtype (Some t)) s
   | Some CompoundType (x, _tl) -> sprintf "%s<todo>" x
   | Some Box(t) -> sprintf "ref<%s>" (string_of_sailtype (Some t))
   | Some RefType (t,b) -> 
@@ -68,7 +68,7 @@ let degenerifyType (t: sailtype) (generics: sailor_args) : sailtype =
   | Float -> Float
   | Char -> Char
   | String -> String
-  | ArrayType t -> ArrayType (aux t)
+  | ArrayType (t,s) -> ArrayType (aux t, s)
   | CompoundType (_name, _tl)-> aux t
   | Box t -> Box (aux t) 
   | RefType (t,m) -> RefType (aux t, m)
@@ -89,7 +89,7 @@ let getLLVMType (t : sailtype) (llc: llcontext) (_llm: llmodule) : lltype =
   | Float -> double_type llc
   | Char -> i8_type llc
   | String -> i8_type llc |> pointer_type
-  | ArrayType t -> aux t |> pointer_type
+  | ArrayType (t,_s) -> aux t |> pointer_type
   | CompoundType (_, [t])-> aux t
   | CompoundType _-> failwith "compound type unimplemented"
   | Box _ -> failwith "boxing unimplemented" 
