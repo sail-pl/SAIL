@@ -21,7 +21,7 @@ process Main(){
     n1.next = Some (n2);
     n0.next = Some (n1);
     x = list { head : Some (n0)};
-    var a : array<box<int>> = [box(0),box(0)];
+    var a : array<box<int>;2> = [box(0),box(0)];
     case (x.head) {
         Some (m) : {
             *a[*box(0)] = *m.elem;
