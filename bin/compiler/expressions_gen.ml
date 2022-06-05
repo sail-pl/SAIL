@@ -49,7 +49,7 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
 let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression)  : (sailtype * llvalue) = 
   let open Ast in
   match x with
-  | Variable (_, x) -> SailEnv.get_var env x
+  | Variable (_, x) ->  SailEnv.get_var env x
   | Deref (_, x) -> eval_r env llvm x 
   | ArrayRead (_, array_exp, index_exp) -> 
     let array_t,array_val = eval_l env llvm array_exp in

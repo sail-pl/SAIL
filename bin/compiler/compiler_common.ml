@@ -89,7 +89,7 @@ let getLLVMType (t : sailtype) (llc: llcontext) (_llm: llmodule) : lltype =
   | Float -> double_type llc
   | Char -> i8_type llc
   | String -> i8_type llc |> pointer_type
-  | ArrayType (t,_s) -> aux t |> pointer_type
+  | ArrayType (t,s) -> array_type (aux t) s
   | CompoundType (_, [t])-> aux t
   | CompoundType _-> failwith "compound type unimplemented"
   | Box _ -> failwith "boxing unimplemented" 
