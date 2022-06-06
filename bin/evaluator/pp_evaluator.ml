@@ -27,10 +27,6 @@ let rec pp_print_value (pf : Format.formatter) (v : Domain.value) =
   | VFloat f -> Format.pp_print_float pf f
   | VChar c -> Format.pp_print_char pf c
   | VString s -> Format.pp_print_string pf s
-  | VArray a ->
-      Format.fprintf pf "[%a]"
-        (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_print_value)
-        a
   | VStruct (id, a) -> 
       Format.fprintf pf "%s{%a}" id
         (Format.pp_print_list ~pp_sep:Pp_common.pp_comma 
@@ -55,7 +51,6 @@ let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
       else Format.fprintf pf "var %s : %a = %a;" x Pp_common.pp_type t Intermediate.pp_print_expression e
   | DeclSignal x -> Format.fprintf pf "signal %s;" x
   | Skip -> Format.fprintf pf "skip;"
-  | Stop -> Format.fprintf pf "stop;"
   | Assign (e1, e2) ->
       Format.fprintf pf "%a = %a;" Intermediate.pp_print_path e1 Intermediate.pp_print_expression e2
   | Seq (c1, c2) -> Format.fprintf pf "%a; %a " pp_print_command c1 pp_print_command c2
@@ -94,7 +89,6 @@ let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
       else Format.fprintf pf "var %s : %a = %a" x Pp_common.pp_type t Intermediate.pp_print_expression e
   | DeclSignal x -> Format.fprintf pf "signal %s" x
   | Skip -> Format.fprintf pf "skip"
-  | Stop -> Format.fprintf pf "stop;"
   | Assign (e1, e2) ->
       Format.fprintf pf "%a := %a" Intermediate.pp_print_path e1 Intermediate.pp_print_expression e2
   | Seq (c1, _) -> Format.fprintf pf "%a; ... " pp_command_short c1

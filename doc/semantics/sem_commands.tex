@@ -290,26 +290,21 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
   \caption{Microsteps}
   \label{fig:sem3}
 \end{figure}
-$$
-  \begin{array}{c}
-    \cfrac{}{c \equiv c} \qquad
-    \cfrac{}
-    {
-    \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2} \equiv
-    \{c_2\}_{\omega_2} \parallel \{c_1\}_{\omega_1}
-    }
-    \\\\
-    \cfrac{}{K \equiv K} \qquad
-    \cfrac{c \equiv c'}{\suspend~c \equiv \suspend~c'}
-  \end{array}
-$$
+% $$
+%   \begin{array}{c}
+%     \cfrac{}{c \equiv c} \qquad
+%     \cfrac{}
+%     {
+%     \{c_1\}_{\omega_1} \parallel \{c_2\}_{\omega_2} \equiv
+%     \{c_2\}_{\omega_2} \parallel \{c_1\}_{\omega_1}
+%     }
+%     \\\\
+%     \cfrac{}{K \equiv K} \qquad
+%     \cfrac{c \equiv c'}{\suspend~c \equiv \suspend~c'}
+%   \end{array}
+% $$
 
-\def\kill{{\mathit{kill}}}
-\def\collect{{\mathit{collect}}}
-\newcommand{\addressOf}[1]{#1\lightning}
 
-\def\suspended{{\mathit{suspended}}}
-\def\unlock{{\mathit{unlock}}}
 
 \subsection{steps and instants}
 

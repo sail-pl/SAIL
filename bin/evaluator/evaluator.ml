@@ -192,7 +192,6 @@ let eval (env : env) (h : heap) (e : Intermediate.expression) : (value * heap) R
 let rec ownedLocations (v : value) : Heap.address list = 
     match v with 
     | VLoc (a, Owned) -> [ a ]
-    | VArray vl -> List.concat_map ownedLocations vl
     | VStruct (_, m) ->
         List.concat_map ownedLocations (List.map snd (FieldMap.bindings m))
     | VEnum (_, vl) -> List.concat_map ownedLocations vl
@@ -209,7 +208,7 @@ let rec deepFree (h : heap) (a : Heap.address) : heap Result.t =
 and dropReferencesFromValue (h : heap) (v : value) : heap Result.t =
     let open MonadSyntax (Result) in
     let open MonadFunctions (Result) in
-    foldLeftM deepFree h (ownedLocations v) (* should only free owner locations *)
+    foldLeftM deepFree h (ownedLocations v)
 
 let rec filter ((v, p) : value * pattern) : (string * value) list option =
   let open MonadOption in
@@ -252,7 +251,7 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
         let* h1 = setLocation h0 (freshAddress, Either.Right false) in
         return (Continue, Env.singleton s freshAddress, h1)
     | Skip -> return (Continue, Env.emptyFrame, h)
-    | Stop -> return (Continue, Env.emptyFrame, h)
+   (* | Stop -> return (Continue, Env.emptyFrame, h)*)
     | Assign (p, e) ->     (
         let* (targetAddress, targetOffset) = evalL env h p in
         let* (v, h0) = eval env h e in
@@ -376,12 +375,12 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
                 return (Continue, Env.emptyFrame, cleanHeap)
         | Continue, Suspend c ->
             return
-              ( Suspend (Par (Stop, Env.merge w1 w1', c, Env.merge w2 w2')),
+              ( Suspend (Par (Skip, Env.merge w1 w1', c, Env.merge w2 w2')),
                 Env.emptyFrame,
                 h'' )
         | Suspend c, Continue ->
             return
-              ( Suspend (Par (c, Env.merge w1 w1', Stop, Env.merge w2 w2')),
+              ( Suspend (Par (c, Env.merge w1 w1', Skip, Env.merge w2 w2')),
                 Env.emptyFrame,
                 h'' )
         | Suspend c1', Suspend c2' ->
@@ -420,7 +419,6 @@ let canProgress (c : command) (h : heap) : bool Result.t =
         | Some (Either.Right b) ->
             if b then aux c (Env.activate env w) else return false)
     | Watching (_, c, w) -> aux c (Env.activate env w)
-    | Stop -> return false
     | _ -> return true
   in
   aux c Env.empty

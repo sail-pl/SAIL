@@ -48,7 +48,6 @@ type value =
   | VFloat of float
   | VChar of char
   | VString of string
-  | VArray of value list
   | VStruct of string * value FieldMap.t
   | VEnum of string * value list
   | VLoc of location
@@ -67,7 +66,6 @@ let rec readValue (v : value) (o : offset) : value option =
   | _, [] -> Some v
   | VStruct (_, m), Field f :: o' -> 
       let* v = FieldMap.find_opt f m in readValue v o'
-  | VArray a, Indice n :: o' -> List.nth_opt a n >>= (Fun.flip readValue) o'
   | _ -> None
 
 let rec updateValue (v : value) (o : offset) (w : value) : value option =
@@ -77,10 +75,6 @@ let rec updateValue (v : value) (o : offset) (w : value) : value option =
       let* vf = FieldMap.find_opt f m in
         let* v' = updateValue vf o' w in
         Some (VStruct (id,FieldMap.update f (fun _ -> Some v') m))
-  | VArray a, Indice n :: o' ->
-      let* vn = List.nth_opt a n in
-      let* v' = updateValue vn o' w in
-      Some (VArray (List.mapi (fun i x -> if i = n then v' else x) a))
   | _ -> None
   
 type frame = Heap.address Env.frame
@@ -97,7 +91,6 @@ type command =
   | DeclVar of bool * string * sailtype * expression option
   | DeclSignal of string
   | Skip
-  | Stop
   | Assign of path * expression
   | Seq of command * command
   | Block of command * frame
