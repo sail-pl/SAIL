@@ -68,7 +68,11 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
     | Float,Float -> Float,g
     | Char,Char -> Char,g
     | String,String -> String,g
-    | ArrayType (at,s),ArrayType (mt,s') when s = s'-> let t,g = aux at mt g in ArrayType (t,s),g
+    | ArrayType (at,s),ArrayType (mt,s') -> 
+      if s = s' then
+        let t,g = aux at mt g in ArrayType (t,s),g
+      else
+        Printf.sprintf "array length mismatch : wants %i but %i provided" s' s  |> failwith
     | CompoundType _, CompoundType _ -> failwith "todocompoundtype"
     | Box _at, Box _mt -> failwith "todobox"
     | RefType (at,am), RefType (mt,mm) -> if am <> mm then failwith "different mutability" else aux at mt g
@@ -167,16 +171,28 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
     end
   | Literal (_, l) -> sailtype_of_literal l, sc
   | StructRead (_, _,_) -> failwith "todo"
-  | ArrayRead (_, e,_) -> 
+  | ArrayRead (_, e,idx) -> 
     begin 
       match aux e sc with
-      | (ArrayType (t,_s),sc) -> t,sc
+      | ArrayType (t,_),sc' -> 
+        let idx_t,sc' = aux idx sc' in
+        begin
+          try
+            resolveType idx_t Int [] [] |> ignore;           
+            t,sc'
+          with Failure s -> Printf.sprintf "incorrect index type : %s " s |> failwith 
+        end
       | _ -> failwith "not an array !"
     end
   | UnOp (_,_,e) -> aux e sc
   | BinOp (_,_,e1,e2) -> 
     let t1,sc' = aux e1 sc in let t2,sc' = aux e2 sc' in
-    if t1 <> t2 then failwith "operands do not have the same type !" else t1,sc'
+    begin
+      try
+        resolveType t1 t2 [] [] |> ignore;           
+        t1,sc'
+      with Failure s -> Printf.sprintf "operands mismatch : %s " s |> failwith 
+    end 
 
   | Ref (_,m,e) -> let t,sc' = aux e sc in RefType (t,m),sc'
   | Deref (_, e) -> let t,sc' = aux e sc in
@@ -190,7 +206,10 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
     let t,v = List.fold_left (
       fun (last_t,sc') e -> 
         let next_t,next_ts = aux e sc' in
-        if next_t <> last_t then failwith "mixed type array !" else (next_t,next_ts)
+        try
+          resolveType next_t last_t [] [] |> ignore;
+          next_t,next_ts
+        with Failure s -> Printf.sprintf "mixed type array : %s " s |> failwith 
     ) (first_t,sc') h in
     ArrayType (t, List.length (e::h)),v
   | ArrayStatic (_, []) -> failwith "error : empty array"
@@ -207,17 +226,24 @@ let analyse_statement (s: Ast.statement) (args: sailtype FieldMap.t) (sm : Ast.s
 
   | DeclVar (_, _,name,t,None) -> declare_var ts name t,sc
   | DeclVar (_, _,name,t,Some e) -> 
-    let t_r,sc' = analyse_expression e ts sc in 
-    if t <> t_r then failwith "type declared and assigned mismatch !"
-    else declare_var ts name t,sc'
-
+    begin
+      let t_r,sc' = analyse_expression e ts sc in 
+      try
+        resolveType t t_r [] [] |> ignore;
+        declare_var ts name t,sc'
+      with Failure s -> Printf.sprintf "type declared and assigned mismatch : %s " s |> failwith 
+    end
   | Block (_, s) -> let new_ts,sc' = analyse_statement s (new_frame ts) sc in pop_frame new_ts,sc'
   | Seq (_, s1,s2) -> let ts',sc' = analyse_statement s1 ts sc in analyse_statement s2 ts' sc'
   | Assign (_, el,er) -> 
     let t_l,sc_l = analyse_expression el ts sc in
     let t_r,sc_r = analyse_expression er ts sc_l in 
-    if t_l <> t_r then failwith "type declared and assigned mismatch !" else ts,sc_r
-
+    begin
+      try
+        resolveType t_l t_r [] [] |> ignore;
+        ts,sc_r
+      with Failure s -> Printf.sprintf "type declared and assigned mismatch : %s " s |> failwith 
+    end
   | If (_, e,s1, Some s2) -> let sc' = analyse_expression e ts sc |> snd in
     let sc' = analyse_statement s1 ts sc' |> snd in analyse_statement s2 ts sc'
 

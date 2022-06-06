@@ -23,12 +23,6 @@ let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:l
     let entry_b = entry_block m |> instr_begin |> builder_at llvm.c in
     let v =  
       match (ty,exp) with
-      | (ArrayType _, Some array_exp) -> 
-        let _array_t,array = eval_r env llvm array_exp  in
-        let array_alloc = build_alloca (type_of array) name entry_b in 
-        build_store array array_alloc llvm.b |> ignore ; array_alloc
-      | (ArrayType _,None) -> failwith "Error : array must have an initializer"  
-
       | (_, Some e) -> let x = build_alloca var_type name entry_b in 
           build_store (eval_r env llvm e |> snd) x llvm.b |> ignore; x  
       | _ -> build_alloca var_type name entry_b
