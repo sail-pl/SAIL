@@ -14,7 +14,6 @@ and branch_returns (br:llvalue) : bool =
   | Some `Unconditional bb -> block_returns bb
   | None -> false
 
-
   
 let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) : unit =
   let declare_var (mut:bool) (name:string) (ty:Common.sailtype) (exp:Ast.expression option) (env:SailEnv.t) : SailEnv.t =
@@ -108,8 +107,6 @@ let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:l
       build_br while_bb llvm.b |> ignore;
       position_at_end finally_bb llvm.b;
       s_ret
-
-
   | Case (_, _,  _) ->  failwith "case unimplemented"
 
   | Invoke (_, _, name, args) -> construct_call name args env llvm |> ignore; env

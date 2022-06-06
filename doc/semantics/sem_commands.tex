@@ -9,15 +9,20 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
 \begin{figure}
   $$
     \begin{array}{c}
-      \cfrac{x \not \in \dom (\rho) \qquad (\address,\heap') = {\mathit{fresh}}(\heap)}{
-
+      \cfrac{
+        x \not \in \dom (\rho) \qquad 
+        (\address,\heap') = {\mathit{fresh}}(\heap)
+      }{
         \variable~[mut]~x:\tau, \env,\heap \rightarrow
-        \continue, [x\mapsto \alpha],\heap'_{\address \leadsto {\mathit{undef}}}
+        \continue, [x\mapsto \address], \heap'
       }
       \qquad
-      \cfrac{s \not \in \dom(\rho) \qquad (\address,\heap') = {\mathit{fresh}}(\heap)}{
-        \signal~\sig, \env, \heap\rightarrow
-        \continue, [\sig \mapsto \address], \heap'_{\address \mapsto \absent}
+      \cfrac{
+        s \not \in \dom(\rho) \qquad 
+        (\address,\heap') = {\mathit{fresh}}(\heap)
+      }{
+        \dsignal~\sig, \env, \heap\rightarrow
+        \continue, [\sig \mapsto \address], \heap'[\address \leftarrow \absent]
       }
       \\
       \cfrac{}{\skipp,\env ,\sigma \rightarrow \continue, \varnothing,\sigma}
@@ -28,11 +33,11 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
         \begin{array}{c}
           \evalLeft{p}{\env}{\heap} = (\address,o) \qquad
           \eval{e}{\env}{\heap} = (v, \heap')\\
-          \heap(a.o) = v' \qquad \heap'' = {\mathit{drop}}(\heap',v')
+          \heap'(a.o) = v' \qquad \heap'' = {\mathit{drop}}(\heap',v')
         \end{array}
       }{
         p := e, \env,\heap \rightarrow
-        \continue, \varnothing,\heap'[\address.o \mapsto v]
+        \continue, \varnothing,\heap'[\address.o \leftarrow v]
       }
     %   \\\\
     %   \cfrac{
@@ -83,28 +88,29 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
       \\\\
       \cfrac{
         \eval{e}{\env}{\heap} = ({\tt{true}}, \heap')
-        \qquad \{c_1\}, \env,\heap' \rightarrow \mathcal{K},\omega,\heap''
+        \qquad \{c_1\}_\varnothing, \env,\heap' \rightarrow \mathcal{K},\omega,\heap''
       }{
-        \ite{e}{\{c_1\}}{\{c_2\}},\env,\heap \rightarrow \mathcal{K},\omega,\heap''
+        \ite{e}{c_1}{c_2},\env,\heap \rightarrow \mathcal{K},\omega,\heap''
       }
       \\\\
       \cfrac{
-        \evalRight{e}{\env}{\heap} = ({\tt{false}}, \sigma') \qquad \{c_2\}, \rho,\heap'
-        \rightarrow \mathcal{K},\omega,\heap'
+        \eval{e}{\env}{\heap} = ({\tt{false}}, \sigma') \qquad 
+        \{c_2\}_\varnothing, \rho,\heap' \rightarrow \mathcal{K},\omega,\heap''
       }{
-        \ite{e}{\{c_1\}}{\{c_2\}},\env,\sigma \rightarrow \mathcal{K},\omega,\sigma'
+        \ite{e}{c_1}{c_2},\env,\sigma \rightarrow \mathcal{K},\omega,\heap''
       }
       \\\\
       \cfrac{
-        \evalRight{e}{\env}{\heap} = {\tt{true}}\qquad \{c\}_\varnothing; \while{e}{c},\env,\heap \rightarrow \mathcal{K}, \omega,\heap'
+        \eval{e}{\env}{\heap} = ({\tt{true}}, \heap') \qquad 
+        \{c\}_\varnothing; \while{e}{c},\env,\heap' \rightarrow \mathcal{K}, \omega,\heap''
       }{
-        \while{e}{c}, \env, \heap \rightarrow \mathcal{K},\omega,\heap'
+        \while{e}{c}, \env, \heap \rightarrow \mathcal{K},\omega,\heap''
       }
       \\\\
       \cfrac{
-        \evalRight{e}{\env}{\heap} ={\tt{false}}
+        \eval{e}{\env}{\heap} =({\tt{false}}, \heap')
       }{
-        \while{e}{c}, \env, \heap \rightarrow \continue,\varnothing,\heap
+        \while{e}{c}, \env, \heap \rightarrow \continue,\varnothing,\heap'
       }
     \end{array}
   $$
@@ -114,9 +120,48 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
 \begin{figure}
   $$
     \begin{array}{c}
+      % \cfrac{
+      %   \eval{e}{\env}{\heap} = (v,\heap') \qquad
+      %   {\tt{case}}^\sharp~v~\{\overline{p:c}\}, \env ,\heap' \rightarrow \mathcal{K},\omega, \heap''
+      % }{
+      %   {\tt{case}}~e~\{\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K},\omega, \heap''
+      % }
+      % \\\\
+      % \cfrac{
+      %   \begin{array}{c}
+      %     filter(p,v) = {\mathit{undef}} \\
+      %     {\tt{case}}^\sharp~v~\{\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K},\omega, \heap'
+      %   \end{array}
+      % }{
+      %   {\tt{case}}^\sharp~v~\{p:c,\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K},\omega, \heap'
+      % }
+      % \\\\
+      % \cfrac{
+      %   \begin{array}{c}
+      %     filter(p,v) = [(x_i,v_i)]_{i=0}^{n-1}              \\
+      %     \ell_1,\ldots,\ell_n,\sigma' = fresh(\sigma)      \\
+      %     %\{\ell_i\}_{i=1}^{n} \cap \dom(\heap)= \emptyset \\
+      %     \{c\}_{[x_i \mapsto \ell_i]_{i=1}^{n}}, \env, \heap'[\ell_i \leftarrow v_i]_{i=1}^{n}
+      %     \rightarrow \mathcal{K},\omega,\heap''
+      %   \end{array}
+      % }{
+      %   {\tt{case}}^\sharp~v~\{p:c,\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K}, \omega , \heap''
+      % }
+      % \\\\
+      \cfrac{
+        \begin{array}{c}
+        \forall k<i. filter(p_k,v)={\mathit{undef}} \qquad filter(p_i,v)= [(x_i,v_i)]_{i=0}^{n-1} \\
+        \ell_1,\ldots,\ell_n,\sigma' = fresh(\sigma)      \\
+          \{c\}_{[x_i \mapsto \ell_i]_{i=1}^{n}}, \env, \heap'[\ell_i \leftarrow v_i]_{i=1}^{n}
+          \rightarrow \mathcal{K},\omega,\heap''  
+        \end{array}
+      }{
+        {\tt{case}}~v~\{\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K}, \omega , \heap''
+      }
+      \\\\
       \cfrac{
       \begin{array}{c}
-        \evalRight{e_i}{\env}{\heap} \Downarrow v_i \qquad 0\leq i \leq n-1                                                                                 \\
+        \eval{e_i}{\env}{\heap} \Downarrow v_i \qquad 0\leq i \leq n-1                                                                                 \\
         {\tt{method}}~m\langle A_0,\ldots,A_{m-1}\rangle(\field{x_0}{\tau_0},\ldots,\field{x_{n-1}}{\tau_{n-1}})\lceil :\tau\rceil~c \in {\mathit{Methods}} \\
         \{c\}_{[x_i \mapsto v_i]_{i=0}^{n-1}},\epsilon, \heap \rightarrow \ret(v), \omega, \heap'
       \end{array}
@@ -125,39 +170,17 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
       }
       \\\\
       \cfrac{
-        \begin{array}{c}
-          \evalRight{e}{\env}{\heap} = v \qquad
-          filter(p,v) = {\mathit{undef}} \\
-          {\tt{case}}~e~\{\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K},\omega, \heap'
-        \end{array}
+
       }{
-        {\tt{case}}~e~\{p:c,\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K},\omega, \heap'
+        \return,\env,\heap \rightarrow \mathcal{R},\varnothing,\heap
       }
       \\\\
       \cfrac{
-        \begin{array}{c}
-          \evalRight{e}{\env}{\heap} = v \qquad
-          filter(p,v) = [(x_i,v_i)]_{i=0}^{n-1}              \\
-          \{\ell_i\}_{i=0}^{n-1} \cap \dom(\heap)= \emptyset \\
-          \{c\}_{[x_i \mapsto \ell_i]_{i=0}^{n-1}}, \env, \heap_{\{\ell_i, \mapsto v_i\}_{i=0}^{n-1}}
-          \rightarrow \mathcal{K},\omega,\heap'
-        \end{array}
+        \rho(s) = \ell  
       }{
-        {\tt{case}}~e~\{p:c,\overline{p:c}\}, \env ,\heap \rightarrow \mathcal{K}, \omega , \heap'
+        \emit(s),\env,\heap \rightarrow \mathcal{C},\varnothing,\heap[\ell \leftarrow \present]
       }
-      % A PRIORI OMEGA = VIDE ICI
-      % CE QUI EST LE CAS A CHAQUE FOIS QUE L'ON INSERE UN BLOC, FAIRE DEUX TYPES DE REGLES BLOCK OU NON BLOCK
-      % CONTEXTE OOU NON CONTEXTE
-      % NOTE {C} for {C}_[]
       \\\\
-    \end{array}
-  $$
-  \caption{Microsteps}
-  \label{fig:sem2}
-\end{figure}
-\begin{figure}
-  $$
-    \begin{array}{c}
       \cfrac{
         \begin{array}{c}
           \env(s) = \ell \qquad \sigma(\ell) = \present
@@ -179,6 +202,15 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
       \when{s}{\{c\}_\omega},\env,\heap\rightarrow
       \suspend~\when{s}{\{c'\}_{\omega\omega'}},\varnothing,\heap'
       }
+    \end{array}
+  $$
+  \caption{Microsteps}
+  \label{fig:sem2}
+\end{figure}
+\begin{figure}
+  $$
+    \begin{array}{c}
+   
       \\\\
       \cfrac{
       \env(s) = \ell \qquad \sigma(\ell)= {\bf{0}}
