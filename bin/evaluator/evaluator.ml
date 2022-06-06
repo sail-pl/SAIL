@@ -66,30 +66,59 @@ let evalBinop (b : binOp) (v1 : value) (v2 : value) : value Result.t =
   | Or, VBool x, VBool y -> return (VBool (x || y))
   | _ -> throwError TypingError
 
-let readValue (h : heap) ((a,o) : Heap.address * offset) : value Result.t =
-    let open Result in
+
+(*    let open Result in
     let open MonadSyntax (Result) in
     let* v = getLocation h a in
     match v with
         | Some (Either.Left v) -> getOffset v  o 
         | _ -> throwError NotAValue
+*)
 
-let setValue (h: heap) ((a,o : Heap.address * offset)) (w : value) : heap Result.t =
+let getValueAt (h : heap) ((a,o) : Heap.address * offset) : (value option) Result.t =
     let open Result in
     let open MonadSyntax (Result) in
-    let* v = getLocation h a in 
-    let* v' = match v with 
-        Some (Either.Left v) -> setOffset v o w 
-        | _ -> throwError NotAValue
-    in  setLocation h (a, Either.Left v')
+    let* content = getLocation h a in
+    (match content with
+        None -> return None
+        | Some (Either.Left v) -> 
+            let* v = getOffset v o in return (Some v)
+        | Some _ -> throwError TypingError)
 
-let addressOfValue (v : value) : (Heap.address * offset) Result.t= 
+
+(*let readValue (h : heap) ((a,o) : Heap.address * offset) : value Result.t =
+    let open Result in
+    let open MonadSyntax (Result) in
+    let* v = getValueAt h (a,o) in 
+        match v with 
+            Some v -> return v 
+            | None -> throwError NotAValue*)
+
+let setValueAt (h: heap) ((a,o) : Heap.address * offset) (w : value) : heap Result.t =
+let open Result in
+let open MonadSyntax (Result) in
+let* v = getLocation h a in 
+let* v' = match v with 
+    Some (Either.Left v) -> setOffset v o w 
+    | None -> return w
+    | _ -> throwError NotAValue
+in  setLocation h (a, Either.Left v')
+
+let addressOfValue (v : value option) : (Heap.address * offset) Result.t= 
     let open Result in
     let open MonadSyntax (Result) in
     match v with 
-    VLoc (l, Owned) -> return (l,[])    
-  | VLoc (l, Borrowed o) ->  return (l,o)
+    Some (VLoc (l, Owned)) -> return (l,[])    
+  | Some (VLoc (l, Borrowed o)) ->  return (l,o)
+  | None -> throwError NotAValue
   | _ -> throwError TypingError
+
+let boolOfValue (v:value) : bool Result.t =
+    let open Result in
+    let open MonadSyntax (Result) in
+    match v with 
+    VBool b -> return b 
+    | _ -> throwError TypingError
 
 let rec evalL (env : env) (h :heap) (p : Intermediate.path) : (Heap.address * offset) Result.t =
     let open Result in
@@ -100,17 +129,23 @@ let rec evalL (env : env) (h :heap) (p : Intermediate.path) : (Heap.address * of
   | Intermediate.Variable x -> 
         getVariable env x >>= fun a -> return (a, [])
   | Intermediate.Deref p -> 
-        evalL env h p >>= readValue h >>= addressOfValue
+        evalL env h p >>= getValueAt h >>= addressOfValue
   | Intermediate.StructField (e, f) ->
       let* (a, o) = evalL env h e in
       return (a, o @ [ Field f ])
+
+let isMovable (v : value) : bool =
+    match v with 
+    | VLoc _ -> true
+    | _ -> false
 
 let move (h : heap) ((a,o) : Heap.address * offset) : heap Result.t =
     let open Result in
     let open MonadSyntax (Result) in
     let* v0 = getLocation h a in
     let* v' = match v0 with 
-        (Some (Either.Left v)) -> setOffset v o Moved
+        (Some (Either.Left v)) when isMovable v -> setOffset v o Moved
+        | (Some (Either.Left v)) -> return v
         | _ -> throwError NotAValue
     in setLocation h (a, Either.Left v')
 
@@ -118,7 +153,7 @@ let eval (env : env) (h : heap) (e : Intermediate.expression) : (value * heap) R
   let open Result in
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
-  let rec aux e h =
+  let rec aux e h : (value * heap) Result.t =
     Logs.debug (fun m ->
         m "evaluate expression < %a >" Intermediate.pp_print_expression e);
         Logs.debug (fun m ->
@@ -127,9 +162,10 @@ let eval (env : env) (h : heap) (e : Intermediate.expression) : (value * heap) R
     match e with
     | Intermediate.Path p -> 
         let* (a,o) = evalL env h p in
-        let* v = readValue h (a, o) in 
+        let* v = getValueAt h (a, o) in 
         let* h' = move h (a, o) in
-        return (v,h')
+        (match v with Some v -> 
+        return (v,h') | None -> throwError NotAValue)
     | Literal c -> return (valueOfLiteral c, h)
     | UnOp (u, e) -> aux e h >>= fun (x, h') -> evalunop u x >>= fun y -> return (y,h')
     | BinOp (b, e1, e2) ->
@@ -191,6 +227,7 @@ let rec freshn (h : heap) n : Heap.address list * heap =
     (a :: l, h'')
   else ([], h)
 
+
 let reduce (p : Intermediate.statement method_defn list) (c : command) (env : env)
     (h : heap) : (command status * frame * heap) Result.t =
   let open Result in
@@ -216,17 +253,12 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
         return (Continue, Env.singleton s freshAddress, h1)
     | Skip -> return (Continue, Env.emptyFrame, h)
     | Stop -> return (Continue, Env.emptyFrame, h)
-    | Assign (p, e2) -> (
+    | Assign (p, e) ->     (
         let* (targetAddress, targetOffset) = evalL env h p in
-        let* (newValue, h0) = eval env h e2 in
-        let* h' = 
-            let* oldValue = getLocation h targetAddress in (* abstract this in a function *)
-            (match oldValue with
-                None -> return h 
-                | Some (Either.Left oldValue) -> getOffset oldValue targetOffset >>= dropReferencesFromValue h0 
-                | Some _ -> throwError TypingError)
-        in
-        let* h'' = setValue h' (targetAddress,targetOffset) newValue in
+        let* (v, h0) = eval env h e in
+        let* v0 = getValueAt h0 (targetAddress, targetOffset) in 
+        let* h' = match v0 with Some v0 -> dropReferencesFromValue h0 v0 | None -> return h0 in 
+        let* h'' = setValueAt h' (targetAddress, targetOffset) v in
         return (Continue, Env.emptyFrame, h''))
     | Seq (c1, c2) -> (
         let* k1, bindings1, h1 = aux c1 env h in
@@ -247,20 +279,16 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
             let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h' l in 
             return (k, Env.emptyFrame, cleanHeap)
         )
-    | If (e, c1, c2) -> (
+    | If (e, c1, c2) -> 
         let* (v, h0) = eval env h e in
-        match v with
-        | VBool b ->
+        let* b = boolOfValue v in
             if b then aux (Block (c1, Env.emptyFrame)) env h0
             else aux (Block (c2, Env.emptyFrame)) env h0
-        | _ -> throwError TypingError)
-    | While (e, c) -> (
+    | While (e, c) -> 
         let* (v, h0) = eval env h e in
-        match v with
-        | VBool b ->
+        let* b = boolOfValue v in
             if b then aux (Seq (Block (c, Env.emptyFrame), While (e, c))) env h0
             else return (Continue, Env.emptyFrame, h0)
-        | _ -> throwError TypingError)
     | Case (e, []) ->
         let* (v, _) = eval env h e in
         throwError (IncompletePatternMatching v)
@@ -304,7 +332,8 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
             match r with
             | Ret -> return (Continue, w, h)
             | _ -> throwError MissingReturnStatement))
-    | Return -> return (Ret, Env.emptyFrame, h)
+    | Return -> 
+        return (Ret, Env.emptyFrame, h)
     | Emit s ->
         let* a = getVariable env s in
         let* h' = setLocation h (a, Either.Right true) in
