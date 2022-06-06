@@ -85,15 +85,6 @@ let getValueAt (h : heap) ((a,o) : Heap.address * offset) : (value option) Resul
             let* v = getOffset v o in return (Some v)
         | Some _ -> throwError TypingError)
 
-
-(*let readValue (h : heap) ((a,o) : Heap.address * offset) : value Result.t =
-    let open Result in
-    let open MonadSyntax (Result) in
-    let* v = getValueAt h (a,o) in 
-        match v with 
-            Some v -> return v 
-            | None -> throwError NotAValue*)
-
 let setValueAt (h: heap) ((a,o) : Heap.address * offset) (w : value) : heap Result.t =
 let open Result in
 let open MonadSyntax (Result) in
@@ -103,6 +94,17 @@ let* v' = match v with
     | None -> return w
     | _ -> throwError NotAValue
 in  setLocation h (a, Either.Left v')
+
+let setSignalAt (h : heap) (a : Heap.address) (b : bool): heap Result.t =
+    let open Result in
+    let open MonadSyntax (Result) in
+    let* content = getLocation h a in
+    setLocation h (a, Either.Right b)
+
+  (*  (match content with
+        None -> throwError InvalidSignal
+        | Some (Either.Right b) -> return b 
+        | Some _ -> throwError TypingError)*)
 
 let addressOfValue (v : value option) : (Heap.address * offset) Result.t= 
     let open Result in
@@ -335,7 +337,7 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
         return (Ret, Env.emptyFrame, h)
     | Emit s ->
         let* a = getVariable env s in
-        let* h' = setLocation h (a, Either.Right true) in
+        let* h' = setSignalAt h a true in
         return (Continue, Env.emptyFrame, h')
     | When (s, c, w) -> (
         let* a = getVariable env s in

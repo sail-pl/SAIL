@@ -26,8 +26,6 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
       }
       \\
       \cfrac{}{\skipp,\env ,\sigma \rightarrow \continue, \varnothing,\sigma}
-      \qquad{}
-      \cfrac{}{\stopp,\env ,\sigma \rightarrow \continue, \varnothing,\sigma}
       \\\\
       \cfrac{
         \begin{array}{c}
@@ -186,8 +184,8 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
           \env(s) = \ell \qquad \sigma(\ell) = \present
           \qquad c,\env\cdot \varnothing,\heap,\rightarrow \mathcal{K},\omega',\heap'
           \qquad \mathcal{K} \in \continue,\ret \\
-          \omega\omega' \lightning \overline{\alpha} \qquad
-          \sigma'' = {\mathit{drop}}(\omega,\overline{\alpha})
+          \omega\omega' \lightning \overline{v} \qquad
+          \sigma'' = {\mathit{drop}}(\omega,\overline{v})
         \end{array}
       }{
         \when{s}{\{c\}_\omega},\env,\heap\rightarrow
@@ -223,8 +221,8 @@ As mentioned earlier, we use these annotations to distribute the stack over comm
         \begin{array}{c}
           c,\env \cdot \omega,\heap \rightarrow \mathcal{K},\omega',\heap'
           \qquad \mathcal{K} \in \continue,\ret \\
-          \omega\omega' \lightning \overline{\alpha} \qquad
-          \sigma'' = {\mathit{drop}}(\omega,\overline{\alpha})
+          \omega\omega' \lightning \overline{v} \qquad
+          \sigma'' = {\mathit{drop}}(\omega,\overline{v})
         \end{array}
       }{
         \watching{s}{\{c\}_\omega},\env,\heap\rightarrow \mathcal{K}, \varnothing,\heap''

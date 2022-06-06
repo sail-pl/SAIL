@@ -135,4 +135,5 @@ let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
       | Division_by_zero -> Format.pp_print_string pf "Division by zero"
       | MovedPointer l -> Format.fprintf pf "Moved Location %a" Heap.pp_address l
       | NonLinearPointer -> Format.pp_print_string pf "Non Linear Pointer"
+      | InvalidSignal -> Format.pp_print_string pf "Invalid Signal"
     

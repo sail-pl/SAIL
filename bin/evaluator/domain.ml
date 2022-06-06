@@ -144,6 +144,7 @@ type error =
   | Division_by_zero
   | MovedPointer of Heap.address
   | NonLinearPointer
+  | InvalidSignal 
 
 module Result = ErrorMonadEither.Make(struct type t = error end)
 
