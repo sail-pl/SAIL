@@ -40,9 +40,7 @@ let init_llvm (llm : llmodule) : (Target.t * TargetMachine.t) =
   (target,machine)
 
 
-let run_pm (llm : llmodule) : unit = 
-  let pm = PassManager.create () in 
-
+let add_passes (pm : [`Module] PassManager.t) : unit  = 
   (* seems to be deprecated
     TargetMachine.add_analysis_passes pm machine; *)
 
@@ -53,9 +51,8 @@ let run_pm (llm : llmodule) : unit =
   (* reassociate binary expressions *)
   Llvm_scalar_opts.add_reassociation pm;
   (* dead code elimination, basic block merging and more *)
-  Llvm_scalar_opts.add_cfg_simplification pm;
+  Llvm_scalar_opts.add_cfg_simplification pm
 
-  PassManager.run_module llm pm |> ignore
 
 let compile (llm:llmodule) (module_name : string) (target, machine) : int =
   let objfile = module_name ^ ".o" in 
@@ -103,7 +100,16 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         let llm = moduleToIR module_name sc dump_decl in
         let tm = init_llvm llm in
 
-        if not noopt then run_pm llm;
+        if not noopt then 
+          begin
+            let open PassManager in
+            let pm = create () in
+            add_passes pm;
+            let res = run_module llm pm in
+            Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
+            dispose pm
+          end
+        ;
 
         if intermediate then print_module (module_name ^ ".ll") llm;
 
