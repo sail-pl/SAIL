@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: kenchan0130/actions-system-info@master
+        id: system-info
+      # Checks-out the repository
+      - uses: actions/checkout@v3
+
+
+      - name: setup llvm 13 repo 
+        run: |
+          echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
+          echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main"  | sudo tee -a /etc/apt/sources.list
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
+          sudo apt update
+
+
+      - name: Set up OCaml
+        # You may pin to the exact commit or the version.
+        # uses: ocaml/setup-ocaml@6d924c1a7769aa5cdd74bdd901f6e24eb05024b1
+        uses: ocaml/setup-ocaml@v2
+        with:
+          ocaml-compiler: 4.13.X
+
+
+      - run: opam install . --deps-only
+
+      - run: opam exec -- dune build
+
+      - name: Archive saili and sailor
+        uses: actions/upload-artifact@v3
+        with:
+          name: saili and sailor for ${{ steps.system-info.outputs.release }}
+          path: |
+            _build/install/default/bin/saili
+            _build/install/default/bin/sailor
+          if-no-files-found: error
+          
+      - name: run tests 
+        timeout-minutes: 1
+        run: opam exec -- dune runtest
