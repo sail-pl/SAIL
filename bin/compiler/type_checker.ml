@@ -126,7 +126,6 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : statement s
   in
 
   let rec construct_call (calle:string) (el:Ast_parser.expression list) (ts : varTypesMap) (monos:monomorphics) (funs:sailor_functions) : sailtype option * monomorphics * sailor_functions = 
-    Logs.debug (fun m -> m "found call to %s" calle);
     (* only methods can be recursive *)
     if calle = f.name && f.ty = FProcess then failwith "processes can't be recursive!";
 
@@ -136,51 +135,61 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : statement s
       fun e (l,monos,sc)-> 
         let t,monos',sc' = analyse_expression e ts monos sc in (t::l,monos',sc')
     )  el ([],monos,funs) in
-
-
-    let f = find_callable calle sm in
-
     
-    match f.body with
-    | Some b -> (* process and method *)
-      let args_name,args_type = List.split f.args in
+    (*don't do anything if the function is already added *)
+    let mname = mangle_method_name calle call_args in
 
-
-        (* we make sure they correspond to what the callable wants *)
-        (* if the callable is generic we check all the generic types are present at least once *)
-        (* 
-          we build a (string*sailtype) list of generic to type correspondance
-          if the generic is not found in the list, we add it with the corresponding type
-          if the generic already exists with the same type as the new one, we are good else we fail 
-        *)
-
-        let resolved_generics = check_args call_args args_type (f.generics) in
-        List.iter (fun (n,t) -> Logs.debug (fun m -> m "resolved %s to %s " n (string_of_sailtype (Some t)))) resolved_generics;
-
-        begin
-          if List.compare_lengths resolved_generics f.generics != 0 then 
-              failwith "problem";
-
-          List.iter (fun (s,r) -> Logs.debug (fun m -> m "generic %s resolved to %s" s (string_of_sailtype (Some r)) )) resolved_generics;
-
-          let monos' = (calle,resolved_generics)::monos' in
-
-          let ret = match f.r_type with
-          | Some t -> Some (degenerifyType t resolved_generics)
-          | None -> None
-          in
-          let name = mangle_method_name calle call_args in
-          let call : sailor_method = {body=b; decl={ret; args=(List.combine args_name call_args)}; generics=resolved_generics} in 
-          let funs' = FieldMap.add name call funs in 
-          ret,monos',funs'
-        end
-    | None -> (* external method *)
+    match FieldMap.find_opt mname funs with
+    | Some f -> 
+      Logs.debug (fun m -> m "function %s already discovered, skipping" calle);
+      f.decl.ret,monos,funs
+      
+    | None ->
       begin
-        let arg_types = List.split f.args |> snd in
-        check_args call_args arg_types f.generics  |> ignore;
-        f.r_type,monos',sc'
+        Logs.debug (fun m -> m "found call to %s" calle);
+
+        let f = find_callable calle sm in
+
+        match f.body with
+        | Some b -> (* process and method *)
+          let args_name,args_type = List.split f.args in
+
+
+            (* we make sure they correspond to what the callable wants *)
+            (* if the callable is generic we check all the generic types are present at least once *)
+            (* 
+              we build a (string*sailtype) list of generic to type correspondance
+              if the generic is not found in the list, we add it with the corresponding type
+              if the generic already exists with the same type as the new one, we are good else we fail 
+            *)
+
+            let resolved_generics = check_args call_args args_type (f.generics) in
+            List.iter (fun (n,t) -> Logs.debug (fun m -> m "resolved %s to %s " n (string_of_sailtype (Some t)))) resolved_generics;
+
+            begin
+              if List.compare_lengths resolved_generics f.generics != 0 then 
+                  failwith "problem";
+
+              List.iter (fun (s,r) -> Logs.debug (fun m -> m "generic %s resolved to %s" s (string_of_sailtype (Some r)) )) resolved_generics;
+
+              let monos' = (calle,resolved_generics)::monos' in
+
+              let ret = match f.r_type with
+              | Some t -> Some (degenerifyType t resolved_generics)
+              | None -> None
+              in
+              let name = mangle_method_name calle call_args in
+              let call : sailor_method = {body=b; decl={ret; args=(List.combine args_name call_args)}; generics=resolved_generics} in 
+              let funs' = FieldMap.add name call funs in 
+              ret,monos',funs'
+            end
+        | None -> (* external method *)
+          begin
+            let arg_types = List.split f.args |> snd in
+            check_args call_args arg_types f.generics  |> ignore;
+            f.r_type,monos',sc'
+          end
       end
-  
 
   and analyse_command (_cmd: statement) (_ts : varTypesMap) (_monos : monomorphics) (_funs : sailor_functions) : varTypesMap * monomorphics * sailor_functions =
       match f.ty with
@@ -334,15 +343,15 @@ let analyse_functions (monos:monomorphics) (sm : statement sailModule) : sailor_
   let rec aux (m:monomorphics) (funs:sailor_functions) : monomorphics * sailor_functions = 
     match m with
     | [] -> monos,funs
-    | (name,resolved_gens)::t -> 
-      let mname = mangle_method_name name (List.split resolved_gens |> snd) in
+    | (name,args)::t -> 
+      let mname = mangle_method_name name (List.split args |> snd) in
       let m',funs' = match FieldMap.find_opt mname funs with
       | Some _ -> 
         Logs.debug (fun m -> m "%s already checked" mname);
         t,funs
       | None -> 
         Logs.info (fun m -> m "typechecking %s" mname);
-          check_fun (name,resolved_gens) t funs
+          check_fun (name,args) t funs
       in
       aux m' funs'
       
@@ -356,11 +365,11 @@ let analyse_functions (monos:monomorphics) (sm : statement sailModule) : sailor_
 let type_check_module (a: statement sailModule) : sailor_functions = 
   (* we only typecheck monomorphic declarations *)
   let monos = 
-    let test funs name has_gen = if has_gen then funs else (name,[])::funs in
+    let test funs name args has_gen = if has_gen then funs else (name,args)::funs in
     []
-    |> fun l -> List.fold_left (fun acc m -> test acc m.m_name (m.m_generics <> [])) l a.methods
-    |> fun l -> List.fold_left (fun acc p -> test acc p.p_name (p.p_generics <> [])) l a.processes
-    |> fun l -> List.fold_left (fun acc (name,e) -> test acc name (e.generics <> [])) l externals
+    |> fun l -> List.fold_left (fun acc m -> test acc m.m_name m.m_params (m.m_generics <> [])) l a.methods
+    |> fun l -> List.fold_left (fun acc p -> test acc p.p_name (fst p.p_interface) (p.p_generics <> [])) l a.processes
+    |> fun l -> List.fold_left (fun acc (name,e) -> test acc name e.decl.args (e.generics <> [])) l externals
 
   in let funs = analyse_functions monos a 
   in FieldMap.iter print_method_proto funs; funs
