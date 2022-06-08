@@ -95,7 +95,7 @@ type command =
   | Block of command * frame
   | If of expression * command * command
   | While of expression * command
-  | Case of expression * (pattern * command) list
+  | Case of expression * (Ast_parser.pattern * command) list
   | Invoke of string * expression list
   | Return
   | Emit of string

@@ -5,7 +5,7 @@ open Common
 
 (* todo: simplify *)
 
-type exp_eval = SailEnv.t -> llvm_args -> Ast.expression -> llvalue
+type exp_eval = SailEnv.t -> llvm_args -> Ast_parser.expression -> llvalue
 let decl_printf (c:llcontext) : (llmodule -> llvalue) =
   let proto = var_arg_function_type (i32_type c) [|pointer_type (i8_type c)|] in
   declare_function "printf" proto

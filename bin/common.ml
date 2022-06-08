@@ -48,9 +48,7 @@ type unOp = Neg | Not
 type binOp = Plus | Mul | Div | Minus | Rem
            | Lt | Le | Gt | Ge | Eq | NEq | And | Or
 
-type pattern =
-  | PVar of string
-  | PCons of string * pattern list 
+
 
   type struct_defn = 
   {  
@@ -97,7 +95,6 @@ type 'a method_defn =
   }
 
   type moduleSignature = unit sailModule
-
 
   let signatureOfModule m =
     {

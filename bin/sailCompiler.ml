@@ -6,6 +6,7 @@ open Compiler_common
 open Code_generator
 open Type_checker
 open Sail_env
+open Hir
 
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
@@ -96,7 +97,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       | Ok p ->
         enable_pretty_stacktrace ();
         install_fatal_error_handler error_handler;
-        let sail_module = p module_name in
+        let sail_module = translate_module (p module_name) in
 
         let funs = type_check_module sail_module in
         let llm = moduleToIR module_name funs dump_decl in

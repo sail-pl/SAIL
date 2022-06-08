@@ -45,8 +45,8 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
     | None ->  Printf.sprintf "bad binary operand type : '%s'. Only doubles and ints are supported" (string_of_sailtype (Some t)) |> failwith
 
 
-let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression)  : (sailtype * llvalue) = 
-  let open Ast in
+let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast_parser.expression)  : (sailtype * llvalue) = 
+  let open Ast_parser in
   match x with
   | Variable (_, x) ->  SailEnv.get_var env x
   | Deref (_, x) -> eval_r env llvm x 
@@ -70,7 +70,7 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Ast.expression)  : (sailtype
   | Ref _ -> failwith "reference read is not a lvalue"
   | MethodCall _ -> failwith "method call is not a lvalue"
 
-and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : (sailtype * llvalue) = 
+and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast_parser.expression) : (sailtype * llvalue) = 
   match x with
   | Variable _ ->  let t,v = eval_l env llvm x in t,build_load v "" llvm.b
   | Literal (_, l) ->  Type_checker.sailtype_of_literal l,getLLVMLiteral l llvm
@@ -114,7 +114,7 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : (sailtype * llv
     let t,c = construct_call name args env llvm in
     (Option.get t),c
   
-  and construct_call (name:string) (args:Ast.expression list) (env:SailEnv.t) (llvm:llvm_args) : sailtype option * llvalue = 
+  and construct_call (name:string) (args:Ast_parser.expression list) (env:SailEnv.t) (llvm:llvm_args) : sailtype option * llvalue = 
     let args_type,args = List.map (eval_r env llvm) args |> List.split
     in
     let mname = mangle_method_name name args_type in 
@@ -139,8 +139,8 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast.expression) : (sailtype * llv
     | None -> false
   
     
-let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) : unit =
-  let declare_var (mut:bool) (name:string) (ty:Common.sailtype) (exp:Ast.expression option) (env:SailEnv.t) : SailEnv.t =
+let statementToIR (m:llvalue) (x: Ast_hir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) : unit =
+  let declare_var (mut:bool) (name:string) (ty:Common.sailtype) (exp:Ast_parser.expression option) (env:SailEnv.t) : SailEnv.t =
     let _ = mut in (* todo manage mutable types *)
     let ty = degenerifyType ty generics in
     let var_type = getLLVMType ty llvm.c llvm.m  in
@@ -157,7 +157,7 @@ let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:l
 
   let rec aux x env : SailEnv.t = 
     match x with 
-  | Ast.DeclVar (_, mut, name, t, exp) -> declare_var mut name t exp env 
+  | Ast_hir.DeclVar (_, mut, name, t, exp) -> declare_var mut name t exp env 
 
   | DeclSignal _ -> failwith "unimplemented2"
   | Skip _ -> env
@@ -240,7 +240,7 @@ let statementToIR (m:llvalue) (x: Ast.statement) (generics: sailor_args) (llvm:l
       in ret llvm.b |> ignore; env
 
   | Run (_, _, _) ->  failwith "run unimplemented"
-  | Loop _ ->  failwith "loop unimplemented"
+  (*| Loop _ ->  failwith "loop unimplemented"*)
   | Emit _ ->  failwith "emit unimplemented"
   | Await _ ->  failwith "await unimplemented"
   | When (_, _, _) ->  failwith "when unimplemented"

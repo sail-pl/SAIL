@@ -1,8 +1,14 @@
 open Common
+open Pp_common
 open Saillib.Pp_util
 open Saillib.Heap
 open Domain
 open Format
+
+let rec pp_pattern pf p = 
+  match p with 
+    | Ast_parser.PVar x -> Format.pp_print_string pf x
+    | Ast_parser.PCons (c, pl) -> Format.fprintf pf "%s(%a)" c (Format.pp_print_list ~pp_sep:pp_comma pp_pattern) pl
 
 let pp_print_tag (pf : Format.formatter) (t : Domain.tag) : unit =
   match t with
@@ -61,8 +67,8 @@ let rec pp_print_command (pf : Format.formatter) (c : command) : unit =
   | While (e, c) ->
       Format.fprintf pf "while (%a) %a" Intermediate.pp_print_expression e pp_print_command c
   | Case (e, pl) ->
-      let pp_case (pf : Format.formatter) ((p, c) : Common.pattern * command) =
-        Format.fprintf pf "%a:%a" Pp_common.pp_pattern p pp_print_command c
+      let pp_case (pf : Format.formatter) ((p, c) : Ast_parser.pattern * command) =
+        Format.fprintf pf "%a:%a" pp_pattern p pp_print_command c
       in
       Format.fprintf pf "case (%a) {%a}" Intermediate.pp_print_expression e
         (Format.pp_print_list ~pp_sep:Pp_common.pp_comma pp_case)

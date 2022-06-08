@@ -36,7 +36,11 @@ type expression =
   | StructAlloc of loc * string * expression FieldMap.t
   | EnumAlloc of loc * string * expression list 
   | MethodCall of loc * string * expression list
-      
+  
+  type pattern =
+  | PVar of string
+  | PCons of string * pattern list   
+
 type statement =
   | DeclVar of loc * bool * string * sailtype * expression option 
   | DeclSignal of loc * string

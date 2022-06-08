@@ -1,15 +1,19 @@
 open Format
 open Common
 
+
+
+
 let pp_comma (pf : formatter) (() : unit) : unit = Format.fprintf pf "," 
   let pp_field (pp_a : formatter -> 'a -> unit) (pf : formatter) ((x,y) : string * 'a) = 
     Format.fprintf pf "%s:%a" x pp_a y
 
+(*
 let rec pp_pattern pf p = 
   match p with 
     | PVar x -> Format.pp_print_string pf x
     | PCons (c, pl) -> Format.fprintf pf "%s(%a)" c (Format.pp_print_list ~pp_sep:pp_comma pp_pattern) pl
-    
+*)    
 let pp_unop pf u =
   let u = match u with Neg -> "-" | Not -> "~" in
   Format.pp_print_string pf  u 

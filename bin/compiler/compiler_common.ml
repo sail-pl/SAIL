@@ -1,5 +1,6 @@
 open Llvm
 open Common
+open Ast_hir
 
 type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; }
 
@@ -16,14 +17,14 @@ type sailor_decl =
 type sailor_method = 
 {
 	decl : sailor_decl ;
-	body: Ast.statement;
+	body: statement;
   generics : sailor_args
 }
 
 type sailor_process = 
 {
   args : sailor_args;
-  body: Ast.statement;
+  body: statement;
   generics : sailor_args
 }
 
@@ -35,7 +36,7 @@ type sailor_function =
   r_type : sailtype option;
   args : sailor_args;
   generics : string list;
-  body : Ast.statement option;
+  body : statement option;
   ty : function_type
 }
 

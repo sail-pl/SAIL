@@ -20,13 +20,13 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 open Common 
+open Pp_common
 
 type expression =
   Path of path
 | Literal of Common.literal
 | UnOp of Common.unOp * expression
 | BinOp of Common.binOp * expression * expression
-(*| ArrayAlloc of expression list*)
 | StructAlloc of string * expression FieldMap.t
 | EnumAlloc of string * expression list
 | Ref of bool * path
@@ -36,7 +36,6 @@ and path =
     Variable of string 
   | Deref of path 
   | StructField of path * string
-(*  | ArrayRead of path * expression*)
 
 type statement =
 | DeclVar of bool * string * Common.sailtype * expression option
@@ -47,7 +46,7 @@ type statement =
 | Block of statement
 | If of expression * statement * statement
 | While of expression * statement
-| Case of expression * (Common.pattern * statement) list
+| Case of expression * (Ast_parser.pattern * statement) list
 | Invoke of string * expression list
 | Return
 | Emit of string
@@ -94,7 +93,10 @@ let rec pp_print_expression pf e : unit =
   in aux pf p
 
   let pp_commaline (pf : Format.formatter) (() : unit) : unit = Format.fprintf pf ",\n" 
-
+  let rec pp_pattern pf p = 
+    match p with 
+      | Ast_parser.PVar x -> Format.pp_print_string pf x
+      | Ast_parser.PCons (c, pl) -> Format.fprintf pf "%s(%a)" c (Format.pp_print_list ~pp_sep:pp_comma pp_pattern) pl
 
 let rec pp_print_command (n : int) (pf : Format.formatter) (c : statement) : unit =
   match c with
@@ -116,8 +118,8 @@ let rec pp_print_command (n : int) (pf : Format.formatter) (c : statement) : uni
   | While (e, c) ->
       Format.fprintf pf "%swhile (%a)\n%a" (String.make n '\t') pp_print_expression e (pp_print_command (n+1)) c 
   | Case (e, pl) ->
-      let pp_case (pf : Format.formatter) ((p, c) : Common.pattern * statement) =
-        Format.fprintf pf "%s%a:\n%a\n%s" (String.make (n +1) '\t') Pp_common.pp_pattern p (pp_print_command (n + 2)) c (String.make (n +1) '\t') 
+      let pp_case (pf : Format.formatter) ((p, c) : Ast_parser.pattern * statement) =
+        Format.fprintf pf "%s%a:\n%a\n%s" (String.make (n +1) '\t') pp_pattern p (pp_print_command (n + 2)) c (String.make (n +1) '\t') 
       in
       Format.fprintf pf "%scase (%a) {\n%a\n%s}" (String.make n '\t') pp_print_expression e
          (Format.pp_print_list ~pp_sep:pp_commaline pp_case) 

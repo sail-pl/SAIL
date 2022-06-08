@@ -214,7 +214,7 @@ and dropReferencesFromValue (h : heap) (v : value) : heap Result.t =
     let open MonadFunctions (Result) in
     foldLeftM deepFree h (ownedLocations v)
 
-let rec filter ((v, p) : value * pattern) : (string * value) list option =
+let rec filter ((v, p) : value * Ast_parser.pattern) : (string * value) list option =
   let open MonadOption in
   let open MonadFunctions (MonadOption) in
   match (v, p) with

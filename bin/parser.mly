@@ -22,7 +22,7 @@
 
 %{
     open Common
-    open Ast
+    open Ast_parser
 %}
 %token TYPE_BOOL TYPE_INT TYPE_FLOAT TYPE_CHAR TYPE_STRING
 %token <int> INT
@@ -63,12 +63,12 @@
 
 %start sailModule
 
-%type <Ast.expression> expression 
-%type <Common.sailtype> sailtype
-%type <Common.literal> literal
-%type <Ast.statement> statement
-%type <Ast.defn> defn
-%type <string -> Ast.statement Common.sailModule> sailModule
+%type <expression> expression 
+%type <sailtype> sailtype
+%type <literal> literal
+%type <statement> statement
+%type <defn> defn
+%type <string -> statement sailModule> sailModule
 
 %% 
 
@@ -162,8 +162,8 @@ literal :
 ;
 
 block :
-| LBRACE RBRACE {Ast.Skip $startpos}
-| LBRACE s = statement RBRACE {Ast.Block ($startpos, s)}
+| LBRACE RBRACE {Skip $startpos}
+| LBRACE s = statement RBRACE {Block ($startpos, s)}
 ;
 
 single_statement :

@@ -1,6 +1,6 @@
 open Common
 open Compiler_common
-open Ast
+open Ast_hir
 
 
 let externals = Externals.get_externals ()
@@ -125,7 +125,7 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : statement s
     ) ([]) caller_args args
   in
 
-  let rec construct_call (calle:string) (el:expression list) (ts : varTypesMap) (monos:monomorphics) (funs:sailor_functions) : sailtype option * monomorphics * sailor_functions = 
+  let rec construct_call (calle:string) (el:Ast_parser.expression list) (ts : varTypesMap) (monos:monomorphics) (funs:sailor_functions) : sailtype option * monomorphics * sailor_functions = 
     Logs.debug (fun m -> m "found call to %s" calle);
     (* only methods can be recursive *)
     if calle = f.name && f.ty = FProcess then failwith "processes can't be recursive!";
@@ -188,9 +188,9 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : statement s
       | _ -> failwith "Methods can't have reactive statements!"
 
 
-  and analyse_expression (e:expression) (ts : varTypesMap) (monos : monomorphics) (funs : sailor_functions) : sailtype * monomorphics * sailor_functions =
+  and analyse_expression (e:Ast_parser.expression) (ts : varTypesMap) (monos : monomorphics) (funs : sailor_functions) : sailtype * monomorphics * sailor_functions =
     let rec aux e monos sc = match e with
-    | Variable (_, s) -> get_var ts s, monos, sc
+    | Ast_parser.Variable (_, s) -> get_var ts s, monos, sc
     | MethodCall (_, name,el) -> 
       begin
         match construct_call name el ts monos sc with
@@ -284,8 +284,7 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : statement s
       with Failure s -> "incorrect return: " ^ s |> failwith
     else failwith "missing return type"
   | Return (_, None) ->  if Option.is_some f.r_type then failwith "non-void return type" else ts,monos,funs
-
-  | Loop (_, s) -> analyse_statement s ts monos funs
+  (*| Loop (_, s) -> analyse_statement s ts monos funs*)
   | Invoke (_, _,name,el) -> let rt,monos',sc' = construct_call name el ts monos funs in 
     if Option.is_some rt then
       Logs.warn (fun m -> m "result of non-void function %s is discarded" name);

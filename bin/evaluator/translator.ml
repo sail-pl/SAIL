@@ -20,7 +20,7 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Ast
+open Ast_parser
 open Saillib.Monoid
 open Saillib.Writer
 open Saillib.Monad
@@ -55,31 +55,31 @@ let fetch_rtype (p : Common.moduleSignature list) (id : string) : Common.sailtyp
   let* m = List.find_opt (fun m -> m.m_name = id) l in 
   m.m_rtype
 
-let removeCalls (p : Common.moduleSignature list) (e : Ast.expression) : Intermediate.expression * Intermediate.statement list = 
+let removeCalls (p : Common.moduleSignature list) (e : expression) : Intermediate.expression * Intermediate.statement list = 
   let open M in
   let open MonadSyntax(M) in
   let open MonadFunctions(M) in
     let rec aux e = 
   match e with 
-    | Ast.Variable (_, x) -> return (Intermediate.Path (Intermediate.Variable x))
-    | Ast.Literal (_, c) -> return (Intermediate.Literal c)
-    | Ast.UnOp(_, o, e) -> 
+    | Ast_parser.Variable (_, x) -> return (Intermediate.Path (Intermediate.Variable x))
+    | Ast_parser.Literal (_, c) -> return (Intermediate.Literal c)
+    | Ast_parser.UnOp(_, o, e) -> 
       let* x = aux e in return (Intermediate.UnOp(o,x))
-    | Ast.BinOp(_, o, e1, e2) -> 
+    | Ast_parser.BinOp(_, o, e1, e2) -> 
       let* e1 = aux e1 and* e2 = aux e2 in 
         return (Intermediate.BinOp(o,e1,e2))
-    | Ast.Ref(_, b,e) ->
+    | Ast_parser.Ref(_, b,e) ->
       let* e = aux e in
       let (p,c) = pathOfExpression e in 
       let _ = write c in
       return (Intermediate.Ref(b, p))
-    | Ast.Deref(_, e) ->
+    | Ast_parser.Deref(_, e) ->
       let* e = aux e in
         let (p0, c) = pathOfExpression e in
         let _ = write c in
         return (Intermediate.Path (Intermediate.Deref(p0)))
-    | Ast.ArrayRead(_, _,_) -> raise (NotSupportedInCoreSail "arrays")
-    | Ast.ArrayStatic(_, _) -> raise (NotSupportedInCoreSail "arrays")
+    | Ast_parser.ArrayRead(_, _,_) -> raise (NotSupportedInCoreSail "arrays")
+    | Ast_parser.ArrayStatic(_, _) -> raise (NotSupportedInCoreSail "arrays")
  (*   | Ast.ArrayRead (e1, e2) -> 
       let* e1 = aux e1 and* e2 = aux e2 in
         let (p0, c) = pathOfExpression e1 in
@@ -88,20 +88,20 @@ let removeCalls (p : Common.moduleSignature list) (e : Ast.expression) : Interme
     | Ast.ArrayStatic (el) -> 
         let* el = listMapM aux el in 
         return (Intermediate.ArrayAlloc el)*)
-    | Ast.StructRead (_, e,f) -> 
+    | Ast_parser.StructRead (_, e,f) -> 
         let* e = aux e in 
         let (p0, c) = pathOfExpression e in
         let _ = write c in
           return (Intermediate.Path (Intermediate.StructField(p0,f)))
-    | Ast.StructAlloc (_, x, fel) -> 
+    | Ast_parser.StructAlloc (_, x, fel) -> 
         let l = FieldMap.fold (fun x a y -> (x,a)::y) fel [] in    
         let* l = listMapM (pairMap2 aux) l in
         let m = List.fold_left (fun x (y,e) -> FieldMap.add y e x) FieldMap.empty l in
         return (Intermediate.StructAlloc(x,m)) 
-    | Ast.EnumAlloc (_, x,el) ->
+    | Ast_parser.EnumAlloc (_, x,el) ->
         let* el = listMapM aux el in 
           return (Intermediate.EnumAlloc(x, el))
-    | Ast.MethodCall (_, id, el) ->
+    | Ast_parser.MethodCall (_, id, el) ->
       if (id = "box") then
         match el with
           [e] -> let* e = aux e in return (Intermediate.Box e)
@@ -139,38 +139,38 @@ let rec normalize (c : Intermediate.statement) : Intermediate.statement =
     | Intermediate.Seq(Intermediate.Seq(c1, c2), c3) ->  normalize (Intermediate.Seq (c1, Seq (c2, c3)))
     | _ -> c
 
-let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermediate.statement  = 
+let translate (p : Common.moduleSignature list) (t : Ast_parser.statement) : Intermediate.statement  = 
   let rec aux t : Intermediate.statement = 
   match t with 
-      | Ast.DeclVar (_pos, b,x,t,e) -> 
+      | Ast_parser.DeclVar (_pos, b,x,t,e) -> 
         begin match e with 
             None -> Intermediate.DeclVar(b,x,t,None)
           | Some e -> 
             let (e,l) = removeCalls p e in
             seq_oflist (l@[Intermediate.DeclVar(b,x,t,Some e)])
         end
-      | Ast.DeclSignal (_, s) -> Intermediate.DeclSignal(s)
-      | Ast.Skip _ -> Intermediate.Skip
-      | Ast.Assign (_, e1, e2) ->
+      | Ast_parser.DeclSignal (_, s) -> Intermediate.DeclSignal(s)
+      | Ast_parser.Skip _ -> Intermediate.Skip
+      | Ast_parser.Assign (_, e1, e2) ->
         let (e1, l1) = removeCalls p e1 in
         let (p0, l3) = pathOfExpression e1 in 
         let (e2, l2) = removeCalls p e2 in 
           seq_oflist (l1@l2@l3@[Intermediate.Assign(p0,e2)])
-      | Ast.Seq (_, c1, c2) -> Intermediate.Seq(aux c1, aux c2)
-      | Ast.If(_, e, t1, t2) -> 
+      | Ast_parser.Seq (_, c1, c2) -> Intermediate.Seq(aux c1, aux c2)
+      | Ast_parser.If(_, e, t1, t2) -> 
           let t1 = aux t1 in
           let t2 = begin match t2 with None -> Intermediate.Skip | Some t2 -> aux t2 end in            
           let (e, l) = removeCalls p e in 
           seq_oflist (l @ [Intermediate.If(e, t1, t2)])
-      | Ast.While (_, e, t) -> 
+      | Ast_parser.While (_, e, t) -> 
           let t = aux t in 
           let (e, l) = removeCalls p e in 
           seq_oflist (l @ [Intermediate.While(e, t)])
-      | Ast.Case(_, e, pl) -> 
+      | Ast_parser.Case(_, e, pl) -> 
           let (e,l) = removeCalls p e in 
             let pl = (List.map (fun (x,y) -> (x, aux y) ) pl) in
             seq_oflist (l @ [Intermediate.Case(e, pl)])
-      | Ast.Invoke(_, target, m, el) -> 
+      | Ast_parser.Invoke(_, target, m, el) -> 
         Logs.debug (fun m -> m "Here 0"); 
         let l = List.map (removeCalls p) el in 
         let l1 = List.map fst l in 
@@ -192,10 +192,10 @@ let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermedia
       | Return (_, Some e) -> 
           let (e,l) = removeCalls p e in
           seq_oflist (l @ [Intermediate.Assign(Intermediate.Deref(Intermediate.Variable resvar), e);Intermediate.Return])
-      | Ast.Loop (_, c) -> 
+      | Ast_parser.Loop (_, c) -> 
         Intermediate.While (Literal (Common.LBool true), aux c)
       | Run _ -> failwith "processes not supported yet"
-      | Ast.Emit(_, s) -> Intermediate.Emit(s)
+      | Ast_parser.Emit(_, s) -> Intermediate.Emit(s)
       | When (_, s, c) -> Intermediate.When(s, aux c)
       | Watching (_, s, c) -> Intermediate.Watching(s, aux c)
       | Await (_, s) -> Intermediate.When(s, Skip)
@@ -204,7 +204,7 @@ let translate (p : Common.moduleSignature list) (t : Ast.statement) : Intermedia
         in aux t
 
 (* If the return type is non void, we add a parameter to hold the result *)
-let method_translator (prg :  Common.moduleSignature list) (m : Ast.statement Common.method_defn) : Intermediate.statement Common.method_defn =
+let method_translator (prg :  Common.moduleSignature list) (m : Ast_parser.statement Common.method_defn) : Intermediate.statement Common.method_defn =
   let params =       
     match m.m_rtype with 
       None -> m.m_params
@@ -219,7 +219,7 @@ let method_translator (prg :  Common.moduleSignature list) (m : Ast.statement Co
     m_body = translate prg m.m_body
   }
 
-let process_translator (prg : Common.moduleSignature list)  (p : Ast.statement Common.process_defn) : Intermediate.statement Common.process_defn =
+let process_translator (prg : Common.moduleSignature list)  (p : Ast_parser.statement Common.process_defn) : Intermediate.statement Common.process_defn =
   {
   p_pos = p.p_pos;
   p_name  = p.p_name;
@@ -228,7 +228,7 @@ let process_translator (prg : Common.moduleSignature list)  (p : Ast.statement C
   p_body = translate prg p.p_body
 }
 
-let program_translate (prg : Common.moduleSignature list) (p : Ast.statement Common.sailModule) : Intermediate.statement Common.sailModule = 
+let program_translate (prg : Common.moduleSignature list) (p : Ast_parser.statement Common.sailModule) : Intermediate.statement Common.sailModule = 
   {
     name = p.name;
     structs = p.structs;
