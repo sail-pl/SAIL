@@ -3,7 +3,9 @@ open Common
 
 type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; }
 
-type sailor_args = (string * sailtype) list
+type 'a string_assoc = (string * 'a) list
+
+type sailor_args = sailtype string_assoc
 
 type sailor_decl = 
 {
@@ -11,7 +13,7 @@ type sailor_decl =
 	args : sailor_args;
 }
 
-type sailor_method = (* both methods and processes for now *)
+type sailor_method = 
 {
 	decl : sailor_decl ;
 	body: Ast.statement;
@@ -25,6 +27,20 @@ type sailor_process =
   generics : sailor_args
 }
 
+type function_type = FExternal | FMethod | FProcess
+
+type sailor_function = 
+{
+  name : string;
+  r_type : sailtype option;
+  args : sailor_args;
+  generics : string list;
+  body : Ast.statement option;
+  ty : function_type
+}
+
+type sailor_functions = sailor_method FieldMap.t
+
 type varTypesMap = sailtype FieldMap.t List.t (* List is used for scoping *)
 
 type sailor_callables = {
@@ -33,7 +49,12 @@ type sailor_callables = {
     (* todo : structs & enum *)
 }
 
-type sailor_externals = (string * (sailor_decl * string list * (llvalue array -> llvm_args -> llvalue * llvalue array))) list
+type sailor_external = {
+  call : llvalue array -> llvm_args -> llvalue * llvalue array;
+  decl : sailor_decl;
+  generics : string list;
+}
+
 
 let rec string_of_sailtype (t : sailtype option) : string =
   let open Printf in 
@@ -54,10 +75,10 @@ let rec string_of_sailtype (t : sailtype option) : string =
 
 
 let mangle_method_name (name:string) (args: sailtype list ) : string =
-  let back = List.fold_left (fun s t -> string_of_sailtype (Some t) ^ "_" ^ s) "" args in
+  let back = List.fold_left (fun s t -> s ^ string_of_sailtype (Some t) ^ "_"  ) "" args in
   let front = "_" ^ name ^ "_" in
   let res = front ^ back in
-  Logs.debug (fun m -> m "renamed %s to %s" name res);
+  (* Logs.debug (fun m -> m "renamed %s to %s" name res); *)
   res
 
 
@@ -72,7 +93,7 @@ let degenerifyType (t: sailtype) (generics: sailor_args) : sailtype =
   | CompoundType (_name, _tl)-> aux t
   | Box t -> Box (aux t) 
   | RefType (t,m) -> RefType (aux t, m)
-  | GenericType _ when generics = [] -> failwith "generic type present but empty generics list"
+  | GenericType t when generics = [] -> Printf.sprintf "generic type %s present but empty generics list" t |> failwith
   | GenericType n -> 
     begin
       match List.assoc_opt n generics with

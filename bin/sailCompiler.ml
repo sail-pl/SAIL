@@ -2,29 +2,31 @@ open CliCommon
 open Cmdliner
 open Llvm
 open Llvm_target
+open Compiler_common
 open Code_generator
 open Type_checker
 open Sail_env
-open Globals
-open Compiler_common
 
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
 
-let moduleToIR (name:string) (sc : sailor_callables) (dump_decl:bool) : llmodule  = 
+let moduleToIR (name:string) (funs : sailor_functions) (dump_decl:bool) : llmodule  = 
   let module FieldMap = Map.Make (String) in
 
   let llc = global_context () in
   let llm = create_module llc (name ^ ".sl") in
 
-  let globals = Globals.get_declarations sc llc llm in
+  let globals = Globals.get_declarations funs llc llm in
 
   if dump_decl then Globals.write_declarations globals name;
 
   let env = SailEnv.empty globals in
-  FieldMap.iter (methodToIR llc llm env) sc.methodMap;
-  FieldMap.iter (processToIR llc llm env) sc.processMap;
-
+  
+  FieldMap.iter (fun name f  -> 
+    let f = methodToIR llc llm env name f in
+    Llvm_analysis.assert_valid_function f
+    ) funs;
+  
   match Llvm_analysis.verify_module llm with
   | None -> llm
   | Some reason -> print_endline reason; llm
@@ -96,15 +98,14 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         install_fatal_error_handler error_handler;
         let sail_module = p module_name in
 
-        let sc = type_check_module sail_module in
-        let llm = moduleToIR module_name sc dump_decl in
+        let funs = type_check_module sail_module in
+        let llm = moduleToIR module_name funs dump_decl in
         let tm = init_llvm llm in
 
         if not noopt then 
           begin
             let open PassManager in
-            let pm = create () in
-            add_passes pm;
+            let pm = create () in add_passes pm;
             let res = run_module llm pm in
             Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
             dispose pm

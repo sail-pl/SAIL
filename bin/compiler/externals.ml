@@ -41,13 +41,13 @@ let printf  (args:llvalue array) (llvm:llvm_args) : llvalue  * llvalue array =
   decl_printf llvm.c llvm.m, args
 
 
-let register_external name bind ret args generics ext_l  : sailor_externals = 
+let register_external name call ret args generics ext_l  : sailor_external string_assoc  = 
   let args = List.mapi (fun i t -> (string_of_int i,t)) args  in
   let decl : sailor_decl = {ret;args} in
-  (name,(decl,generics,bind))::ext_l
+  (name,{call;decl;generics})::ext_l
 
 
-let get_externals () : sailor_externals =
+let get_externals () : sailor_external string_assoc =
   [] 
   |> register_external "print_int" _print_int None [Int] []
   |> register_external "print_newline" _print_newline None [] []
@@ -57,8 +57,8 @@ let get_externals () : sailor_externals =
 
 let external_methods (name : string) (args : llvalue array) (llvm:llvm_args) (_env:SailEnv.t) : llvalue =
   match List.assoc_opt name (get_externals ()) with
-  | Some (_,_,bind) -> 
-    let methd,args = bind args llvm in
+  | Some {call; _} -> 
+    let methd,args = call args llvm in
     build_call methd args "" llvm.b
   | _ -> failwith ("unknown external method " ^ name)
 
