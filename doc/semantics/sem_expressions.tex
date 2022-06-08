@@ -1,68 +1,101 @@
-We note $\offsets$ the set of offsets, noted $\offset$, defined by
+We define two predicates $move$ and $copy$ over values as follows :
 $$
-  o ::= \epsilon \mid f;o
+\begin{array}{c}
+\cfrac{}{move(a)} \qquad 
+\cfrac{}{move(a_{\offset,w})} \qquad \cfrac{}{move(\{f_i:v_i\}_{i=1}^n)} \qquad \cfrac{}{move(C(v_1,\ldots,v_n))}
+\\
+\cfrac{}{copy(c)} \qquad \cfrac{}{copy(a_{\offset,r})}
+\end{array}
 $$
-We note $c$ the value corresponding to the litteral $c$ and $\ominus, \oplus$ an arbitrary operator.
-Each operator is assumed to have a semantics, using the same notation.
-We define the set $\locations$ of memory locations, noted $\location$ as $\locations = \addresses \times \offsets$.
-The semantics of expressions is devised in two functions
-$$
-  \begin{array}{lcl}
-    {\mathit{eval_L}} & : & \paths{} \times \stacks{} \times \heaps{} \rightharpoonup \locations{}\\
-    {\mathit{eval}}   & : & \expressions{} \times \stacks{} \times \heaps{}\rightharpoonup \values{} \times \heaps
-  \end{array}
-$$
-
+Intuitively, when read from memory, a value satisfying the $move$ predicate will be moved from its memory location and replaced by $\bot$.
+On the contrary, a valued satisfying the $copy$ predicate is simply copied. Note that $move$ could be defined recursively on the structure of 
+compound values but we choose to mimic the rust language.
+We note $ominus$ (resp. $oplus$) an arbitrary operator. For each operator we assume a semantic function with the same notation.
+The semantics of expressions relies on two relations. The first one turns paths into positions. 
+It has the shape $\env,\heap \vdash p \leadsto (a,o)$ stating that in context $\env,\heap$ the paths $p$ turns into the position 
+$(\address,\offset)$. The second one evaluates expressions, possibly updating the state. It has the shape 
+$e,\env,\heap \Downarrow v,\heap'$ stating that in context $\env,\heap$, the expression $e$ evaluates into value $v$, 
+leading to the new heap $\heap'$. The update of the heap occurs ever when moving a value (rule .) or when allocating 
+a new memory location (rule .).
+\begin{figure}
+  \fbox{
+    \parbox[c]{\textwidth}{
 $$
   \begin{array}{c}
     \cfrac{\env(x) = \address}
-    {\evalLeft{x}{\env}{\heap} = (\address, \epsilon)}
+    {\env,\heap \vdash x \leadsto (\address, \epsilon)}~\rulename{var}
     \qquad
-    \cfrac{\evalLeft{p}{\env}{\heap} = (\address,o)}
-    {\evalLeft{p.f}{\env}{\heap} = (\address, o.f)}
-    \\\\
-    \cfrac{\evalLeft{p}{\env}{\heap} = (\address_\star,o) \qquad \sigma(\address)[o] = (\address_\star',o')}
-    {\evalLeft{*p}{\env}{\heap} = (\address_\star',o')}
-    \\\\
-    \cfrac{\evalLeft{p}{\env}{\heap} = (\address_\star,o) \qquad \sigma(\address)[o] = v \qquad Move(v)}
-    {\eval{p}{\env}{\heap} = v, \heap[\address.o \mapsto \bot]}
-    \\\\
-    \cfrac{\evalLeft{p}{\env}{\heap} = (\address_\star,o) \qquad \sigma(\address)[o] = v \qquad Copy(v)}
-    {\eval{p}{\env}{\heap} = v, \heap}
-    \\\\
-    \cfrac{}{\eval{c}{\env}{\heap} = c,\heap}
-    \qquad
-    \cfrac{\eval{e}{\env}{\heap} = v, \heap'}
-    {\eval{\varominus e}{\env}{\heap} = \varominus v, \heap'}
+    \cfrac{\env,\heap \vdash p \leadsto (\address,o)}
+    {\env,\heap \vdash p.f \leadsto (\address,o.f)}~\rulename{get}
     \\\\
     \cfrac{
-        \eval{e_1}{\env}{\heap} = v_1,\heap'' \qquad 
-        \eval{e_2}{\env}{\heap''} = v_2, \heap'}
-    {\eval{e_1 \varoplus e_2}{\env}{\heap} = v_1 \varoplus v_2, \heap'}
+      \env,\heap \vdash p \leadsto (\address,o) \qquad 
+      \sigma(\address)_o = (\address',o')}
+    {\env,\heap \vdash *p \leadsto (\address',o')}~\rulename{de1}
+    \qquad
+    \cfrac{
+      \env,\heap \vdash p \leadsto (\address,o) \qquad 
+      \sigma(\address)_o = \address'}
+    {\env,\heap \vdash *p \leadsto (\address',\emptyoffset)}~\rulename{de2}
     \\\\
     \cfrac{
-
-      \eval{e_k}{\env}{\heap_k} = v_k,\heap_{k+1},~k\in \set{1,\ldots,n} \qquad 
+      \begin{array}{c}
+      \env,\heap \vdash p \leadsto (\address,o) \qquad
+      \sigma(\address)_o = v \\ 
+      {\mathit{move}}(v)  \qquad 
+      \heap' = \heap[a \mapsto v[\bot]_o]
+    \end{array}
+    }
+    {p, \env, \heap \Downarrow v, \heap'}~\rulename{mov}
+    \qquad
+    \cfrac{
+      \begin{array}{c}
+      \env,\heap \vdash p \leadsto (\address,o) \qquad 
+      \sigma(\address)_o = v \\ {\mathit{copy}}(v)
+      \end{array}
+      }
+    {p, \env,\heap \Downarrow v, \heap}~\rulename{cpy}
+    \\\\
+    \cfrac{}{c,\env,\heap \Downarrow c,\heap}~\rulename{cst}
+    \qquad
+    \cfrac{e,\env,\heap \Downarrow v, \heap' \qquad \varominus v = v'}
+    {\varominus e, \env,\heap\Downarrow v', \heap'}~\rulename{uop}
+    \\\\
+    \cfrac{
+      e_1,\env,\heap\Downarrow v_1,\heap'\qquad
+        e_2,\env,\heap' \Downarrow v_2, \heap'' \qquad v_1 \varoplus v_2 = v
+        }
+    {e_1 \varoplus e_2, \env,\heap \Downarrow v, \heap''}~\rulename{bop}
+    \\\\
+    \cfrac{
+      \begin{array}{c}
+      e_k, \env,\heap_k \Downarrow  v_k,\heap_{k+1},~{\scriptstyle{1\leq k\leq n}}\\
       \sigma =\sigma_1 \qquad \sigma'=\sigma_{n+1}
+      \end{array}
     }
     {
-      \eval{\valstruct{\field{f_i}{e_i}}_{i=1}^n}{\env}{\heap} = \valstruct{\field{f_i}{v_i}}_{i=1}^n, \heap'
-    }
-    \\\\
+      \valstruct{\field{f_i}{e_i}}_{i=1}^n,\env,\heap \Downarrow \valstruct{\field{f_i}{v_i}}_{i=1}^n, \heap'
+    }~\rulename{str}
+    \qquad
     \cfrac{
-    \eval{e_k}{\env}{\heap_k} = v_k,\heap_{k+1}~k\in \set{1,\ldots,n} \qquad 
+      \begin{array}{c}
+      e_k, \env,\heap_k \Downarrow  v_k,\heap_{k+1},~{\scriptstyle{1\leq k \leq n}} \\
     \sigma =\sigma_1 \qquad \sigma'=\sigma_{n+1}
+      \end{array}
     }
-    {\eval{C(e_1,\ldots,e_n)}{\env}{\heap} = C(v_1,\ldots,v_n) }
+    {C(e_1,\ldots,e_n),\env,\heap \Downarrow C(v_1,\ldots,v_n), \sigma' }~\rulename{enu}
     \\\\
-    \cfrac{\evalLeft{p}{\env}{\heap} = (\address, \offset)}
-    {\eval{\&p}{\env}{\heap} = \address_o,\heap}
+    \cfrac{\env, \heap \vdash p \leadsto (\address, \offset)}
+    {\&p, \env, \heap \Downarrow \address_o,\heap}~\rulename{ref}
     \qquad{}
     \cfrac{
-        \eval{e}{\env}{\heap'} = (v,\heap'') \qquad{
-        (a,\heap') = {\mathit{fresh}}(\heap'') 
-        }
+        e,\env,\heap \Downarrow v,\heap' \qquad
+        a \not \in \dom(\heap')
     }
-    {\eval{{\mathit{box}(e)}}{\env}{\heap} =  a,\heap'[a.\epsilon \mapsto v]}
+    {{\mathit{box}(e)},\env,\heap \Downarrow  a,\heap' \uplus \{a \mapsto v\}}~\rulename{box}
   \end{array}
 $$
+    }}
+\caption{Semantics of expressions}
+\label{sem-expr:fig-rules}
+\end{figure}

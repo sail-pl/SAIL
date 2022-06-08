@@ -2,69 +2,8 @@ Core \sail{} commands execute in the context of an environment and a heap. The e
 variables and signal names to memory addresses (noted $\alpha$ possibly with subscripts).
 The heap maps memory addresses to values and signal states.
 
-\section{Semantics domain}
-\begin{paragraph}{Values}
-  We assume a set $\locations$ of memory locations noted $\ell$, possibly with subscripts.
-  The set $\values{}$ of \sail{} values, noted $\value{}$, is defined by the grammar below:
-  $$
-    \begin{array}{lcl} v & ::= & c \mid S\{\field{f}{v}, \ldots, \field{f}{v}\} \mid C(v,\ldots,v)
-             \mid \ell \mid \ell_o                                                             \\
-             o       & ::= & \emptyoffset \mid f;o
-    \end{array}
-  $$
-  where $S\{\field{f_0}{v_0},\ldots,\field{f_{n-1}}{v_{n-1}}\}$ is a structured
-  and $C(v_0,\ldots,v_{n-1})$ is an enum value. A memory location $\ell_o$ denotes a borrowing
-  of the memory location $\ell$ at offset $o$.
-  An offset $o$ is a sequence of field names and indices. We omit $\epsilon$ when the sequence is non empty.
-  We note $v[w]_o$ the update of $v$ with $w$ at $o$, which is recursively defined on $o$ by
-  $$
-    \begin{array}{lcl}
-      v[w]_{\emptyoffset}                            & = & w \\
-      S\{\dotso,\field{f_{i}}{v},\dotso\}[w]_{f_i;o} & = &
-      S\{\dotso,\field{f_{i}}{v}[w]_o,\dotso\}
-    \end{array}
-  $$
-\end{paragraph}
-\begin{paragraph}{Stack and heap} An environment $\rho$ is a non empty list of mappings
-  from variable and signals to values. The use of a list of mappings instead of a single mapping is motivated by the need
-  for a precise view of the lifetime of variables. The elements of the list represents the nesting of code
-  blocks.
-  $$
-    \begin{array}{lcll}
-      \omega & \in & \variables \rightharpoonup \locations                             & {\text{frame}} \\
-      \rho   & =   & \overline{\omega}                                                 & {\text{stack}} \\
-      \sigma & \in & \locations \rightharpoonup \values^\bot \cup\{\absent, \present\} & {\text{heap}}
-    \end{array}
-  $$
-  where $\overline{\omega}$ denotes a list $\omega_0,\ldots,\omega_{n-1}$ and
-  $\value^\bot = Value \cup \{\bot\}$ and $\bot$ represents the value of an allocated but uninitialized location.
-  The special values $\absent$ and $\present$ represent the state of a signal, absent ($\absent$) or present($\present$).
-\end{paragraph}
-\begin{paragraph}{Notations}
-  Given a partial function $f : A \rightharpoonup B$, and a value $a \not \in \dom(f)$, we note $f_{a \leadsto b}$, the
-  partial function defined by $f_{a\leadsto b}(a) = b$ and $f_{a\leadsto b}(x)=f(x)$ for all $x \not = a$.
-  Given a partial function $f : A \rightharpoonup B$, and a value $a \not \in \dom(f)$, we note $f_{a \mapsto b}$, the
-  partial function defined by $f_{a\mapsto b}(a) = b$ and $f_{a\mapsto b}(x)=f(x)$ for all $x \not = a$. We note
-  $f_{a,c \mapsto b,d}$ for the parallel update of $a$ and $b$ if $a \not = b$.
-  We extends the functional notations to list of functions.
-  $$
-    \begin{array}{lcll}
-      \epsilon(x)                       & = & {\mathit{undef}}                                                                                       \\
-      (\overline{\omega}\cdot\omega(x)) & = &
-      \begin{cases}
-        \omega(x)            & {\text{if $x \in \dom(\omega)$}} \\
-        \overline{\omega}(x) & {\text{otherwise}}
-      \end{cases}
-      \\
-      \rho_{x \leadsto \ell}            & = & \overline{\omega} \cdot \omega_{x \leadsto \ell} & {\text{if $\rho = \overline{\omega} \cdot \omega$}} \\
-      \activate(\rho)                   & = & \rho \cdot \varnothing                                                                                 \\
-      \deactivate(\rho\cdot\omega)      & = & Loc(\omega)
-    \end{array}
-  $$
-  where $\varnothing$ denotes the empty mapping and $Loc(\omega)$ is
-  the set of memory location occurring in $\omega$.
-\end{paragraph}
-
+\subsection{Semantics domain}
+\input{sem_domain}
 
 \subsection{Semantics of expressions}
 \input{sem_expressions}

@@ -8,13 +8,11 @@
 \newcommand{\parl}[2]{\tensor[_{#1}]{\parallel}{_{#2}}}
 \newcommand{\vect}[1]{\overline{#1}}
 \newcommand\envs[1]{\langle #1 \rangle}
-\def\env{\rho}
-\def\sigenv{\theta}
-\def\heap{\sigma}
+
 \def\continue{{\mathcal{C}}}
 \def\ret{{\mathcal{R}}}
 \def\suspend{{\mathcal{S}}}
-\def\variable{\tt{var}}
+
 \def\dom{{\mathit{dom}}}
 \def\lhs{{\mathit{lhs}}}
 \def\allocate{{\tt{ref}}}
@@ -47,10 +45,20 @@
 \def\return{{\tt{return}}}
 \newcommand{\block}[2]{\{#1\}_{#2}}
 \def\updateValue{{\mathit{update_V}}}
+
+\def\variable{\tt{var}}
+\def\address{a}
+\def\addresses{\mathbb{A}}
+\def\offset{{\mathit{o}}}
+\def\offsets{{\mathit{Off}}}
 \def\value{v}
 \def\values{{\mathit{Val}}}
-\def\address{a}
-\def\addresses{\mathcal{A}}
+\def\scope{\omega}
+\def\env{\rho}
+\def\heap{\sigma}
+
+\newcommand{\rulename}[1]{{\textsc{(#1)}}}
+
 \def\location{\ell}
 \def\locations{{\mathit{Loc}}}
 \def\signal{s}
@@ -64,8 +72,6 @@
 \def\stacks{{\mathcal{E}}}
 \def\heaps{{\mathcal{H}}}
 \def\undef{{\mathit{undefined}}}
-\def\offset{{\mathit{o}}}
-\def\offsets{{\mathit{Off}}}
 \def\stopp{{\tt{stop}}}
 \def\signal{{\tt{signal}}}
 \def\dsignal{{\tt{signal}}}
@@ -74,4 +80,4 @@
 \newcommand{\addressOf}[1]{#1\lightning}
 
 \def\suspended{{\mathit{suspended}}}
-\def\unlock{{\mathit{unlock}}}
+\def\unlock{{\mathit{resume}}}

@@ -95,23 +95,25 @@ let* v' = match v with
     | _ -> throwError NotAValue
 in  setLocation h (a, Either.Left v')
 
-let setSignalAt (h : heap) (a : Heap.address) (b : bool): heap Result.t =
+let getSignalAt (h : heap) (a : Heap.address) : bool Result.t =
     let open Result in
     let open MonadSyntax (Result) in
     let* content = getLocation h a in
-    setLocation h (a, Either.Right b)
-
-  (*  (match content with
+    (match content with
         None -> throwError InvalidSignal
-        | Some (Either.Right b) -> return b 
-        | Some _ -> throwError TypingError)*)
+        | Some (Either.Right b) ->  return b
+        | Some _ -> throwError TypingError)
+
+let setSignalAt (h : heap) (a : Heap.address) (b : bool): heap Result.t =
+    let open MonadSyntax (Result) in
+    setLocation h (a, Either.Right b)
 
 let addressOfValue (v : value option) : (Heap.address * offset) Result.t= 
     let open Result in
     let open MonadSyntax (Result) in
     match v with 
     Some (VLoc (l, Owned)) -> return (l,[])    
-  | Some (VLoc (l, Borrowed o)) ->  return (l,o)
+  | Some (VLoc (l, Borrowed (o,_b))) ->  return (l,o)
   | None -> throwError NotAValue
   | _ -> throwError TypingError
 
@@ -138,18 +140,18 @@ let rec evalL (env : env) (h :heap) (p : Intermediate.path) : (Heap.address * of
 
 let isMovable (v : value) : bool =
     match v with 
-    | VLoc _ -> true
+    | VLoc (_, Owned) -> true
+    | VLoc (_, Borrowed (_, true)) -> true
+    | VStruct (_,_) -> true 
+    | VEnum (_, _) -> true
     | _ -> false
 
 let move (h : heap) ((a,o) : Heap.address * offset) : heap Result.t =
-    let open Result in
     let open MonadSyntax (Result) in
-    let* v0 = getLocation h a in
-    let* v' = match v0 with 
-        (Some (Either.Left v)) when isMovable v -> setOffset v o Moved
-        | (Some (Either.Left v)) -> return v
-        | _ -> throwError NotAValue
-    in setLocation h (a, Either.Left v')
+    let* v = getValueAt h (a,o) in
+    match v with 
+        Some v' when isMovable v' -> setValueAt h (a,o) v' 
+        | _ -> return h
 
 let eval (env : env) (h : heap) (e : Intermediate.expression) : (value * heap) Result.t =
   let open Result in
@@ -180,9 +182,9 @@ let eval (env : env) (h : heap) (e : Intermediate.expression) : (value * heap) R
     | EnumAlloc (c, es) ->
         let* (l,h) = foldLeftM (fun (x, h0) e -> aux e h0 >>= fun (v, h') -> return (v::x, h') ) ([], h) es in     
         return (VEnum (c, l), h)
-    | Ref (_, p) ->
+    | Ref (b, p) ->
         let* (a, o) = evalL env h p in
-        return (VLoc (a,Borrowed o), h)
+        return (VLoc (a, Borrowed (o,b)), h)
     | Box (e) ->
         let* (v,h1) = aux e h in 
         let (a', h2) = Heap.fresh h1 in
@@ -253,7 +255,6 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
         let* h1 = setLocation h0 (freshAddress, Either.Right false) in
         return (Continue, Env.singleton s freshAddress, h1)
     | Skip -> return (Continue, Env.emptyFrame, h)
-   (* | Stop -> return (Continue, Env.emptyFrame, h)*)
     | Assign (p, e) ->     (
         let* (targetAddress, targetOffset) = evalL env h p in
         let* (v, h0) = eval env h e in
@@ -340,23 +341,16 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
         let* h' = setSignalAt h a true in
         return (Continue, Env.emptyFrame, h')
     | When (s, c, w) -> (
-        let* a = getVariable env s in
-        let* v = getLocation h a in
-        match v with
-        | Some (Either.Right false) ->
-            return (Suspend (When (s, c, w)), Env.emptyFrame, h)
-        | Some (Either.Right true) -> (
+        let* b = getVariable env s >>= getSignalAt h in
+        if b then 
             let* k, w', h' = aux c (Env.activate env w) h in
-            match k with
-            | Suspend c' ->
-                return
-                  (Suspend (When (s, c', Env.merge w w')), Env.emptyFrame, h')
-            | _ -> 
-                let l = Env.allValues (Env.merge w w') in
-                let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h' l in 
-                return (k, Env.emptyFrame, cleanHeap))
-        | None -> throwError (UnitializedAddress a)
-        | _ -> throwError TypingError)
+                match k with
+                | Suspend c' -> return (Suspend (When (s, c', Env.merge w w')), Env.emptyFrame, h')
+                | _ -> 
+                    let l = Env.allValues (Env.merge w w') in
+                    let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h' l in 
+                    return (k, Env.emptyFrame, cleanHeap)
+        else return (Suspend (When (s, c, w)), Env.emptyFrame, h))
     | Watching (s, c, w) -> (
         let* k, w', h' = aux c (Env.activate env w) h in
         match k with
@@ -365,16 +359,16 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
               (Suspend (Watching (s, c', Env.merge w w')), Env.emptyFrame, h')
         | _ -> 
             let l = Env.allValues (Env.merge w w') in
-                let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h' l in 
-                return (k, Env.emptyFrame, cleanHeap))
+            let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h' l in 
+            return (k, Env.emptyFrame, cleanHeap))
     | Par (c1, w1, c2, w2) -> (
         let* k1, w1', h' = aux c1 (Env.activate env w1) h in
         let* k2, w2', h'' = aux c2 (Env.activate env w2) h' in
         match (k1, k2) with
         | Continue, Continue ->
             let l = Env.allValues (Env.merge w1 (Env.merge w2 (Env.merge w1' w2'))) in
-                let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h'' l in 
-                return (Continue, Env.emptyFrame, cleanHeap)
+            let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h'' l in 
+            return (Continue, Env.emptyFrame, cleanHeap)
         | Continue, Suspend c ->
             return
               ( Suspend (Par (Skip, Env.merge w1 w1', c, Env.merge w2 w2')),
@@ -399,8 +393,7 @@ let reset (h : heap) : heap =
     (fun x -> match x with Either.Right _ -> Either.Right false | _ -> x)
     h
 
-let canProgress (c : command) (h : heap) : bool Result.t =
-  let open Result in
+let suspended (c : command) (h : heap) : bool Result.t =
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
   Logs.debug (fun m -> m "todo %a" pp_print_command c);
@@ -408,54 +401,49 @@ let canProgress (c : command) (h : heap) : bool Result.t =
     match c with
     | Block (c, w) -> aux c (Env.activate env w)
     | Seq (c1, _) -> aux c1 env
+    | When (s, c, w) -> (
+        let* l = getVariable env s in
+        let* b = getSignalAt h l in
+        if b then aux c (Env.activate env w) else return true)
+    | Watching (_, c, w) -> aux c (Env.activate env w)
     | Par (c1, w1, c2, w2) ->
         let* b1 = aux c1 (Env.activate env w1) in
         let* b2 = aux c2 (Env.activate env w2) in
-        return (b1 || b2)
-    | When (s, c, w) -> (
-        let* l = getVariable env s in
-        let* v = getLocation h l in
-        match v with
-        | None -> throwError (UndefinedAddress l)
-        | Some (Either.Left _) -> throwError NotASignalState
-        | Some (Either.Right b) ->
-            if b then aux c (Env.activate env w) else return false)
-    | Watching (_, c, w) -> aux c (Env.activate env w)
-    | _ -> return true
-  in
-  aux c Env.empty
+        return (b1 && b2)
+    | _ -> return false
+  in aux c Env.empty
 
-let rec kill (c : command) (env : env) (h : heap) : command Result.t =
+let rec resume (c : command) (env : env) (h : heap) : command Result.t =
   let open Result in
   let open MonadSyntax (Result) in
   let open MonadFunctions (Result) in
   match c with
   | Block (c, w) ->
-      let* c' = kill c (Env.activate env w) h in
+      let* c' = resume c (Env.activate env w) h in
       return (Block (c', w))
   | Seq (c1, c2) ->
-      let* c1' = kill c1 env h in
+      let* c1' = resume c1 env h in
       return (Seq (c1', c2))
-  | Par (c1, w1, c2, w2) ->
-      let* c1' = kill c1 (Env.activate env w1) h
-      and* c2' = kill c2 (Env.activate env w2) h in
-      return (Par (c1', w1, c2', w2))
-  | When (s, c, w) ->
-      let* c' = kill c (Env.activate env w) h in
-      return (When (s, c', w))
-  | Watching (s, c, w) -> (
-      let* a = getVariable env s in
-      let* v = getLocation h a in
-      match v with
-      | Some (Either.Right b) ->
-          if b then return Skip
-          else
-            let* c' = kill c (Env.activate env w) h in
+    | When (s, c, w) ->
+        let* c' = resume c (Env.activate env w) h in
+        return (When (s, c', w))
+    | Watching (s, c, w) -> (
+        let* a = getVariable env s in
+        let* v = getLocation h a in
+        match v with
+        | Some (Either.Right b) ->
+        if b then return Skip
+        else
+            let* c' = resume c (Env.activate env w) h in
             return (Watching (s, c', w))
-      | _ -> throwError NotASignalState)
+| _ -> throwError NotASignalState)
+  | Par (c1, w1, c2, w2) ->
+      let* c1' = resume c1 (Env.activate env w1) h
+      and* c2' = resume c2 (Env.activate env w2) h in
+      return (Par (c1', w1, c2', w2))
   | _ -> return c
 
-(* AAT NESXT INSTANT *)
+  (* Separate the global loop from the computation of instants *)
 let run (m : Intermediate.statement method_defn list) c : unit Result.t =
   let open Result in
   let open MonadSyntax (Result) in
@@ -467,17 +455,19 @@ let run (m : Intermediate.statement method_defn list) c : unit Result.t =
     | Ret -> throwError ReturnStatementInProcess
     | Continue -> return ()
     | Suspend suspendedCommand ->
-        let* b = canProgress suspendedCommand heapAfterReduce in
-        if b then aux suspendedCommand heapAfterReduce
-        else
-          let _ = Logs.debug (fun m -> m "new instant") in
-          let* nextCommand = kill suspendedCommand Env.empty heapAfterReduce in
-          let* b = canProgress nextCommand (reset heapAfterReduce) in
-          if b then aux nextCommand (reset heapAfterReduce)
-          else
+        let* b = suspended suspendedCommand heapAfterReduce in
+        if b then 
+            let _ = Logs.debug (fun m -> m "new instant") in
+            let* nextCommand = resume suspendedCommand Env.empty heapAfterReduce in
+            let* b = suspended nextCommand (reset heapAfterReduce) in
+            if b then aux nextCommand (reset heapAfterReduce)
+            else
             (* The machine should freeze, waiting for external events *)
             let _ = Logs.debug (fun m -> m "no further progress") in
             return ()
+        else
+            aux suspendedCommand heapAfterReduce
+        
   in
   aux (Block (c, Env.emptyFrame)) Heap.empty
 

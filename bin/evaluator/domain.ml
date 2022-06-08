@@ -36,8 +36,7 @@ type tag = Field of string | Indice of int
 
 type offset = tag list
 
-
-type kind = Owned | Borrowed of offset
+type kind = Owned | Borrowed of offset * bool
 
 type location = Heap.address * kind
 

@@ -15,7 +15,7 @@ let pp_print_offset (pf : Format.formatter) (o : Domain.offset) : unit =
 let pp_print_kind pf (k : kind) = 
   match k with 
     | Owned -> Format.pp_print_string pf "Ow"
-    | Borrowed o ->  Format.fprintf pf "B%a" pp_print_offset o 
+    | Borrowed (o,b) ->  Format.fprintf pf "B%a,%b" pp_print_offset o b
 
 let pp_print_location pf (a, k) =
   Format.fprintf pf "(%a,%a)" Heap.pp_address a pp_print_kind k

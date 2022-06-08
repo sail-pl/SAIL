@@ -1,0 +1,43 @@
+Let $\addresses$ be a countable set of adresses, noted $\address$ and let $\offsets$ be the set of offsets defined 
+by $\offset ::= \emptyoffset \mid f;\offset$.
+The set $\values{}$ of \sail{} values, noted $\value{}$, is defined by the grammar below:
+$$
+  \begin{array}{lcl} v & ::= & c \mid \{\field{f}{v}, \ldots, \field{f}{v}\} \mid C(v,\ldots,v)
+            \mid \address \mid \address_{\offset,m} \mid \bot
+  \end{array}
+$$
+where $\{\field{f_i}{v_i}\}_{i=1}^n$ is a structured value and $C(v_0,\ldots,v_{n-1})$ is an enum value.
+Values of the form $\address$ and $\address_\offset$ are named memory location.
+An offset $\offset$ is a sequence of field names. A mutability status is an element of $\{r,w\}$.
+A memory location $\address_{\offset,m}$ denotes a borrowing of the memory location $\address$ at offset $\offset$
+which is either mutable ($m=w$) or immutable ($m=r$).
+The value $\bot$ denotes a moved value.
+We note $\value_\offset$ for the value of $\value$ at offset $\offset$ and 
+$\value[\value']_\offset$ the update of $\value$ with $\value'$ at $\offset$, which is recursively defined on $\offset$ by
+$$
+  \begin{array}{lcllcl}
+    v_\emptyoffset &=& \value & \qquad
+    \{\dotso,\field{f_{i}}{v},\dotso\}_{f_i;o} &=&\value_\offset\\
+    v[v']_{\emptyoffset} &=& v' & \qquad
+    \{\dotso,\field{f_{i}}{v},\dotso\}[v']_{f_i;o} &=& 
+    \{\dotso,\field{f_{i}}{v}[v']_o,\dotso\}
+  \end{array}
+$$
+A scope $\omega$ is a partial function from variables to addresses and 
+frame $\env$ is a non empty list of scopes. The state of signals is represented by two possible values $\absent$ and $\present$.
+A Heap, noted $\heap$, is a partial mapping from addresses to values and signal states.
+$$
+\begin{array}{c}
+\omega \in \variables \rightharpoonup \addresses  \qquad \env \in (\variables \rightharpoonup \addresses)^+\qquad
+\heap \in \locations \rightharpoonup \values^\bot \cup\{\absent, \present\}
+\end{array}
+$$
+We note $l \cdot t$ the list $l$ augmented with the element $e$. 
+We note $\dom(f)$ the domain of a function $f$. Given two function $f$ and $g$, we note $f \uplus g$ 
+the disjoint union of $f$ and $g$. We note $f[d \mapsto c]$ the function that maps $d$ to $c$ and $d'$ to $f(d)$ for all $d'\not =  d$.
+Function application is extended to, possibly empty, list of functions as follows : 
+$$
+\epsilon(x) {\text{ is undefined}} \qquad 
+(\overline{f}\cdot g)(x) = g(x) {\text{ if $x \in \dom(g)$ and }} \overline{f}(x) {\text{ otherwise}}
+$$ 
+where $\epsilon$ denotes the empty list.
