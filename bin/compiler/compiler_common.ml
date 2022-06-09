@@ -91,7 +91,7 @@ let degenerifyType (t: sailtype) (generics: sailor_args) : sailtype =
   | Char -> Char
   | String -> String
   | ArrayType (t,s) -> ArrayType (aux t, s)
-  | CompoundType (_name, _tl)-> aux t
+  | CompoundType (_name, _tl)-> failwith "todo compoundtype"
   | Box t -> Box (aux t) 
   | RefType (t,m) -> RefType (aux t, m)
   | GenericType t when generics = [] -> Printf.sprintf "generic type %s present but empty generics list" t |> failwith

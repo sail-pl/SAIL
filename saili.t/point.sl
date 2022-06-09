@@ -1,0 +1,1 @@
+../examples/imperative/structuresAndEnums/point.sl

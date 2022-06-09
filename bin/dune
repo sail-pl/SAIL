@@ -15,6 +15,11 @@
     (flags (:standard -warn-error -A))))
     
 (ocamllex lexer)
+
 (menhir
  (flags (--explain))
- (modules parser)) 
+ (modules parser))
+
+
+ (cram
+ (deps %{bin:sailInterpreter}  %{bin:sailCompiler}))
