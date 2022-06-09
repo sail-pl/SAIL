@@ -1,1 +1,0 @@
-../examples/imperative/genericity/testInnerGenericity2.sl

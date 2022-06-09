@@ -20,7 +20,3 @@
 (menhir
  (flags (--explain))
  (modules parser))
-
-
- (cram
- (deps %{bin:sailInterpreter}  %{bin:sailCompiler}))
