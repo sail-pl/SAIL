@@ -190,7 +190,6 @@ let statementToIR (m:llvalue) (x: Ast_hir.statement) (generics: sailor_args) (ll
         end;
     in
     position_at_end then_bb llvm.b;
-    build_if_br then_s;
     position_at_end else_bb llvm.b;
     begin
       match opt_else_s with
