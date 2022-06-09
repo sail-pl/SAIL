@@ -1,4 +1,5 @@
 (copy_files# sail_hir/*.ml)
+(copy_files# sail_thir/*.ml)
 (copy_files# evaluator/*.ml)
 (copy_files# compiler/*.ml)
 

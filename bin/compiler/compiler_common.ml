@@ -17,14 +17,14 @@ type sailor_decl =
 type sailor_method = 
 {
 	decl : sailor_decl ;
-	body: statement;
+	body: Ast_parser.expression statement;
   generics : sailor_args
 }
 
 type sailor_process = 
 {
   args : sailor_args;
-  body: statement;
+  body: Ast_parser.expression statement;
   generics : sailor_args
 }
 
@@ -36,7 +36,7 @@ type sailor_function =
   r_type : sailtype option;
   args : sailor_args;
   generics : string list;
-  body : statement option;
+  body : Ast_parser.expression statement option;
   ty : function_type
 }
 

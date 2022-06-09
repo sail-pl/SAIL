@@ -53,7 +53,7 @@ let declare_var ts name value =
 (* end todo *)
 
 
-let find_callable (name:string) (sm : statement sailModule) : sailor_function = 
+let find_callable (name:string) (sm : Ast_parser.expression statement sailModule) : sailor_function = 
   (* we check if the calle is external *)
   let args,generics,body,ty,r_type = match List.assoc_opt name externals with
   | None -> 
@@ -76,7 +76,7 @@ let find_callable (name:string) (sm : statement sailModule) : sailor_function =
 
 
 (* do some basic type checking and monomorphize *)
-let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : statement sailModule) (monos:monomorphics) (funs:sailor_functions) : monomorphics * sailor_functions =
+let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : Ast_parser.expression statement sailModule) (monos:monomorphics) (funs:sailor_functions) : monomorphics * sailor_functions =
   
   let resolveType (arg: sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: sailor_args) : sailtype * sailor_args =
     let rec aux (a:sailtype) (m:sailtype) (g:sailor_args) = 
@@ -191,7 +191,7 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : statement s
           end
       end
 
-  and analyse_command (_cmd: statement) (_ts : varTypesMap) (_monos : monomorphics) (_funs : sailor_functions) : varTypesMap * monomorphics * sailor_functions =
+  and analyse_command (_cmd: Ast_parser.expression statement) (_ts : varTypesMap) (_monos : monomorphics) (_funs : sailor_functions) : varTypesMap * monomorphics * sailor_functions =
       match f.ty with
       | FProcess -> failwith "todo: typecheck commands"
       | _ -> failwith "Methods can't have reactive statements!"
@@ -257,7 +257,7 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : statement s
   
 
     (*todo : more checks (arrays...) *)
-  and analyse_statement (st:statement) (ts : varTypesMap) (monos:monomorphics) (funs : sailor_functions) : varTypesMap * monomorphics * sailor_functions = match st with
+  and analyse_statement (st:Ast_parser.expression statement) (ts : varTypesMap) (monos:monomorphics) (funs : sailor_functions) : varTypesMap * monomorphics * sailor_functions = match st with
   | DeclVar (_, _,name,t,None) -> declare_var ts name t,monos,funs
   | DeclVar (_, _,name,t,Some e) -> 
     begin
@@ -319,7 +319,7 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : statement s
 
 
 
-let analyse_functions (monos:monomorphics) (sm : statement sailModule) : sailor_functions =
+let analyse_functions (monos:monomorphics) (sm : Ast_parser.expression statement sailModule) : sailor_functions =
   if monos = [] then failwith "no monomorphic callable (no main?)";
 
   let check_fun (name,(g:sailor_args)) (monos:monomorphics) (funs:sailor_functions): monomorphics * sailor_functions = 
@@ -362,7 +362,7 @@ let analyse_functions (monos:monomorphics) (sm : statement sailModule) : sailor_
 
 
 
-let type_check_module (a: statement sailModule) : sailor_functions = 
+let type_check_module (a: Ast_parser.expression statement sailModule) : sailor_functions = 
   (* we only typecheck monomorphic declarations *)
   let monos = 
     let test funs name args has_gen = if has_gen then funs else (name,args)::funs in

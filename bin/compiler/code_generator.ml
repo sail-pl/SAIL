@@ -139,7 +139,7 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Ast_parser.expression) : (sailtyp
     | None -> false
   
     
-let statementToIR (m:llvalue) (x: Ast_hir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) : unit =
+let statementToIR (m:llvalue) (x: Ast_parser.expression Ast_hir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) : unit =
   let declare_var (mut:bool) (name:string) (ty:Common.sailtype) (exp:Ast_parser.expression option) (env:SailEnv.t) : SailEnv.t =
     let _ = mut in (* todo manage mutable types *)
     let ty = degenerifyType ty generics in
@@ -240,7 +240,6 @@ let statementToIR (m:llvalue) (x: Ast_hir.statement) (generics: sailor_args) (ll
       in ret llvm.b |> ignore; env
 
   | Run (_, _, _) ->  failwith "run unimplemented"
-  (*| Loop _ ->  failwith "loop unimplemented"*)
   | Emit _ ->  failwith "emit unimplemented"
   | Await _ ->  failwith "await unimplemented"
   | When (_, _, _) ->  failwith "when unimplemented"

@@ -2,6 +2,9 @@ open Cmdliner
 open Common
 open CliCommon
 
+open Thir
+open Ast_thir
+
 let saili (files: string list) (intermediate:bool) () = 
   let rec aux = function
   | f::r -> 

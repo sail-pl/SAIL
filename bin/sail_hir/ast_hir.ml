@@ -38,26 +38,26 @@ open Common
   | MethodCall of loc * string * expression list*)
   
 
-type statement =
-  | DeclVar of loc * bool * string * sailtype * Ast_parser.expression option 
+type 'a statement =
+  | DeclVar of loc * bool * string * sailtype * 'a option 
   | DeclSignal of loc * string
   | Skip of loc
-  | Assign of loc * Ast_parser.expression * Ast_parser.expression
-  | Seq of loc * statement * statement
-  | Par of loc * statement * statement
-  | If of loc * Ast_parser.expression * statement * statement option
-  | While of loc * Ast_parser.expression * statement
-  | Case of loc * Ast_parser.expression * (string * string list * statement) list
-  | Invoke of loc * string option * string * Ast_parser.expression list
-  | Return of loc * Ast_parser.expression option
-  | Run of loc * string * Ast_parser.expression list
+  | Assign of loc * 'a * 'a
+  | Seq of loc * 'a statement * 'a statement
+  | Par of loc * 'a statement * 'a statement
+  | If of loc * 'a * 'a statement * 'a statement option
+  | While of loc * 'a * 'a statement
+  | Case of loc * 'a * (string * string list * 'a statement) list
+  | Invoke of loc * string option * string * 'a list
+  | Return of loc * 'a option
+  | Run of loc * string * 'a list
   | Emit of loc * string
   | Await of loc * string
-  | When of loc * string * statement
-  | Watching of loc * string * statement
-  | Block of loc * statement
+  | When of loc * string * 'a statement
+  | Watching of loc * string * 'a statement
+  | Block of loc * 'a statement
 
-type defn =
+(* type defn =
   | Struct of struct_defn
   | Enum of enum_defn
   | Method of statement method_defn
@@ -77,6 +77,6 @@ let mk_program name l =
   in 
   let (s,e,m,p) = aux l in 
     {name = name; structs = s; enums =e; methods=m; processes=p}
-
+*)
 
   

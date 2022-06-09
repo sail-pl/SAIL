@@ -1,7 +1,7 @@
 
 open Common
 
-let translate_statement (c : Ast_parser.statement) : Ast_hir.statement = 
+let translate_statement (c :Ast_parser.statement) :  Ast_parser.expression Ast_hir.statement = 
   let rec aux c = 
   match c with 
     Ast_parser.DeclVar (loc, mut, id, t, e ) -> Ast_hir.DeclVar (loc, mut,id, t, e)
@@ -26,7 +26,7 @@ let translate_statement (c : Ast_parser.statement) : Ast_hir.statement =
     | Ast_parser.Block (loc, c) -> Ast_hir.Block(loc, aux c)
   in aux c
 
-let translate_method (m : Ast_parser.statement Common.method_defn) : Ast_hir.statement Common.method_defn = 
+let translate_method (m : Ast_parser.statement Common.method_defn) : Ast_parser.expression Ast_hir.statement Common.method_defn = 
   {
     m_pos = m.m_pos;
     m_name = m.m_name;
@@ -36,7 +36,7 @@ let translate_method (m : Ast_parser.statement Common.method_defn) : Ast_hir.sta
     m_body = translate_statement m.m_body
   }
 
-let translate_process (p : Ast_parser.statement Common.process_defn) : Ast_hir.statement Common.process_defn =
+let translate_process (p : Ast_parser.statement Common.process_defn) : Ast_parser.expression Ast_hir.statement Common.process_defn =
   {
     p_pos = p.p_pos;
     p_name = p.p_name;
@@ -45,7 +45,7 @@ let translate_process (p : Ast_parser.statement Common.process_defn) : Ast_hir.s
     p_body = translate_statement p.p_body
   }
 
-let translate_module (m : Ast_parser.statement Common.sailModule) : Ast_hir.statement Common.sailModule = 
+let translate_module (m : Ast_parser.statement Common.sailModule) : Ast_parser.expression Ast_hir.statement Common.sailModule = 
   {
     name = m.name; 
     structs = m.structs;
