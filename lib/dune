@@ -1,4 +1,0 @@
-(library
- (libraries logs logs.fmt)
- (name saillib)
- (public_name sail-pl))

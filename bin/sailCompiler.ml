@@ -2,11 +2,12 @@ open CliCommon
 open Cmdliner
 open Llvm
 open Llvm_target
-open Compiler_common
-open Code_generator
-open Type_checker
-open Sail_env
-open Hir
+open Compiler
+open CompilerCommon
+open Codegen
+open TypeChecker
+open Env
+open IrHir.Hir
 
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 

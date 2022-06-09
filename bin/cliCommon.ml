@@ -1,3 +1,4 @@
+open Parser
 open Lexer
 open Lexing
 open Cmdliner
@@ -9,12 +10,12 @@ let print_error_position lexbuf =
 
 let parse_program lexbuf =
   try
-    Ok (Parser.sailModule Lexer.read_token lexbuf)
+    Ok (Parser_.sailModule read_token lexbuf)
   with
   | SyntaxError msg ->
     let error_msg = Fmt.str "%s: %s@." (print_error_position lexbuf) msg in
     Error error_msg
-  | Parser.Error ->
+  | Parser_.Error ->
     let error_msg = Fmt.str "%s: syntax error @."
         (print_error_position lexbuf) in
     Error error_msg
