@@ -1,0 +1,3 @@
+(library
+ (libraries irHir irThir common)
+ (name irMir))
