@@ -1,17 +1,15 @@
 (executables
   (libraries
-    common
-    parser
-    compiler
     evaluator
+    compiler
+
+    logs.fmt
     cmdliner
     logs
-    logs.fmt
     fmt
     fmt.tty
     fmt.cli
     logs.cli
-    irThir
     )
   (names sailInterpreter sailCompiler)
   (public_names saili sailor))
