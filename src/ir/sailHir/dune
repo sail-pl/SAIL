@@ -1,0 +1,3 @@
+(library
+ (libraries common parser)
+ (name irHir))

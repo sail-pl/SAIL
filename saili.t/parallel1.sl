@@ -1,1 +1,0 @@
-../examples/reactive/parallel/parallel1.sl

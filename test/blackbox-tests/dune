@@ -1,0 +1,9 @@
+(cram
+ (applies_to sailor)
+ (deps 
+  %{bin:sailor}))
+
+(cram
+ (applies_to saili)
+ (deps 
+  %{bin:saili}))

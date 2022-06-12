@@ -1,1 +1,0 @@
-../examples/reactive/parallel/emptypar.sl

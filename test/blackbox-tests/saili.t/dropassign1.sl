@@ -1,0 +1,1 @@
+../../../examples/imperative/pointers/dropassign1.sl

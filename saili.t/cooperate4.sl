@@ -1,1 +1,0 @@
-../examples/reactive/cooperate/cooperate4.sl

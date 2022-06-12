@@ -1,1 +1,0 @@
-../examples/imperative/simple/decl1.sl
