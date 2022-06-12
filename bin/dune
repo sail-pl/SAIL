@@ -2,6 +2,7 @@
   (libraries
     evaluator
     compiler
+    ir
 
     logs.fmt
     cmdliner

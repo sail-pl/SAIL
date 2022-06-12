@@ -1,8 +1,16 @@
 
-open Common
 open Parser
 
-let translate_statement (c :AstParser.statement) :  AstParser.expression AstHir.statement = 
+
+
+module Pass : Common.Pass.StatementPass with
+              type in_body = AstParser.statement and   
+              type out_body = AstParser.expression AstHir.statement = 
+struct
+  type in_body = AstParser.statement
+  type out_body = AstParser.expression AstHir.statement
+
+  let translate c = 
   let rec aux c = 
   match c with 
     AstParser.DeclVar (loc, mut, id, t, e ) -> AstHir.DeclVar (loc, mut,id, t, e)
@@ -26,31 +34,4 @@ let translate_statement (c :AstParser.statement) :  AstParser.expression AstHir.
     | AstParser.Watching(loc, s, c) -> AstHir.Watching(loc, s, aux c)
     | AstParser.Block (loc, c) -> AstHir.Block(loc, aux c)
   in aux c
-
-let translate_method (m : AstParser.statement TypesCommon.method_defn) : AstParser.expression AstHir.statement TypesCommon.method_defn = 
-  {
-    m_pos = m.m_pos;
-    m_name = m.m_name;
-    m_generics = m.m_generics;
-    m_params = m.m_params;
-    m_rtype = m.m_rtype;
-    m_body = translate_statement m.m_body
-  }
-
-let translate_process (p : AstParser.statement TypesCommon.process_defn) : AstParser.expression AstHir.statement TypesCommon.process_defn =
-  {
-    p_pos = p.p_pos;
-    p_name = p.p_name;
-    p_generics = p.p_generics;
-    p_interface = p.p_interface;
-    p_body = translate_statement p.p_body
-  }
-
-let translate_module (m : AstParser.statement TypesCommon.sailModule) : AstParser.expression AstHir.statement TypesCommon.sailModule = 
-  {
-    name = m.name; 
-    structs = m.structs;
-    enums = m.enums;
-    methods = List.map translate_method m.methods;
-    processes = List.map translate_process m.processes
-  }
+end

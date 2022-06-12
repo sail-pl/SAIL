@@ -2,13 +2,14 @@ open CliCommon
 open Cmdliner
 open Llvm
 open Llvm_target
+open Common
+open IrThir
+open IrHir
 open Compiler
 open CompilerCommon
 open Codegen
 open TypeChecker
 open Env
-open IrHir.Hir
-
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
 
@@ -98,7 +99,11 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       | Ok p ->
         enable_pretty_stacktrace ();
         install_fatal_error_handler error_handler;
-        let sail_module = translate_module (p module_name) in
+
+        let module HirPass = Pass.Make(Hir.Pass) in
+        let module ThirPass = Pass.Make(Thir.Pass) in
+        
+        let sail_module = p module_name |> HirPass.translate_module (* |> ThirPass.translate_module *) in
 
         let funs = type_check_module sail_module in
         let llm = moduleToIR module_name funs dump_decl in
