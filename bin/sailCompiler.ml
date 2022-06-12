@@ -5,6 +5,7 @@ open Llvm_target
 open Common
 open IrThir
 open IrHir
+open IrMir
 open Compiler
 open CompilerCommon
 open Codegen
@@ -102,11 +103,12 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
 
         let module HirPass = Pass.Make(Hir.Pass) in
         let module ThirPass = Pass.Make(Thir.Pass) in
+        let module MirPass = Pass.Make(Mir.Pass) in
         
-        let sail_module = p module_name |> HirPass.translate_module (* |> ThirPass.translate_module *) in
+        let sail_module = p module_name |> HirPass.translate_module (* |> ThirPass.translate_module |> MirPass.translate_module *) in
         
-        (* fixme: just to test the thir pass *)
-        let _ = sail_module |> ThirPass.translate_module in
+        (* fixme: just to test the thir and mir pass for now *)
+        let _ = sail_module |> ThirPass.translate_module |> MirPass.translate_module in
 
         let funs = type_check_module sail_module in
         let llm = moduleToIR module_name funs dump_decl in
