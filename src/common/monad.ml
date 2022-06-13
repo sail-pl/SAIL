@@ -40,10 +40,17 @@ module type Monad = sig
 end
 
 module MonadSyntax (M : Monad )= struct 
-  let (let*) : 'a M.t -> ('a -> 'b M.t) -> 'b M.t = M.(>>=)
   let return = M.pure
+
+  let (let*) : 'a M.t -> ('a -> 'b M.t) -> 'b M.t = M.(>>=)
+
   let (and*) x y = 
-    let* x = x in let* y = y in M.pure (x,y)
+    let* x = x in let* y = y in return (x,y)
+
+  let (let+) : 'a M.t -> ('a -> 'b) -> 'b M.t = M.(>>|)
+  let (and+) x y =
+    let+ x = x in let+ y = y in return (x,y)
+
 end
 
 
