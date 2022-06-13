@@ -104,6 +104,9 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         let module ThirPass = Pass.Make(Thir.Pass) in
         
         let sail_module = p module_name |> HirPass.translate_module (* |> ThirPass.translate_module *) in
+        
+        (* fixme: just to test the thir pass *)
+        let _ = sail_module |> ThirPass.translate_module in
 
         let funs = type_check_module sail_module in
         let llm = moduleToIR module_name funs dump_decl in

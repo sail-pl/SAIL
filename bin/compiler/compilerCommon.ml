@@ -58,24 +58,6 @@ type sailor_external = {
 }
 
 
-let rec string_of_sailtype (t : sailtype option) : string =
-  let open Printf in 
-  match t with 
-  | Some Bool -> "bool"
-  | Some Int -> "int"
-  | Some Float -> "float"
-  | Some Char -> "char"
-  | Some String -> "string"
-  | Some ArrayType (t,s) -> sprintf "array<%s;%d>" (string_of_sailtype (Some t)) s
-  | Some CompoundType (x, _tl) -> sprintf "%s<todo>" x
-  | Some Box(t) -> sprintf "ref<%s>" (string_of_sailtype (Some t))
-  | Some RefType (t,b) -> 
-      if b then sprintf "&mut %s" (string_of_sailtype (Some t))
-      else sprintf "&%s" (string_of_sailtype (Some t))
-  | Some GenericType(s) -> s
-  | None -> "void"
-
-
 let mangle_method_name (name:string) (args: sailtype list ) : string =
   let back = List.fold_left (fun s t -> s ^ string_of_sailtype (Some t) ^ "_"  ) "" args in
   let front = "_" ^ name ^ "_" in
