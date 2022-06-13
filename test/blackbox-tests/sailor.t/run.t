@@ -25,8 +25,6 @@
   55
   Hello
   $ sailor sum.sl --run
-  $ sailor testInnerGenericity2.sl --run
-  3
   $ sailor testReturnVal.sl --run
   1
   $ sailor while1.sl --run
