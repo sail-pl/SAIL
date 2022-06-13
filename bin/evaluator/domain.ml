@@ -30,7 +30,7 @@ open Parser
 
 open Error
 open Intermediate
-open Env
+open EvalEnv
 open Heap
 
 

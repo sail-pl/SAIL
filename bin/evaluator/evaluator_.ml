@@ -26,7 +26,7 @@ open TypesCommon
 open Monad
 open Option
 open Heap
-open Env
+open EvalEnv
 open Domain
 open PpEvaluator
 open ErrorOfOption
