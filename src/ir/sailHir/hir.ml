@@ -3,16 +3,15 @@ open Parser
 
 
 
-module Pass : Common.Pass.StatementPass with
+module Pass : Common.Pass.Body with
               type in_body = AstParser.statement and   
               type out_body = AstParser.expression AstHir.statement = 
 struct
   type in_body = AstParser.statement
   type out_body = AstParser.expression AstHir.statement
 
-  let translate c = 
-  let rec aux c = 
-  match c with 
+  let translate c _ _ = 
+  let rec aux = function
     AstParser.DeclVar (loc, mut, id, t, e ) -> AstHir.DeclVar (loc, mut,id, t, e)
     | AstParser.DeclSignal(loc, s) -> AstHir.DeclSignal(loc, s)
     | AstParser.Skip (loc) -> AstHir.Skip(loc)

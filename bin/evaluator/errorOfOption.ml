@@ -3,7 +3,7 @@ open Monad
 open TypesCommon
 
 open Domain
-open Env
+open EvalEnv
 open Heap
 
 let resultOfOption (e : error) (f : 'a -> 'b option) (x : 'a) : 'b Result.t =
