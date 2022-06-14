@@ -259,14 +259,22 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : AstParser.e
 
     (*todo : more checks (arrays...) *)
   and analyse_statement (st:AstParser.expression statement) (ts : varTypesMap) (monos:monomorphics) (funs : sailor_functions) : varTypesMap * monomorphics * sailor_functions = match st with
-  | DeclVar (_, _,name,t,None) -> declare_var ts name t,monos,funs
+  | DeclVar (_, _,_,None,None) -> failwith "can't infere type with no expression"
+  | DeclVar (_, _,name,Some t,None) -> declare_var ts name t,monos,funs
   | DeclVar (_, _,name,t,Some e) -> 
     begin
       let t_r,monos',sc' = analyse_expression e ts monos funs in 
-      try
-        resolveType t t_r [] [] |> ignore;
-        declare_var ts name t,monos',sc'
-      with Failure s -> Printf.sprintf "type declared and assigned mismatch : %s " s |> failwith 
+      let var_type = 
+      match t with
+      | Some t -> 
+        begin
+          try
+            resolveType t t_r [] [] |> ignore;
+            t
+          with Failure s -> Printf.sprintf "type declared and assigned mismatch : %s " s |> failwith
+        end
+      | None -> t_r
+      in declare_var ts name var_type,monos',sc'
     end
   | Block (_, s) -> let new_ts,monos',sc' = analyse_statement s (new_frame ts) monos funs in pop_frame new_ts,monos',sc'
   | Seq (_, s1,s2) -> let ts',monos',sc' = analyse_statement s1 ts monos funs in analyse_statement s2 ts' monos' sc'

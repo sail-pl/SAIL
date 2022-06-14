@@ -167,8 +167,10 @@ block :
 ;
 
 single_statement :
-| VAR b = mut id = ID COLON typ=sailtype  {DeclVar($startpos,b,id,typ,None)}
-| VAR b = mut id = ID COLON typ=sailtype ASSIGN e = expression  {DeclVar($startpos,b,id,typ,Some e)}
+| VAR b = mut id = ID COLON typ=sailtype  {DeclVar($startpos,b,id,Some typ,None)}
+| VAR b = mut id = ID COLON typ=sailtype ASSIGN e = expression  {DeclVar($startpos,b,id,Some typ,Some e)}
+| VAR b = mut id = ID ASSIGN e = expression  {DeclVar($startpos,b,id,None,Some e)}
+| VAR b = mut id = ID  {DeclVar($startpos,b,id,None,None)}
 | SIGNAL id = ID  {DeclSignal($startpos,id)}
 | l = expression ASSIGN e = expression {Assign($startpos,l, e)}
 | IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement  {If($startpos,e, s1, None)}

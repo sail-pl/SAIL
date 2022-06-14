@@ -142,25 +142,28 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstParser.expression) : (sailtype
   
     
 let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) : unit =
-  let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstParser.expression option) (env:SailEnv.t) : SailEnv.t =
+  let declare_var (mut:bool) (name:string) (ty:sailtype option) (exp:AstParser.expression option) (env:SailEnv.t) : SailEnv.t =
     let _ = mut in (* todo manage mutable types *)
-    let ty = degenerifyType ty generics in
-    let var_type = getLLVMType ty llvm.c llvm.m  in
     let entry_b = entry_block m |> instr_begin |> builder_at llvm.c in
-    let v =  
+    let t,v =  
       match (ty,exp) with
-      | (_, Some e) -> let x = build_alloca var_type name entry_b in 
-          build_store (eval_r env llvm e |> snd) x llvm.b |> ignore; x  
-      | _ -> build_alloca var_type name entry_b
+      | (None, Some e) | (Some _, Some e) -> 
+          let t,v = eval_r env llvm e in
+          let x = build_alloca (getLLVMType t llvm.c llvm.m) name entry_b in 
+          build_store v x llvm.b |> ignore; t,x  
+      | (Some t, None) ->
+        let t = degenerifyType t generics in
+        let t' = getLLVMType t llvm.c llvm.m in
+        t,build_alloca t' name entry_b
+      | (None,None) -> failwith "typechecker failed"
     in
-    Logs.debug (fun m -> m "declared %s with type %s " name (string_of_sailtype (Some ty))) ;
-    SailEnv.declare_var env name (ty,v)
+    Logs.debug (fun m -> m "declared %s with type %s " name (string_of_sailtype (Some t))) ;
+    SailEnv.declare_var env name (t,v)
   in
 
   let rec aux x env : SailEnv.t = 
     match x with 
   | AstHir.DeclVar (_, mut, name, t, exp) -> declare_var mut name t exp env 
-
   | DeclSignal _ -> failwith "unimplemented2"
   | Skip _ -> env
   | Assign (_, e1,e2) -> 

@@ -144,11 +144,12 @@ let translate (p : moduleSignature list) (t : statement) : Intermediate.statemen
   let rec aux t : Intermediate.statement = 
   match t with 
       | DeclVar (_pos, b,x,t,e) -> 
-        begin match e with 
-            None -> Intermediate.DeclVar(b,x,t,None)
-          | Some e -> 
+        begin match t,e with 
+          | (Some t, None) -> Intermediate.DeclVar(b,x,t,None)
+          | (Some t, Some e) -> 
             let (e,l) = removeCalls p e in
             seq_oflist (l@[Intermediate.DeclVar(b,x,t,Some e)])
+          | (None, _) ->  raise (NotSupportedInCoreSail "type inference")
         end
       | DeclSignal (_, s) -> Intermediate.DeclSignal(s)
       | Skip _ -> Intermediate.Skip

@@ -106,10 +106,19 @@ struct
   let translate c env decls = 
     let open Option.MonadOption in
     let rec aux s (te:Pass.type_env ) = match s with
-      | AstHir.DeclVar (loc, mut, id, t) -> 
-        let te' = Pass.declare_var te id t in 
-        AstHir.DeclVar (loc,mut,id,t),te'
-
+      | AstHir.DeclVar (loc, mut, id, t, optexp ) -> 
+        let optexp = optexp >>| fun e -> translate_expression e te decls in 
+        begin
+          let var_type = 
+          match (t,optexp) with
+          | (Some t,Some e) -> let tv = extract_type e in matchArgParam t tv
+          | (Some t, None) -> t
+          | (None,Some t) -> extract_type t
+          | (None,None) -> failwith "can't infere type with no expression"
+          in
+          let te' = Pass.declare_var te id var_type in 
+          AstHir.DeclVar (loc,mut,id,t,optexp),te'
+        end
       | AstHir.DeclSignal(loc, s) -> AstHir.DeclSignal(loc, s),te
       | AstHir.Skip (loc) -> AstHir.Skip(loc),te
       | AstHir.Assign(loc, e1, e2) -> 
