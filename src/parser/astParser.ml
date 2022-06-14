@@ -42,7 +42,7 @@ type expression =
   | PCons of string * pattern list   
 
 type statement =
-  | DeclVar of loc * bool * string * sailtype * expression option 
+  | DeclVar of loc * bool * string * sailtype option * expression option 
   | DeclSignal of loc * string
   | Skip of loc
   | Assign of loc * expression * expression

@@ -39,7 +39,7 @@ open Common.TypesCommon
   
 
 type 'a statement =
-  | DeclVar of loc * bool * string * sailtype * 'a option 
+  | DeclVar of loc * bool * string * sailtype option * 'a option 
   | DeclSignal of loc * string
   | Skip of loc
   | Assign of loc * 'a * 'a
