@@ -1,5 +1,5 @@
 open Llvm
-open Env
+open CompilerEnv
 open CompilerCommon
 open Common.TypesCommon
 open Parser
