@@ -10,7 +10,7 @@ struct
   type in_body = AstParser.statement
   type out_body = AstParser.expression AstHir.statement
 
-  let translate c _ _ = 
+  let translate c _ = 
   let rec aux = function
     AstParser.DeclVar (loc, mut, id, t, e ) -> AstHir.DeclVar (loc, mut,id, t, e)
     | AstParser.DeclSignal(loc, s) -> AstHir.DeclSignal(loc, s)

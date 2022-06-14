@@ -16,7 +16,6 @@ let type_of_binOp (op:binOp) (operands_type:sailtype) : sailtype = match op with
   | Lt | Le | Gt | Ge | Eq | NEq | And | Or -> Bool
   | Plus | Mul | Div | Minus | Rem -> operands_type
 
-
 module Pass : Pass.Body with
               type in_body = AstParser.expression AstHir.statement and   
               type out_body = AstThir.expression AstHir.statement = 
@@ -47,18 +46,19 @@ struct
           |> failwith   
 
 
-  let check_call (name:string) (args: AstThir.expression list) (decls:Pass.declarations) : sailtype option =
-    match FieldMap.find_opt name decls.methods with
-    | Some f -> 
+  let check_call (name:string) (args: AstThir.expression list) (env:Pass.TypeEnv.t) : sailtype option =
+    match Pass.TypeEnv.get_function env (Method ()) name with
+    | Some (Method f) -> 
       List.iter2 (
         fun a (_,p) -> matchArgParam (extract_type a) p |> ignore
       ) args f.args;
       f.ret
     | None -> "unknown method " ^ name |> failwith
+    | _ -> failwith "problem with env"
 
-  let translate_expression (e : AstParser.expression) (te: Pass.type_env) (decls:Pass.declarations): AstThir.expression  = 
+  let translate_expression (e : AstParser.expression) (te: Pass.TypeEnv.t): AstThir.expression  = 
   let rec aux = function
-    | AstParser.Variable (l,id) -> let t = Pass.get_var te id in AstThir.Variable(l,t,id)
+    | AstParser.Variable (l,id) -> let t = Pass.TypeEnv.get_var te id in AstThir.Variable(l,t,id)
     | AstParser.Deref (l,e) -> let e = aux e in
       begin
         match e with
@@ -97,17 +97,17 @@ struct
     | AstParser.EnumAlloc (_l,_name,_el) -> failwith "todo: enum alloc"
     | AstParser.MethodCall (l,name,args) -> 
       let args = List.map (fun e -> aux e) args in
-      match check_call name args decls with
+      match check_call name args te with
       | None -> failwith "trying to use the result of void method"
       | Some t -> AstThir.MethodCall(l, t, name, args)
     in aux e
 
 
-  let translate c env decls = 
+  let translate c env  = 
     let open Option.MonadOption in
-    let rec aux s (te:Pass.type_env ) = match s with
+    let rec aux s (te:Pass.TypeEnv.t) = match s with
       | AstHir.DeclVar (loc, mut, id, t, optexp ) -> 
-        let optexp = optexp >>| fun e -> translate_expression e te decls in 
+        let optexp = optexp >>| fun e -> translate_expression e te in 
         begin
           let var_type = 
           match (t,optexp) with
@@ -116,14 +116,14 @@ struct
           | (None,Some t) -> extract_type t
           | (None,None) -> failwith "can't infere type with no expression"
           in
-          let te' = Pass.declare_var te id var_type in 
+          let te' = Pass.TypeEnv.declare_var te id var_type in 
           AstHir.DeclVar (loc,mut,id,t,optexp),te'
         end
       | AstHir.DeclSignal(loc, s) -> AstHir.DeclSignal(loc, s),te
       | AstHir.Skip (loc) -> AstHir.Skip(loc),te
       | AstHir.Assign(loc, e1, e2) -> 
-        let e1 = translate_expression e1 te decls
-        and e2 = translate_expression e2 te decls in
+        let e1 = translate_expression e1 te
+        and e2 = translate_expression e2 te in
         matchArgParam (extract_type e1) (extract_type e2) |> ignore;
         AstHir.Assign(loc, e1, e2),te
 
@@ -138,23 +138,23 @@ struct
         AstHir.Par(loc, c1, c2),te2
 
       | AstHir.If(loc, cond_exp, then_s, else_s) -> 
-        let cond_exp =  translate_expression cond_exp te decls in
+        let cond_exp =  translate_expression cond_exp te in
         let else_s = else_s >>| fun s -> aux s te |> fst in 
         matchArgParam (extract_type cond_exp) Bool |> ignore;
         AstHir.If(loc, cond_exp, aux then_s te |> fst, else_s),te
 
 
-      | AstHir.While(loc,e,c) -> AstHir.While(loc, translate_expression e te decls, aux c te |> fst),te
-      | AstHir.Case(loc, e, _cases) -> AstHir.Case (loc, translate_expression e te decls, []),te
+      | AstHir.While(loc,e,c) -> AstHir.While(loc, translate_expression e te, aux c te |> fst),te
+      | AstHir.Case(loc, e, _cases) -> AstHir.Case (loc, translate_expression e te, []),te
       | AstHir.Invoke(loc, ign, id, el) -> 
-        let el = List.map (fun e -> translate_expression e te decls) el in
+        let el = List.map (fun e -> translate_expression e te) el in
         (* fixme : need to add externals :  check_call id el decls |> ignore; *)
         AstHir.Invoke(loc, ign, id,el),te
 
       | AstHir.Return(_, None) as r -> r,te
-      | AstHir.Return(loc, Some e) -> AstHir.Return(loc, Some (translate_expression e te decls)),te
+      | AstHir.Return(loc, Some e) -> AstHir.Return(loc, Some (translate_expression e te)),te
       | AstHir.Run(loc, id, el) ->
-        let el = List.map (fun e -> translate_expression e te decls) el in
+        let el = List.map (fun e -> translate_expression e te) el in
          AstHir.Run(loc, id, el),te
 
       | AstHir.Emit(loc, s) -> AstHir.Emit(loc,s),te
@@ -162,7 +162,7 @@ struct
       | AstHir.When(loc, s, c) -> AstHir.When(loc, s, aux c te |> fst),te
       | AstHir.Watching(loc, s, c) -> AstHir.Watching(loc, s, aux c te  |> fst),te
       | AstHir.Block (loc, c) -> 
-        let c,te' = aux c (Pass.new_frame te) in
+        let c,te' = aux c (Pass.TypeEnv.new_frame te) in
         AstHir.Block(loc,c),te'
     in 
     aux c env |> fst

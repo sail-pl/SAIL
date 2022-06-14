@@ -1,8 +1,7 @@
 open CompilerCommon
-open Env
+open CompilerEnv
 open Parser
 open Common.TypesCommon
-open Globals
 open Llvm
 open Externals
 open IrHir
@@ -122,11 +121,12 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstParser.expression) : (sailtype
     let mname = mangle_method_name name args_type in 
     let args = Array.of_list args in
     Logs.info (fun m -> m "constructing call to %s with" mname);
-    match SailEnv.get_function env mname with 
+    match SailEnv.get_function env (Method ()) mname with 
     | None -> 
       Logs.info (fun m -> m "function %s not found, searching externals..." mname);
       None,external_methods name args llvm env
-    | Some {ret;proto} -> ret,build_call proto args "" llvm.b
+    | Some Method {ret;proto} | Some Process {ret;proto} -> ret,build_call proto args "" llvm.b
+    | _ -> failwith "problem with type env"
 
 
   let rec block_returns (bb:llbasicblock) : bool = 
@@ -271,34 +271,35 @@ let methodToIR (llc:llcontext) (llm:llmodule) (env:SailEnv.t) (name : string) (m
   let builder = builder llc in
   let llvm = {b=builder; c=llc ; m = llm} in
   
-  let {proto;ret} = SailEnv.get_function env name |> Option.get in
+  match SailEnv.get_function env (Method ()) name |> Option.get with
+  | Method {ret;proto} ->
+    begin
+      if block_begin proto <> At_end proto then
+        failwith ("redefinition of function " ^  name);
 
-  if block_begin proto <> At_end proto then
-    failwith ("redefinition of function " ^  name);
+      let bb = append_block llvm.c "" proto in
+      position_at_end bb llvm.b;
 
-  let bb = append_block llvm.c "" proto in
-  position_at_end bb llvm.b;
+      let args = toLLVMArgs m.decl.args llvm in
 
-  let args = toLLVMArgs m.decl.args llvm in
+      let new_env,args = Array.fold_left_map (
+        fun env tyvar -> 
+          let new_env = SailEnv.declare_var env (value_name (snd tyvar)) tyvar in 
+          (new_env, snd tyvar)
+        ) env args 
 
-  let new_env,args = Array.fold_left_map (
-    fun env tyvar -> 
-      let new_env = SailEnv.declare_var env (value_name (snd tyvar)) tyvar in 
-      (new_env, snd tyvar)
-    ) env args 
+      in Array.iteri (fun i arg -> build_store (param proto i) arg llvm.b |> ignore ) args;
+      
+      statementToIR proto m.body m.generics llvm new_env;
 
-  in Array.iteri (fun i arg -> build_store (param proto i) arg llvm.b |> ignore ) args;
-  
-  statementToIR proto m.body m.generics llvm new_env;
-
-  begin
-    match block_terminator (insertion_block llvm.b) with
-    (* assuming the builder is on the last block of the method *)
-    | Some _ -> ()
-    (* allow not to have a return for void methods*)
-    | None when ret = None -> build_ret_void llvm.b |> ignore
-    (* there must always be a return if return type is not void *)
-    | _ -> failwith "ERROR : method doesn't always return !"
-  end;
-
-  proto
+      begin
+        match block_terminator (insertion_block llvm.b) with
+        (* assuming the builder is on the last block of the method *)
+        | Some _ -> ()
+        (* allow not to have a return for void methods*)
+        | None when ret = None -> build_ret_void llvm.b |> ignore
+        (* there must always be a return if return type is not void *)
+        | _ -> failwith "ERROR : method doesn't always return !"
+      end; proto
+    end
+  | _ -> failwith "problem with env"

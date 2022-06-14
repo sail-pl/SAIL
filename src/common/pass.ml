@@ -21,53 +21,29 @@ type struct_proto =
 }
 
 
-type declarations = {
-  methods : function_proto FieldMap.t;
-  processes : function_proto FieldMap.t;
-  structs : struct_proto FieldMap.t;
-  enums : enum_proto FieldMap.t;
-}
+module DeclEnv = Env.DeclarationsEnv (
+  struct
+    type process_decl = function_proto
+    type method_decl = function_proto 
+    type struct_decl = struct_proto
+    type enum_decl = enum_proto
+  end
+)
 
-
-type type_env = sailtype FieldMap.t List.t (* List is used for scoping *)
-
-(* todo : use sail_env *)
-let current_frame = function [] -> failwith "environnement is empty !" | (h::t) ->  h,t
-
-let push_frame ts s = s :: ts
-
-let pop_frame = function _::t  -> t | [] -> failwith "popping empty frame"
-
-let new_frame ts =
-  let c = FieldMap.empty in
-  push_frame ts c
-
-let get_var e name = 
-  let rec aux env = 
-    let current,next = current_frame env in
-    match FieldMap.find_opt name current with 
-    | Some v -> v
-    | None when next = [] ->  Printf.sprintf "variable %s doesn't exist !" name |> failwith
-    | _ -> aux next
-    in aux e
-
-let declare_var ts name value =
-  let current,next = current_frame ts in
-  match FieldMap.find_opt name current with 
-  | Some _ -> Printf.sprintf "variable %s already exists !" name |> failwith
-  | None -> 
-    let upd_frame = FieldMap.add name value current in
-    push_frame next upd_frame
-
-
-
+module TypeEnv = Env.VariableEnv(
+  struct 
+    type t = sailtype
+    let string_of_var v = string_of_sailtype (Some v)
+  end
+) (
+  DeclEnv
+)
 
 module type Body = sig
   type in_body
   type out_body
-  val translate : in_body ->  type_env -> declarations  -> out_body
+  val translate : in_body ->  TypeEnv.t  -> out_body
 end
-
 
 
 module type S = sig
@@ -83,46 +59,47 @@ struct
   type out_body = T.out_body
 
 
-  let collect_declarations (m :T.in_body sailModule) : declarations =
-    let methods = List.fold_left (
+  let collect_declarations (m :T.in_body sailModule) : DeclEnv.t =
+      (* todo: collect externals  *)
+    DeclEnv.empty () |> fun d -> 
+
+    List.fold_left (
       fun acc m -> 
         let ret = m.m_rtype 
         and args = m.m_params 
         and generics = m.m_generics in 
-        FieldMap.add m.m_name {ret;args;generics} acc
-    ) FieldMap.empty m.methods 
-    (* todo: collect externals  *)
+        DeclEnv.add_declaration acc m.m_name (Method {ret;args;generics})
+    ) d m.methods |> fun d ->  
 
-    and processes = List.fold_left (
+    List.fold_left (
       fun acc p -> 
         let ret = None
         and args = fst p.p_interface
         and generics = p.p_generics in 
-        FieldMap.add p.p_name {ret;args;generics} acc
-    ) FieldMap.empty m.processes
+        DeclEnv.add_declaration acc p.p_name (Process {ret;args;generics})
+    ) d m.processes |> fun d -> 
 
-    and structs = List.fold_left (
+    List.fold_left (
       fun acc s ->  
-        FieldMap.add s.s_name {generics=s.s_generics;fields=s.s_fields} acc
-    ) FieldMap.empty m.structs 
+        DeclEnv.add_declaration acc s.s_name (Struct {generics=s.s_generics;fields=s.s_fields})
+    ) d m.structs  |> fun d -> 
 
-    and enums = List.fold_left (
+    List.fold_left (
       fun acc e ->  
-        FieldMap.add e.e_name {generics=e.e_generics;injections=e.e_injections} acc
-    ) FieldMap.empty m.enums 
-  in {methods;processes;structs;enums}
+        DeclEnv.add_declaration acc e.e_name (Enum {generics=e.e_generics;injections=e.e_injections})
+    ) d m.enums 
 
-  let get_start_env args =
-    let env = new_frame [] in
-    List.fold_left (fun m (n,t) -> declare_var m n t) env args
+  let get_start_env decls args =
+    let env = TypeEnv.empty decls |> TypeEnv.new_frame in
+    List.fold_left (fun m (n,t) -> TypeEnv.declare_var m n t) env args
 
-  let translate_method (m:T.in_body method_defn) (decls : declarations) : T.out_body method_defn = 
-    let start_env = get_start_env m.m_params in
-    { m with m_body = T.translate m.m_body start_env decls}
+  let translate_method (m:T.in_body method_defn) (decls : DeclEnv.t) : T.out_body method_defn = 
+    let start_env = get_start_env decls m.m_params in
+    { m with m_body = T.translate m.m_body start_env}
 
-  let translate_process (p : T.in_body process_defn) (decls : declarations) : T.out_body process_defn = 
-    let start_env = get_start_env (p.p_interface |> fst) in
-    { p with p_body = T.translate p.p_body start_env decls}
+  let translate_process (p : T.in_body process_defn) (decls : DeclEnv.t) : T.out_body process_defn = 
+    let start_env = get_start_env decls (p.p_interface |> fst) in
+    { p with p_body = T.translate p.p_body start_env}
 
   let translate_module (m: T.in_body sailModule) : T.out_body sailModule = 
     let decls = collect_declarations m in

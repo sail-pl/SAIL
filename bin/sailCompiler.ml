@@ -10,7 +10,7 @@ open Compiler
 open CompilerCommon
 open Codegen
 open TypeChecker
-open Env
+open CompilerEnv
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
 
@@ -20,9 +20,9 @@ let moduleToIR (name:string) (funs : sailor_functions) (dump_decl:bool) : llmodu
   let llc = global_context () in
   let llm = create_module llc (name ^ ".sl") in
 
-  let globals = Globals.get_declarations funs llc llm in
+  let globals = get_declarations funs llc llm in
 
-  if dump_decl then Globals.write_declarations globals name;
+  if dump_decl then failwith "not done yet";
 
   let env = SailEnv.empty globals in
   

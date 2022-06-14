@@ -129,5 +129,3 @@ let signatureOfModule m =
   methods = List.map (fun m -> {m_pos=m.m_pos;m_name=m.m_name; m_generics=m.m_generics;m_params=m.m_params;m_rtype=m.m_rtype;m_body=()}) m.methods;
   processes = List.map (fun p-> {p_pos=p.p_pos;p_name=p.p_name; p_generics=p.p_generics;p_interface=p.p_interface;p_body=()}) m.processes
 }
-
-  
