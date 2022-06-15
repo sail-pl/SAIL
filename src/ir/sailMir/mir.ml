@@ -146,7 +146,7 @@ struct
   type in_body = AstThir.expression AstHir.statement   
   type out_body = cfg
 
-  let translate s _ : cfg =
+  let translate s _ _ : cfg =
     let rec aux = function
       | AstHir.DeclVar(loc, b, id, stype, _v) -> 
         buildSingle [AstMir.DeclVar (loc, b, id, stype)]

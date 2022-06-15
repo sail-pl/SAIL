@@ -58,6 +58,14 @@ module DeclarationsEnv (D:Declarations) = struct
   | Enum () -> let+ e = M.find_opt id decls.enums in Enum e
 
   let write_declarations _decls _filename = () (* todo *) 
+
+
+  let print_declarations decls = 
+    M.iter (fun n _ -> Printf.fprintf stdout "process %s\n" n) decls.processes;
+    M.iter (fun n _ -> Printf.fprintf stdout "method %s\n" n) decls.methods;
+    M.iter (fun n _ -> Printf.fprintf stdout "struct %s\n" n) decls.structs;
+    M.iter (fun n _ -> Printf.fprintf stdout "enum %s\n" n) decls.enums
+
 end
 
 (* module type S = 
@@ -114,7 +122,7 @@ module VariableEnv (V:Variable) (D:DeclEnvType) = struct
       let c,env = current_frame env in
       let p =
         M.fold 
-          (fun _ v -> let s = Printf.sprintf "%s " (V.string_of_var v) in fun n  ->  s ^ n) c "]"
+          (fun n v -> let s = Printf.sprintf "(%s:%s) " n (V.string_of_var v) in fun n  ->  s ^ n) c "]"
       in let c = "\t[ " ^ p  in
       match env with
       | [],_ -> c ^ "\n"
