@@ -314,12 +314,12 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
     | Invoke (x, el) -> (
         let* (real_params,h0) = 
         foldLeftM (fun (vl,h0) e -> let* (v,h1) = eval env h0 e in return (v::vl, h1)) ([], h) el in 
-        match List.find_opt (fun m -> m.m_name = x) p with
+        match List.find_opt (fun m -> m.m_proto.name = x) p with
         | None ->
             let* h' = ExternalsImplementation.extern h0 x real_params in
             return (Continue, Env.emptyFrame, h')
         | Some callee -> (
-            let formal_params = List.map fst callee.m_params in
+            let formal_params = List.map fst callee.m_proto.params in
             let l, h' = freshn h0 (List.length real_params) in
             let varmap =
               List.map

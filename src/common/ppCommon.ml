@@ -53,16 +53,16 @@ let pp_binop pf b =
       | GenericType(s) -> pp_print_string pf s 
 
 let pp_method (pp_a : int -> formatter -> 'a -> unit ) (pf : formatter) (m : 'a method_defn) =
-  match m.m_rtype with 
+  match m.m_proto.rtype with 
   None -> 
     fprintf pf "method %s (%a) {\n%a\n}\n" 
-      m.m_name 
-      (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) m.m_params 
+      m.m_proto.name 
+      (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) m.m_proto.params 
       (pp_a 1) m.m_body
   | Some t -> 
     fprintf pf "method %s (%a):%a {\n%a\n}\n" 
-      m.m_name 
-      (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) m.m_params 
+      m.m_proto.name 
+      (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) m.m_proto.params 
       pp_type t
       (pp_a 1) m.m_body
 

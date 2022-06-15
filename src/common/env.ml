@@ -15,7 +15,7 @@ module type DeclEnvType = sig
 
   val empty : unit -> t
   val add_declaration : t -> string -> decl -> t
-  val find_declaration : t -> decl_ty -> string -> decl option
+  val find_declaration : t -> decl_ty -> decl option
   val write_declarations : t -> string -> unit
 end
 
@@ -32,7 +32,7 @@ module DeclarationsEnv (D:Declarations) = struct
 
   type ('a, 'b, 'c, 'd) ty = Process of 'a | Method of 'b | Struct of 'c | Enum of 'd
   type decl = (D.process_decl, D.method_decl, D.struct_decl, D.enum_decl) ty
-  type decl_ty = (unit,unit,unit,unit) ty
+  type decl_ty = (string,string,string,string) ty
 
 
   let empty () = {
@@ -49,13 +49,13 @@ module DeclarationsEnv (D:Declarations) = struct
   | Enum e -> { decls with enums=(M.add id e decls.enums)}
   | Struct s -> { decls with structs=(M.add id s decls.structs)}
 
-  let find_declaration decls ty id = 
+  let find_declaration decls ty = 
   let open Monad.MonadSyntax(Option.MonadOption) in
   match ty with
-  | Process () -> let+ p = M.find_opt id decls.processes in Process p
-  | Method () ->  let+ m = M.find_opt id decls.methods in Method m
-  | Struct () -> let+ s = M.find_opt id decls.structs in Struct s
-  | Enum () -> let+ e = M.find_opt id decls.enums in Enum e
+  | Process id -> let+ p = M.find_opt id decls.processes in Process p
+  | Method id ->  let+ m = M.find_opt id decls.methods in Method m
+  | Struct id -> let+ s = M.find_opt id decls.structs in Struct s
+  | Enum id -> let+ e = M.find_opt id decls.enums in Enum e
 
   let write_declarations _decls _filename = () (* todo *) 
 

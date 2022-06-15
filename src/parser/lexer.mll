@@ -89,6 +89,7 @@ rule read_token = parse
   | "enum " { ENUM }
   | "process" { PROCESS }
   | "method" { METHOD }
+  | "extern" { EXTERN }
   | "true" { TRUE }
   | "false" { FALSE }
   | "while" { WHILE }

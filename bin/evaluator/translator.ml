@@ -53,8 +53,8 @@ let pathOfExpression ( e :Intermediate.expression) : Intermediate.path * Interme
 let fetch_rtype (p : moduleSignature list) (id : string) : sailtype option =
   let open MonadSyntax(MonadOption) in
   let l = List.concat_map (fun m-> m.methods) p in
-  let* m = List.find_opt (fun m -> m.m_name = id) l in 
-  m.m_rtype
+  let* m = List.find_opt (fun m -> m.m_proto.name = id) l in 
+  m.m_proto.rtype
 
 let removeCalls (p : moduleSignature list) (e : expression) : Intermediate.expression * Intermediate.statement list = 
   let open M in
@@ -208,33 +208,20 @@ let translate (p : moduleSignature list) (t : statement) : Intermediate.statemen
 (* If the return type is non void, we add a parameter to hold the result *)
 let method_translator (prg :  moduleSignature list) (m : statement method_defn) : Intermediate.statement method_defn =
   let params =       
-    match m.m_rtype with 
-      None -> m.m_params
-    | Some t -> m.m_params@[(resvar, RefType(t,true))]
+    match m.m_proto.rtype with 
+      None -> m.m_proto.params
+    | Some t -> m.m_proto.params@[(resvar, RefType(t,true))]
   in
   {
-    m_pos = m.m_pos;
-    m_name = m.m_name; 
-    m_generics = m.m_generics;
-    m_params = params;
-    m_rtype = m.m_rtype;
+    m_proto = {m.m_proto with params};
     m_body = translate prg m.m_body
   }
 
 let process_translator (prg : moduleSignature list)  (p : statement process_defn) : Intermediate.statement process_defn =
-  {
-  p_pos = p.p_pos;
-  p_name  = p.p_name;
-  p_generics = p.p_generics;
-  p_interface = p.p_interface;
-  p_body = translate prg p.p_body
-}
+  {p with p_body = translate prg p.p_body}
 
 let program_translate (prg : moduleSignature list) (p : statement sailModule) : Intermediate.statement sailModule = 
   {
-    name = p.name;
-    structs = p.structs;
-    enums = p.enums;
-    methods = List.map (method_translator prg) p.methods;
+    p with methods = List.map (method_translator prg) p.methods;
     processes = List.map (process_translator prg) p.processes
   }

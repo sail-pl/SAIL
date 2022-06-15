@@ -100,13 +100,18 @@ type 'a process_defn =
   p_body : 'a
 }
 
+type method_sig = 
+{
+  pos : loc;
+  name : string; 
+  generics : string list;
+  params : (string * sailtype) list;
+  rtype : sailtype option;
+}
+
 type 'a method_defn =  
 {
-  m_pos : loc;
-  m_name : string; 
-  m_generics : string list;
-  m_params : (string * sailtype) list;
-  m_rtype : sailtype option;
+  m_proto : method_sig;
   m_body : 'a
 }
 
@@ -116,16 +121,15 @@ type 'a sailModule =
   structs : struct_defn list;
   enums : enum_defn list;
   methods : 'a method_defn list ;
-  processes : 'a process_defn list
+  processes : 'a process_defn list;
+  ffi : method_sig list
 }
 
 type moduleSignature = unit sailModule
 
 let signatureOfModule m =
 {
-  name = m.name;
-  structs = m.structs;
-  enums = m.enums;
-  methods = List.map (fun m -> {m_pos=m.m_pos;m_name=m.m_name; m_generics=m.m_generics;m_params=m.m_params;m_rtype=m.m_rtype;m_body=()}) m.methods;
-  processes = List.map (fun p-> {p_pos=p.p_pos;p_name=p.p_name; p_generics=p.p_generics;p_interface=p.p_interface;p_body=()}) m.processes
+  m with
+  methods = List.map (fun m -> {m with m_body=()}) m.methods;
+  processes = List.map (fun p-> {p with p_body=()}) m.processes
 }

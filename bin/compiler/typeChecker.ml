@@ -4,8 +4,6 @@ open IrHir.AstHir
 open Parser
 
 
-let externals = Externals.get_externals ()
-
 
 type monomorphics = sailor_args string_assoc
 
@@ -56,12 +54,12 @@ let declare_var ts name value =
 
 let find_callable (name:string) (sm : AstParser.expression statement sailModule) : sailor_function = 
   (* we check if the calle is external *)
-  let args,generics,body,ty,r_type = match List.assoc_opt name externals with
+  let args,generics,body,ty,r_type = match List.assoc_opt name (Externals.inject_externals sm.ffi) with
   | None -> 
     begin
     (* we check if we are calling a method *)
-      match List.find_opt (fun m -> m.m_name = name) sm.methods with
-    | Some m -> m.m_params, m.m_generics, Some m.m_body, FMethod, m.m_rtype
+      match List.find_opt (fun m -> m.m_proto.name = name) sm.methods with
+    | Some m -> m.m_proto.params, m.m_proto.generics, Some m.m_body, FMethod, m.m_proto.rtype
 
       | None -> 
         (* if not we check if it's a process *)
@@ -369,14 +367,16 @@ let analyse_functions (monos:monomorphics) (sm : AstParser.expression statement 
 
 
 
-let type_check_module (a: AstParser.expression statement sailModule) : sailor_functions = 
+let type_check_module (a: AstParser.expression statement sailModule) : sailor_functions * sailor_external string_assoc = 
+  let ffis = Externals.inject_externals a.ffi in
   (* we only typecheck monomorphic declarations *)
   let monos = 
     let test funs name args has_gen = if has_gen then funs else (name,args)::funs in
     []
-    |> fun l -> List.fold_left (fun acc m -> test acc m.m_name m.m_params (m.m_generics <> [])) l a.methods
+    |> fun l -> List.fold_left (fun acc m -> test acc m.m_proto.name m.m_proto.params (m.m_proto.generics <> [])) l a.methods
     |> fun l -> List.fold_left (fun acc p -> test acc p.p_name (fst p.p_interface) (p.p_generics <> [])) l a.processes
-    |> fun l -> List.fold_left (fun acc (name,e) -> test acc name e.decl.args (e.generics <> [])) l externals
+    |> fun l -> List.fold_left (fun acc (name,e) -> test acc name e.decl.args (e.generics <> [])) l ffis
 
   in let funs = analyse_functions monos a 
-  in FieldMap.iter print_method_proto funs; funs
+  in FieldMap.iter print_method_proto funs; 
+  funs,ffis

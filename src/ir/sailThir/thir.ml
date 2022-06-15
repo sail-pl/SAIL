@@ -82,7 +82,7 @@ struct
 
 
   let check_call (name:string) (args: AstThir.expression list) (env:Pass.TypeEnv.t) : sailtype option =
-    match Pass.TypeEnv.get_function env (Method ()) name with
+    match Pass.TypeEnv.get_function env (Method name)  with
     | Some (Method f) -> 
       begin
         let resolved_generics = List.fold_left2 (
