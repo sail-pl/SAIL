@@ -32,9 +32,10 @@ let declare_method (llc:llcontext) (llm:llmodule) (name:string) (m:sailor_method
   in DeclEnv.add_declaration decls name (Method {ret=m.decl.ret;proto})
 
 
-let get_declarations (funs:sailor_functions) llc llm : DeclEnv.t = 
+let get_declarations (funs:sailor_functions ) llc llm : DeclEnv.t = 
   Logs.debug (fun m -> m "generating llvm declarations");
-  FieldMap.fold (declare_method llc llm) funs (DeclEnv.empty ())
+  DeclEnv.empty ()
+  |> FieldMap.fold (declare_method llc llm) funs
   (* todo : enums & structs *)
 
 

@@ -3,7 +3,6 @@ open CompilerEnv
 open Parser
 open Common.TypesCommon
 open Llvm
-open Externals
 open IrHir
 
 
@@ -46,19 +45,19 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
     | None ->  Printf.sprintf "bad binary operand type : '%s'. Only doubles and ints are supported" (string_of_sailtype (Some t)) |> failwith
 
 
-let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstParser.expression)  : (sailtype * llvalue) = 
+let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstParser.expression) exts : (sailtype * llvalue) = 
   let open AstParser in
   match x with
   | Variable (_, x) ->  SailEnv.get_var env x
-  | Deref (_, x) -> eval_r env llvm x 
+  | Deref (_, x) -> eval_r env llvm x exts
   | ArrayRead (_, array_exp, index_exp) -> 
-    let array_t,array_val = eval_l env llvm array_exp in
+    let array_t,array_val = eval_l env llvm array_exp exts in
     let t =
     match array_t with
     | ArrayType (t,_s) -> t
     | t ->  Printf.sprintf "typechecker is broken : 'array' type for %s is %s" (value_name array_val) (string_of_sailtype (Some t)) |> failwith
     in
-    let _,index = eval_r env llvm index_exp  in
+    let _,index = eval_r env llvm index_exp exts in
     let llvm_array = build_in_bounds_gep array_val [|(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
     RefType (t,true),llvm_array
   | StructRead _ -> failwith "struct assign unimplemented"
@@ -71,34 +70,34 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstParser.expression)  : (sa
   | Ref _ -> failwith "reference read is not a lvalue"
   | MethodCall _ -> failwith "method call is not a lvalue"
 
-and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstParser.expression) : (sailtype * llvalue) = 
+and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstParser.expression) (exts:sailor_external string_assoc) : (sailtype * llvalue) = 
   match x with
-  | Variable _ ->  let t,v = eval_l env llvm x in t,build_load v "" llvm.b
+  | Variable _ ->  let t,v = eval_l env llvm x exts in t,build_load v "" llvm.b
   | Literal (_, l) ->  TypeChecker.sailtype_of_literal l,getLLVMLiteral l llvm
-  | UnOp (_, op,e) -> let t,l = eval_r env llvm e  in t,unary op (t,l)
+  | UnOp (_, op,e) -> let t,l = eval_r env llvm e exts in t,unary op (t,l)
   | BinOp (_, op,e1, e2) -> 
-      let t,l1 = eval_r env llvm e1 
-      and _,l2 = eval_r env llvm e2 
+      let t,l1 = eval_r env llvm e1 exts
+      and _,l2 = eval_r env llvm e2 exts
       in t,binary op t l1 l2 llvm.b
   | StructRead (_, _, _) -> failwith "struct read undefined"
-  | ArrayRead _ -> let v_t,v = eval_l env llvm x in
+  | ArrayRead _ -> let v_t,v = eval_l env llvm x exts in
     begin
     match v_t with
     | RefType (t,_) -> t,(build_load v "" llvm.b)
     | _ -> failwith "type system is broken"
     end
   
-  | Ref (_, _,e) -> eval_l env llvm e 
+  | Ref (_, _,e) -> eval_l env llvm e exts
   | Deref (_, e) -> 
 
     begin
-      match eval_l env llvm e with
+      match eval_l env llvm e exts with
       | RefType (t,_),l -> t,build_load l "" llvm.b
       | _ -> failwith "type system is broken"
       end
   | ArrayStatic (_, elements) -> 
     begin
-    let array_types,array_values = List.map (eval_r env llvm ) elements |> List.split in
+    let array_types,array_values = List.map (fun e -> eval_r env llvm e exts) elements |> List.split in
     let ty = List.hd array_values |> type_of in
     let array_values = Array.of_list array_values in
     let array_type = array_type ty (List.length elements) in 
@@ -112,19 +111,20 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstParser.expression) : (sailtype
   | StructAlloc _ -> failwith "struct alloc is not a rvalue"
   | EnumAlloc _   -> failwith "enum alloc is not a rvalue"
   | MethodCall ( _, name, args) -> 
-    let t,c = construct_call name args env llvm in
+    let t,c = construct_call name args env llvm exts in
     (Option.get t),c
   
-  and construct_call (name:string) (args:AstParser.expression list) (env:SailEnv.t) (llvm:llvm_args) : sailtype option * llvalue = 
-    let args_type,args = List.map (eval_r env llvm) args |> List.split
+  and construct_call (name:string) (args:AstParser.expression list) (env:SailEnv.t) (llvm:llvm_args) exts : sailtype option * llvalue = 
+    let args_type,args = List.map (fun arg -> eval_r env llvm arg exts) args |> List.split
     in
     let mname = mangle_method_name name args_type in 
     let args = Array.of_list args in
     Logs.info (fun m -> m "constructing call to %s with" mname);
-    match SailEnv.get_function env (Method ()) mname with 
+    match SailEnv.get_function env (Method mname)  with 
     | None -> 
       Logs.info (fun m -> m "function %s not found, searching externals..." mname);
-      None,external_methods name args llvm env
+      (* None,external_methods name args llvm env *)
+      Externals.find_ffi name args llvm exts
     | Some Method {ret;proto} | Some Process {ret;proto} -> ret,build_call proto args "" llvm.b
     | _ -> failwith "problem with type env"
 
@@ -141,14 +141,14 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstParser.expression) : (sailtype
     | None -> false
   
     
-let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) : unit =
+let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) exts : unit =
   let declare_var (mut:bool) (name:string) (ty:sailtype option) (exp:AstParser.expression option) (env:SailEnv.t) : SailEnv.t =
     let _ = mut in (* todo manage mutable types *)
     let entry_b = entry_block m |> instr_begin |> builder_at llvm.c in
     let t,v =  
       match (ty,exp) with
       | (None, Some e) | (Some _, Some e) -> 
-          let t,v = eval_r env llvm e in
+          let t,v = eval_r env llvm e exts in
           let x = build_alloca (getLLVMType t llvm.c llvm.m) name entry_b in 
           build_store v x llvm.b |> ignore; t,x  
       | (Some t, None) ->
@@ -167,8 +167,8 @@ let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generi
   | DeclSignal _ -> failwith "unimplemented2"
   | Skip _ -> env
   | Assign (_, e1,e2) -> 
-    let lvalue = eval_l env llvm e1 |> snd
-    and rvalue = eval_r env llvm e2 |> snd in
+    let lvalue = eval_l env llvm e1 exts |> snd
+    and rvalue = eval_r env llvm e2 exts |> snd in
     build_store rvalue lvalue llvm.b |> ignore;
     env
 
@@ -177,7 +177,7 @@ let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generi
   | Par (_, _,_) ->  failwith "unimplemented6"
 
   | If (_, cond_exp, then_s, opt_else_s) -> 
-    let cond = eval_r env llvm cond_exp |> snd
+    let cond = eval_r env llvm cond_exp exts |> snd
     and start_bb = insertion_block llvm.b  
     and then_bb = append_block llvm.c "then" m 
     and else_bb = append_block llvm.c "else" m
@@ -222,7 +222,7 @@ let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generi
       build_br while_bb llvm.b |> ignore;
 
       position_at_end while_bb llvm.b;
-      let cond = eval_r env llvm e |> snd in
+      let cond = eval_r env llvm e exts |> snd in
       build_cond_br cond do_bb finally_bb llvm.b |> ignore;
 
       position_at_end do_bb llvm.b;
@@ -232,7 +232,7 @@ let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generi
       s_ret
   | Case (_, _,  _) ->  failwith "case unimplemented"
 
-  | Invoke (_, _, name, args) -> construct_call name args env llvm |> ignore; env
+  | Invoke (_, _, name, args) -> construct_call name args env llvm exts |> ignore; env
 
   | Return (_, opt_e) -> 
     let current_bb = insertion_block llvm.b in
@@ -240,7 +240,7 @@ let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generi
       failwith "a return statement for the current block already exists !"
     else 
       let ret = match opt_e with
-        | Some r ->  let v = eval_r env llvm r |> snd in build_ret v
+        | Some r ->  let v = eval_r env llvm r exts |> snd in build_ret v
         | None ->  build_ret_void
       in ret llvm.b |> ignore; env
 
@@ -267,11 +267,11 @@ let toLLVMArgs (args: sailtype string_assoc ) (llvm:llvm_args) : (sailtype * llv
   ) args in
   Array.of_list llvalue_list
 
-let methodToIR (llc:llcontext) (llm:llmodule) (env:SailEnv.t) (name : string) (m : sailor_method) : llvalue =
+let methodToIR (llc:llcontext) (llm:llmodule) (env:SailEnv.t) (name : string) (m : sailor_method) exts : llvalue =
   let builder = builder llc in
   let llvm = {b=builder; c=llc ; m = llm} in
   
-  match SailEnv.get_function env (Method ()) name |> Option.get with
+  match SailEnv.get_function env (Method name) |> Option.get with
   | Method {ret;proto} ->
     begin
       if block_begin proto <> At_end proto then
@@ -290,7 +290,7 @@ let methodToIR (llc:llcontext) (llm:llmodule) (env:SailEnv.t) (name : string) (m
 
       in Array.iteri (fun i arg -> build_store (param proto i) arg llvm.b |> ignore ) args;
       
-      statementToIR proto m.body m.generics llvm new_env;
+      statementToIR proto m.body m.generics llvm new_env exts;
 
       begin
         match block_terminator (insertion_block llvm.b) with

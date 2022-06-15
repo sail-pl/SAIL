@@ -1,13 +1,11 @@
 open Llvm
-open CompilerEnv
 open CompilerCommon
 open Common.TypesCommon
-open Parser
 
 (* todo: simplify *)
 
-type exp_eval = SailEnv.t -> llvm_args -> AstParser.expression -> llvalue
-let decl_printf (c:llcontext) : (llmodule -> llvalue) =
+type external_call = (method_sig * (llvalue array -> llvm_args ->  llvalue * llvalue array) option) list
+let decl_printf (c:llcontext) : (llmodule -> llvalue)  =
   let proto = var_arg_function_type (i32_type c) [|pointer_type (i8_type c)|] in
   declare_function "printf" proto
 
@@ -48,19 +46,32 @@ let register_external name call ret args generics ext_l  : sailor_external strin
   (name,{call;decl;generics})::ext_l
 
 
-let get_externals () : sailor_external string_assoc =
-  [] 
+let convert_ffi f : string * sailor_external= 
+  let generics=f.generics and name = f.name and ret = f.rtype and args = f.params in
+  
+  let call args llvm =
+    let args_type = List.map (fun (_,t) -> getLLVMType t llvm.c llvm.m) f.params |> Array.of_list in
+    let proto_ret = match ret with | None -> void_type llvm.c | Some t -> getLLVMType t llvm.c llvm.m in
+    let proto = function_type proto_ret args_type in
+    (declare_function f.name proto llvm.m, args)
+  
+  in
+  (name, {call; generics; decl={ret;args}})
+
+
+let inject_externals (ffi:method_sig list) : sailor_external string_assoc  =
+  List.map convert_ffi ffi
   |> register_external "print_int" _print_int None [Int] []
   |> register_external "print_newline" _print_newline None [] []
   |> register_external "print_string" _print_string None [String] []
-  (* printf but only 2 args (no support for varargs) *)
+    (* printf but only 2 args (no support for varargs) *)
   |> register_external "printf" printf None [String; GenericType "T"] ["T"]
 
-let external_methods (name : string) (args : llvalue array) (llvm:llvm_args) (_env:SailEnv.t) : llvalue =
-  match List.assoc_opt name (get_externals ()) with
-  | Some {call; _} -> 
+let find_ffi (name : string) (args : llvalue array) (llvm:llvm_args) (exts:sailor_external string_assoc) : sailtype option * llvalue =
+  match List.assoc_opt name exts with
+  | Some {call; decl;_} -> 
     let methd,args = call args llvm in
-    build_call methd args "" llvm.b
+    decl.ret,build_call methd args "" llvm.b
   | _ -> failwith ("unknown external method " ^ name)
 
 

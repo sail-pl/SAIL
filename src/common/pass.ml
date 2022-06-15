@@ -39,20 +39,6 @@ module TypeEnv = Env.VariableEnv(
   DeclEnv
 )
 
-let register_external name ret args generics ext_l  : (string * function_proto) list  = 
-  let args = List.mapi (fun i t -> (string_of_int i,t)) args  in
-  (name,{ret;args;generics})::ext_l
-
-
-let get_externals () : (string * function_proto) list =
-  [] 
-  |> register_external "print_int"  None [Int] []
-  |> register_external "print_newline" None [] []
-  |> register_external "print_string" None [String] []
-  (* printf but only 2 args (no support for varargs) *)
-  |> register_external "printf"  None [String; GenericType "T"] ["T"]
-
-
 module type Body = sig
   type in_body
   type out_body
@@ -74,20 +60,38 @@ struct
 
 
   let collect_declarations (m :T.in_body sailModule) : DeclEnv.t =
+
+    let register_external  name ret args generics (env:DeclEnv.t)  : DeclEnv.t  = 
+    let args = List.mapi (fun i t -> (string_of_int i,t)) args  in
+    DeclEnv.add_declaration env name (Method {ret;args;generics})
+    in
+
     DeclEnv.empty () |> fun d -> 
 
     List.fold_left (
       fun acc m -> 
-        let ret = m.m_rtype 
-        and args = m.m_params 
-        and generics = m.m_generics in 
-        DeclEnv.add_declaration acc m.m_name (Method {ret;args;generics})
+        let ret = m.m_proto.rtype 
+        and args = m.m_proto.params 
+        and generics = m.m_proto.generics in 
+        DeclEnv.add_declaration acc m.m_proto.name (Method {ret;args;generics})
     ) d m.methods |> fun d ->  
 
     List.fold_left (
-      fun acc (n,m) -> 
-        DeclEnv.add_declaration acc n (Method m)
-    ) d (get_externals ()) |> fun d -> 
+      fun acc m -> 
+        let ret = m.rtype 
+        and args = m.params 
+        and generics = m.generics in 
+        DeclEnv.add_declaration acc m.name (Method {ret;args;generics})
+    ) d m.ffi 
+      
+    (* fixme : generalize *)
+    |> register_external "print_int"  None [Int] [] 
+    |> register_external "print_newline"  None [] []
+    |> register_external "print_string"  None [String] []
+    |> register_external "printf"  None [String; GenericType "T"] ["T"]
+
+
+    |> fun d ->
 
     List.fold_left (
       fun acc p -> 
@@ -112,8 +116,8 @@ struct
     List.fold_left (fun m (n,t) -> TypeEnv.declare_var m n t) env args
 
   let translate_method (m:T.in_body method_defn) (decls : DeclEnv.t) : T.out_body method_defn = 
-    let start_env = get_start_env decls m.m_params in
-    { m with m_body = T.translate m.m_body start_env m.m_generics}
+    let start_env = get_start_env decls m.m_proto.params in
+    { m with m_body = T.translate m.m_body start_env m.m_proto.generics}
 
   let translate_process (p : T.in_body process_defn) (decls : DeclEnv.t) : T.out_body process_defn = 
     let start_env = get_start_env decls (p.p_interface |> fst) in

@@ -14,7 +14,7 @@ open CompilerEnv
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
 
-let moduleToIR (name:string) (funs : sailor_functions) (dump_decl:bool) : llmodule  = 
+let moduleToIR (name:string) (funs,exts : sailor_functions * sailor_external string_assoc) (dump_decl:bool) : llmodule  = 
   let module FieldMap = Map.Make (String) in
 
   let llc = global_context () in
@@ -27,7 +27,7 @@ let moduleToIR (name:string) (funs : sailor_functions) (dump_decl:bool) : llmodu
   let env = SailEnv.empty globals in
   
   FieldMap.iter (fun name f  -> 
-    let f = methodToIR llc llm env name f in
+    let f = methodToIR llc llm env name f exts in
     Llvm_analysis.assert_valid_function f
     ) funs;
   
