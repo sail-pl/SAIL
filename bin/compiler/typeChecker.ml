@@ -171,8 +171,6 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : AstParser.e
               if List.compare_lengths resolved_generics f.generics != 0 then 
                   failwith "problem";
 
-              List.iter (fun (s,r) -> Logs.debug (fun m -> m "generic %s resolved to %s" s (string_of_sailtype (Some r)) )) resolved_generics;
-
               let monos' = (calle,resolved_generics)::monos' in
 
               let ret = match f.r_type with
