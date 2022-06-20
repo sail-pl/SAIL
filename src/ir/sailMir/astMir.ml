@@ -1,8 +1,8 @@
 open IrThir
 
-type statement = 
-| DeclVar of Common.TypesCommon.loc * bool * string * Common.TypesCommon.sailtype option
-| Assign of Common.TypesCommon.loc * Thir.expression * Thir.expression
+
+type declaration = {location : Common.TypesCommon.loc; mut : bool; id : string; varType : Common.TypesCommon.sailtype}
+type assignment = {location : Common.TypesCommon.loc; target : Thir.expression; expression : Thir.expression}
 
 type label = int
 
@@ -12,9 +12,8 @@ type terminator =
 | Return of Thir.expression option
 | SwitchInt of Thir.expression * (int * label) list * label
 
-
 type basicBlock = {
-  statements : statement list;
+  assignments : assignment list;
   terminator : terminator option
 }
 
