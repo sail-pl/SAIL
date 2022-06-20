@@ -5,6 +5,9 @@ open TypesCommon
 
 
 let pp_comma (pf : formatter) (() : unit) : unit = Format.fprintf pf "," 
+
+let pp_semi (pf : formatter) (() : unit) : unit = Format.fprintf pf ";" 
+
   let pp_field (pp_a : formatter -> 'a -> unit) (pf : formatter) ((x,y) : string * 'a) = 
     Format.fprintf pf "%s:%a" x pp_a y
 
