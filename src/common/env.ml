@@ -135,20 +135,20 @@ module VariableEnv (V:Variable) (D:DeclEnvType) = struct
 
   let get_function (_,g) name = D.find_declaration g name
     
-  let get_var e name  = 
+  let get_var e name loc = 
     let rec aux env = 
       let current,env = current_frame env in
       match M.find_opt name current with 
-      | Some v -> v
-      | None  when fst env = [] ->  Printf.sprintf "variable %s doesn't exist !" name |> failwith
+      | Some v -> Result.ok v
+      | None  when fst env = [] ->  Result.error [loc,Printf.sprintf "variable %s doesn't exist !" name]
       | _ -> aux env
       in aux e
 
-  let declare_var e name tyval =
+  let declare_var e name tyval loc =
     let current,_env = current_frame e in
     match M.find_opt name current with 
-    | Some _ -> Printf.sprintf "variable %s already exists !" name |> failwith
+    | Some _ -> Result.error [loc,Printf.sprintf "variable %s already exists !" name]
     | None -> 
       let upd_frame = M.add name tyval current in
-      push_frame _env upd_frame
+      push_frame _env upd_frame |> Result.ok
 end

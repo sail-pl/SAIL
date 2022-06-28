@@ -1,4 +1,6 @@
 open TypesCommon
+open Error
+
 
 
 type function_proto = 
@@ -42,19 +44,21 @@ module TypeEnv = Env.VariableEnv(
 module type Body = sig
   type in_body
   type out_body
-  val translate : in_body ->  TypeEnv.t  -> string list -> out_body
+  val lower : in_body ->  TypeEnv.t  -> string list -> out_body result
 end
 
 
 module type S = sig
   type in_body
   type out_body
-  val translate_module : in_body sailModule -> out_body sailModule
+  val lower_module : in_body sailModule result -> out_body sailModule result
 end
 
 
 module Make (T: Body) : S with type in_body = T.in_body and type out_body = T.out_body = 
 struct
+  open Monad.MonadSyntax(Error.MonadError)
+  
   type in_body = T.in_body
   type out_body = T.out_body
 
@@ -113,24 +117,29 @@ struct
 
   let get_start_env decls args =
     let env = TypeEnv.empty decls |> TypeEnv.new_frame in
-    List.fold_left (fun m (n,t) -> TypeEnv.declare_var m n t) env args
+    List.fold_left (fun m (n,t) -> let* m in TypeEnv.declare_var m n t Lexing.dummy_pos) (Result.ok env) args
 
-  let translate_method (m:T.in_body method_defn) (decls : DeclEnv.t) : T.out_body method_defn = 
-    let start_env = get_start_env decls m.m_proto.params in
-    { m with m_body = T.translate m.m_body start_env m.m_proto.generics}
+  let lower_method (m:T.in_body method_defn) (decls : DeclEnv.t) : T.out_body method_defn result = 
+    let* start_env = get_start_env decls m.m_proto.params in
+    let+ m_body =  T.lower m.m_body start_env m.m_proto.generics in
+    { m with m_body}
 
-  let translate_process (p : T.in_body process_defn) (decls : DeclEnv.t) : T.out_body process_defn = 
-    let start_env = get_start_env decls (p.p_interface |> fst) in
-    { p with p_body = T.translate p.p_body start_env p.p_generics}
+  let lower_process (p : T.in_body process_defn) (decls : DeclEnv.t) : T.out_body process_defn result= 
+    let* start_env = get_start_env decls (p.p_interface |> fst) in
+    let+ p_body = T.lower p.p_body start_env p.p_generics in
+    { p with p_body}
 
     
-  let translate_module (m: T.in_body sailModule) : T.out_body sailModule = 
-    let decls = collect_declarations m in
-    (* DeclEnv.print_declarations decls; *)
-    {
-      m with 
-      methods = List.map (fun m -> translate_method m decls) m.methods ; 
-      processes = List.map (fun p -> translate_process p decls) m.processes 
-    }
-    
+  let lower_module (m: T.in_body sailModule result) : T.out_body sailModule result = 
+    let* m in
+      let decls = collect_declarations m in
+      (* DeclEnv.print_declarations decls; *)
+      let methods,m_errors = partition_result (Fun.flip lower_method decls) m.methods
+      and processes,p_errors = partition_result (Fun.flip lower_process decls) m.processes in
+
+      let errors = m_errors @ p_errors in
+      if errors = [] then
+        Ok {m with  methods; processes}    
+      else
+        Error errors
 end

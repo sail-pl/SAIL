@@ -48,7 +48,7 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
 let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstParser.expression) exts : (sailtype * llvalue) = 
   let open AstParser in
   match x with
-  | Variable (_, x) ->  SailEnv.get_var env x
+  | Variable (l, x) ->  SailEnv.get_var env x l |> Result.get_ok
   | Deref (_, x) -> eval_r env llvm x exts
   | ArrayRead (_, array_exp, index_exp) -> 
     let array_t,array_val = eval_l env llvm array_exp exts in
@@ -158,7 +158,7 @@ let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generi
       | (None,None) -> failwith "typechecker failed"
     in
     Logs.debug (fun m -> m "declared %s with type %s " name (string_of_sailtype (Some t))) ;
-    SailEnv.declare_var env name (t,v)
+    SailEnv.declare_var env name (t,v) Lexing.dummy_pos |> Result.get_ok
   in
 
   let rec aux x env : SailEnv.t = 
@@ -284,7 +284,7 @@ let methodToIR (llc:llcontext) (llm:llmodule) (env:SailEnv.t) (name : string) (m
 
       let new_env,args = Array.fold_left_map (
         fun env tyvar -> 
-          let new_env = SailEnv.declare_var env (value_name (snd tyvar)) tyvar in 
+          let new_env = SailEnv.declare_var env (value_name (snd tyvar)) tyvar Lexing.dummy_pos |> Result.get_ok in 
           (new_env, snd tyvar)
         ) env args 
 

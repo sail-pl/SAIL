@@ -104,38 +104,40 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         let module HirPass = Pass.Make(Hir.Pass) in
         let module ThirPass = Pass.Make(Thir.Pass) in
         let module MirPass = Pass.Make(Mir.Pass) in
-        
-        let sail_module = p module_name |> HirPass.translate_module (* |> ThirPass.translate_module |> MirPass.translate_module *) in
-        
-        (* fixme: just to test the thir and mir pass for now *)
-        let _ = sail_module |> ThirPass.translate_module |> MirPass.translate_module in
 
-        let funs = type_check_module sail_module in
-        let llm = moduleToIR module_name funs dump_decl in
-        let tm = init_llvm llm in
+        let sail_module = Result.ok (p module_name) |> HirPass.lower_module |> ThirPass.lower_module in
+        begin
 
-        if not noopt then 
-          begin
-            let open PassManager in
-            let pm = create () in add_passes pm;
-            let res = run_module llm pm in
-            Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
-            dispose pm
-          end
-        ;
+        match sail_module with
+        | Ok _ ->
+          let funs = Result.ok (p module_name) |> HirPass.lower_module |> Result.get_ok |> type_check_module in (* fixme : this will be removed when mir is done*)
+          let llm = moduleToIR module_name funs dump_decl in
+          let tm = init_llvm llm in
 
-        if intermediate then print_module (module_name ^ ".ll") llm;
+          if not noopt then 
+            begin
+              let open PassManager in
+              let pm = create () in add_passes pm;
+              let res = run_module llm pm in
+              Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
+              dispose pm
+            end
+          ;
 
-        if not (intermediate || jit) then
-          begin
-            let ret = compile llm module_name tm in
-            if ret <> 0 then
-              (Printf.sprintf "clang couldn't execute properly (error %i)" ret |> failwith);
-          end;
+          if intermediate then print_module (module_name ^ ".ll") llm;
 
-        if jit then execute llm else dispose_module llm;
+          if not (intermediate || jit) then
+            begin
+              let ret = compile llm module_name tm in
+              if ret <> 0 then
+                (Fmt.str "clang couldn't execute properly (error %i)" ret |> failwith);
+            end;
 
-        aux r
+          if jit then execute llm else dispose_module llm;
+
+          aux r
+        | Error errlist -> Error.print_errors errlist; `Error(false, "compilation aborted")
+        end
         
       | Error e ->`Error (false, e)
     end

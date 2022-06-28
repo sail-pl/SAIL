@@ -2,6 +2,9 @@ open AstMir
 open IrHir
 open IrThir
 open Common 
+open Result
+open Monad.MonadSyntax(Error.MonadError)
+
 
 let label_cpt = ref 0
 
@@ -146,31 +149,31 @@ struct
   type in_body = AstThir.expression AstHir.statement   
   type out_body = cfg
 
-  let translate s _ _ : cfg =
+  let lower s _ _  =
     let rec aux = function
       | AstHir.DeclVar(loc, b, id, stype, _v) -> 
-        buildSingle [AstMir.DeclVar (loc, b, id, stype)]
-      | DeclSignal _ -> failwith "not_implemented"    
-      | Skip _ -> buildSingle []
+        buildSingle [AstMir.DeclVar (loc, b, id, stype)] |> ok
+      | DeclSignal _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | Skip _ -> buildSingle [] |> ok 
       | Assign (loc, e1, e2) -> 
-        buildSingle [AstMir.Assign (loc, e1, e2)]
+        buildSingle [AstMir.Assign (loc, e1, e2)] |> ok 
       | Seq (_, s1, s2) ->
-        buildSeq (aux s1) (aux s2)
-      | Par _ -> failwith "not implemented" 
-      | If (_loc, e, s, None) -> 
-        buildIfThen e (aux s)
+        let* s1 = aux s1 and* s2 = aux s2 in buildSeq s1 s2 |> ok
+      | Par _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | If (_loc, e, s, None) -> let+ s = aux s in buildIfThen e s
       | If (_loc, e, s1, Some s2) -> 
-        buildIfThenElse e (aux s1) (aux s2)
+        let* s1 = aux s1 and* s2 = aux s2 in 
+        buildIfThenElse e s1 s2 |> ok
       | While (_loc, e, s) -> 
-        buildLoop e (aux s)
-      | Case _ -> failwith "not implemented"
-      | Invoke (_loc, _, id, el) -> buildInvoke id el
-      | Return (_, e) -> buildReturn e
-      | Run _ -> failwith "not implemented"
-      | Emit _ -> failwith "not implemented"
-      | Await _ -> failwith "not implemented"
-      | When _ -> failwith "not implemented"
-      | Watching _ -> failwith "not implemented"
-      | Block _ -> failwith "not implemented"
-    in aux s
+        let+ s = aux s in buildLoop e s
+      | Case _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | Invoke (_loc, _, id, el) -> buildInvoke id el |> ok
+      | Return (_, e) -> buildReturn e |> ok 
+      | Run _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | Emit _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | Await _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | When _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | Watching _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | Block _ -> error [Lexing.dummy_pos,"not_implemented"]
+    in let+ s = aux s in s
 end
