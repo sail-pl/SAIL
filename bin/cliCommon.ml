@@ -41,10 +41,10 @@ let sailfile_conv =
         if String.equal (Filename.extension filename) ".sl" then 
           (Ok filename)
         else 
-          let msg = Format.sprintf  "'%s' is not a sail file. Hint: use the .sl extension\n%!" filename in
+          let msg = Fmt.str "'%s' is not a sail file. Hint: use the .sl extension\n%!" filename in
           Error (`Msg msg)
       else
-        let msg = Format.sprintf "'%s' : no such file" filename in
+        let msg = Fmt.str "'%s' : no such file" filename in
         Error (`Msg msg )
     in
     let print f s = Format.fprintf f "%s" s in
