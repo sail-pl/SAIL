@@ -2,6 +2,8 @@ open TypesCommon
 open Error
 
 
+type body_type = BMethod | BProcess | BEnum | BStruct 
+
 
 type function_proto = 
 {
@@ -23,6 +25,16 @@ type struct_proto =
 }
 
 
+type 'a declaration_type = 
+{
+  name : string;
+  body : 'a;
+  ret : sailtype option;
+  generics : string list;
+  bt : body_type;
+  pos : loc;
+}
+
 module DeclEnv = Env.DeclarationsEnv (
   struct
     type process_decl = function_proto
@@ -42,9 +54,10 @@ module TypeEnv = Env.VariableEnv(
 )
 
 module type Body = sig
+
   type in_body
   type out_body
-  val lower : in_body ->  TypeEnv.t  -> string list -> out_body result
+  val lower : in_body declaration_type ->  TypeEnv.t  -> out_body result
 end
 
 
@@ -121,12 +134,28 @@ struct
 
   let lower_method (m:T.in_body method_defn) (decls : DeclEnv.t) : T.out_body method_defn result = 
     let* start_env = get_start_env decls m.m_proto.params in
-    let+ m_body =  T.lower m.m_body start_env m.m_proto.generics in
+    let decl = {
+      name=m.m_proto.name;
+      body=m.m_body;
+      pos=m.m_proto.pos;
+      ret=m.m_proto.rtype;
+      bt=BMethod;
+      generics=m.m_proto.generics
+    } in
+    let+ m_body =  T.lower decl start_env  in
     { m with m_body}
 
   let lower_process (p : T.in_body process_defn) (decls : DeclEnv.t) : T.out_body process_defn result= 
     let* start_env = get_start_env decls (p.p_interface |> fst) in
-    let+ p_body = T.lower p.p_body start_env p.p_generics in
+    let decl = {
+      name=p.p_name;
+      body=p.p_body;
+      pos=p.p_pos;
+      ret=None;
+      bt=BProcess;
+      generics=p.p_generics
+    }
+    in let+ p_body = T.lower decl start_env  in
     { p with p_body}
 
     
