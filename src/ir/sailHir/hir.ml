@@ -1,16 +1,16 @@
 
 open Parser
+open Common.Pass
 
 
-
-module Pass : Common.Pass.Body with
+module Pass : Body with
               type in_body = AstParser.statement and   
               type out_body = AstParser.expression AstHir.statement = 
 struct
   type in_body = AstParser.statement
   type out_body = AstParser.expression AstHir.statement
 
-  let lower c _ _ = 
+  let lower c _  = 
   let rec aux = function
     AstParser.DeclVar (loc, mut, id, t, e ) -> AstHir.DeclVar (loc, mut,id, t, e)
     | AstParser.DeclSignal(loc, s) -> AstHir.DeclSignal(loc, s)
@@ -32,5 +32,5 @@ struct
     | AstParser.When(loc, s, c) -> AstHir.When(loc, s, aux c)
     | AstParser.Watching(loc, s, c) -> AstHir.Watching(loc, s, aux c)
     | AstParser.Block (loc, c) -> AstHir.Block(loc, aux c)
-  in Result.ok (aux c)
+  in Result.ok (aux c.body)
 end

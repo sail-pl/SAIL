@@ -1,4 +1,5 @@
 open Common
+open Pass
 open TypesCommon
 open Parser
 open IrHir
@@ -6,12 +7,19 @@ open Error
 open Result
 open Monad.MonadSyntax(Error.MonadError)
 
-let extract_type = function
+let extract_exp_ty = function
 | AstThir.Variable (_,t,_) | AstThir.Deref (_,t,_) | AstThir.StructRead (_,t,_,_)
 | AstThir.ArrayRead (_,t,_,_) | AstThir.Literal (_,t,_) | AstThir.UnOp (_,t,_,_)
 | AstThir.BinOp (_,t,_,_,_) | AstThir.Ref  (_,t,_,_) | AstThir.ArrayStatic (_,t,_)
 | AstThir.StructAlloc (_,t,_,_) | AstThir.EnumAlloc  (_,t,_,_) | AstThir.MethodCall (_,t,_,_) -> t
 
+let extract_statements_loc = function
+| AstHir.Watching(l, _, _) | AstHir.Emit(l, _) | AstHir.Await(l, _)
+| AstHir.When(l, _, _)  | AstHir.Run(l, _, _) | AstHir.Par(l, _, _)
+| AstHir.DeclSignal(l, _)  | AstHir.Skip (l)  | AstHir.Return (l,_)
+| AstHir.Invoke (l,_,_,_) | AstHir.Block (l, _) | AstHir.If (l,_,_,_)
+| AstHir.DeclVar (l,_,_,_,_) | AstHir.Seq (l,_,_) | AstHir.Assign (l,_,_)
+| AstHir.While (l,_,_) | AstHir.Case (l,_,_) -> l
 
 let degenerifyType (t: sailtype) (generics: (string * sailtype ) list) loc : sailtype result =
   let rec aux = function
@@ -40,7 +48,7 @@ let type_of_binOp (op:binOp) (operands_type:sailtype) : sailtype = match op with
   | Lt | Le | Gt | Ge | Eq | NEq | And | Or -> Bool
   | Plus | Mul | Div | Minus | Rem -> operands_type
 
-module Pass : Pass.Body with
+module Pass : Body with
               type in_body = AstParser.expression AstHir.statement and   
               type out_body = AstThir.expression AstHir.statement = 
 struct
@@ -90,7 +98,7 @@ struct
           (
             fun g ca (_,a) ->
               let* g in 
-              let+ x = matchArgParam (extract_type ca) a f.generics g loc in
+              let+ x = matchArgParam (extract_exp_ty ca) a f.generics g loc in
               snd x
           )  
           (ok [])
@@ -108,42 +116,42 @@ struct
     | None -> error [loc,"unknown method " ^ name]
     | _ -> error [loc,"problem with env"]
 
-  let translate_expression (e : AstParser.expression) (te: Pass.TypeEnv.t) (generics : string list): AstThir.expression result = 
+  let reduce_expression (e : AstParser.expression) (te: Pass.TypeEnv.t) (generics : string list): AstThir.expression result = 
   let rec aux = function
     | AstParser.Variable (l,id) -> let+ t = Pass.TypeEnv.get_var te id l in AstThir.Variable(l,t,id)
     | AstParser.Deref (l,e) -> let* e = aux e in
       begin
         match e with
-        | AstThir.Ref _ as t -> AstThir.Deref(l,extract_type t, e) |> ok
+        | AstThir.Ref _ as t -> AstThir.Deref(l,extract_exp_ty t, e) |> ok
         | _ -> error [l,"can't deref a non-reference!"]
       end
 
     | AstParser.ArrayRead (l,array_exp,idx) -> let* array_exp = aux array_exp and* idx = aux idx in
       begin 
-        match extract_type array_exp with
+        match extract_exp_ty array_exp with
         | ArrayType (t,_) -> 
-          let* _ = matchArgParam (extract_type idx) Int generics [] l in
+          let* _ = matchArgParam (extract_exp_ty idx) Int generics [] l in
           AstThir.ArrayRead(l,t,array_exp,idx) |> ok
         | _ -> error [l,"not an array !"]
       end
 
     | AstParser.StructRead (l,_struct_exp,_field) -> error [l,"todo: struct read"]
     | AstParser.Literal (l,li) -> let t = sailtype_of_literal li in AstThir.Literal(l,t,li) |> ok
-    | AstParser.UnOp (l,op,e) -> let+ e = aux e in AstThir.UnOp (l, extract_type e,op,e)
+    | AstParser.UnOp (l,op,e) -> let+ e = aux e in AstThir.UnOp (l, extract_exp_ty e,op,e)
     | AstParser.BinOp (l,op,le,re) ->  
       let* le = aux le and* re = aux re in
-      let lt = extract_type le and rt = extract_type re in
+      let lt = extract_exp_ty le and rt = extract_exp_ty re in
       let+ t = matchArgParam lt rt generics [] l  in
       let op_t = type_of_binOp op (fst t) in
       AstThir.BinOp (l,op_t,op,le,re)
 
-    | AstParser.Ref  (l,mut,e) -> let+ e = aux e in AstThir.Ref(l,RefType(extract_type e,mut),mut, e)
+    | AstParser.Ref  (l,mut,e) -> let+ e = aux e in AstThir.Ref(l,RefType(extract_exp_ty e,mut),mut, e)
     | AstParser.ArrayStatic (l,el) -> 
       let* first_t = List.hd el |> aux  in
-      let first_t = extract_type first_t in
+      let first_t = extract_exp_ty first_t in
       let el,errors = partition_result (
         fun e -> let* t = aux e in
-        if extract_type t = first_t then ok t else error [l,"mixed type array"]
+        if extract_exp_ty t = first_t then ok t else error [l,"mixed type array"]
       ) el in 
       if errors = [] then
         let t = ArrayType (first_t, List.length el) in AstThir.ArrayStatic(l,t,el)  |> ok
@@ -167,16 +175,16 @@ struct
     in aux e
 
 
-  let lower c env generics = 
+  let lower (decl:in_body declaration_type) env = 
     let rec aux s (te:Pass.TypeEnv.t) = match s with
       | AstHir.DeclVar (l, mut, id, t, (optexp : AstParser.expression option)) -> 
-        let optexp = Option.MonadOption.(>>|) optexp  (fun e -> translate_expression e te generics) in 
+        let optexp = Option.MonadOption.(>>|) optexp  (fun e -> reduce_expression e te decl.generics) in 
         begin
           let* var_type =             
             match (t,optexp) with
-            | (Some t,Some e) -> let* e in let tv = extract_type e in let+ a = matchArgParam tv t generics [] l in fst a
+            | (Some t,Some e) -> let* e in let tv = extract_exp_ty e in let+ a = matchArgParam tv t decl.generics [] l in fst a
             | (Some t, None) -> ok t
-            | (None,Some t) -> let+ t in extract_type t
+            | (None,Some t) -> let+ t in extract_exp_ty t
             | (None,None) -> error [l,"can't infere type with no expression"]
             
           in 
@@ -187,12 +195,10 @@ struct
           | Some e -> let+ e in AstHir.DeclVar (l,mut,id,t,Some e),te'
         end
         
-      | AstHir.DeclSignal(loc, s) -> ok (AstHir.DeclSignal(loc, s),te)
-      | AstHir.Skip (loc) -> ok (AstHir.Skip(loc),te)
       | AstHir.Assign(loc, e1, e2) -> 
-        let* e1 = translate_expression e1 te generics
-        and* e2 = translate_expression e2 te generics in
-        let* _ = matchArgParam (extract_type e1) (extract_type e2) [] [] loc in
+        let* e1 = reduce_expression e1 te decl.generics
+        and* e2 = reduce_expression e2 te decl.generics in
+        let* _ = matchArgParam (extract_exp_ty e1) (extract_exp_ty e2) [] [] loc in
         ok (AstHir.Assign(loc, e1, e2),te)
 
       | AstHir.Seq(loc, c1, c2) -> 
@@ -200,14 +206,11 @@ struct
         let+ c2,te2 = aux c2 te1 in
         AstHir.Seq(loc, c1, c2) ,te2
 
-      | AstHir.Par(loc, c1, c2) -> 
-        let* c1,te1 = aux c1 te in
-        let+ c2,te2 = aux c2 te1 in
-        AstHir.Par(loc, c1, c2),te2
+
 
       | AstHir.If(loc, cond_exp, then_s, else_s) -> 
-        let* cond_exp = translate_expression cond_exp te generics in
-        let* _ = matchArgParam (extract_type cond_exp) Bool [] [] loc in
+        let* cond_exp = reduce_expression cond_exp te decl.generics in
+        let* _ = matchArgParam (extract_exp_ty cond_exp) Bool [] [] loc in
         let* res,_ = aux then_s te in
         begin
         match else_s with
@@ -216,44 +219,65 @@ struct
         end
 
       | AstHir.While(loc,e,c) -> 
-        let* e = translate_expression e te generics in
+        let* e = reduce_expression e te decl.generics in
         let+ t,_ = aux c te in
         AstHir.While(loc,e,t),te
 
       | AstHir.Case(loc, e, _cases) ->
-        let+ e = translate_expression e te generics in
+        let+ e = reduce_expression e te decl.generics in
         AstHir.Case (loc, e, []),te
 
 
       | AstHir.Invoke(loc, ign, id, el) -> 
-        let el,errors = partition_result (fun e -> translate_expression e te generics) el in
+        let el,errors = partition_result (fun e -> reduce_expression e te decl.generics) el in
         
         if errors = [] then
           let+ _ = check_call id el env loc in
           AstHir.Invoke(loc, ign, id,el),te
         else error errors
 
-      | AstHir.Return(_, None) as r -> ok (r,te)
+      | AstHir.Return(l, None) as r -> 
+        if decl.ret = None then ok (r,te) else  error [l,"void return"]
 
-      | AstHir.Return(loc, Some e) ->
-        let+ e = translate_expression e te generics in
-        AstHir.Return(loc, Some e),te
+      | AstHir.Return(l, Some e) ->
+        if decl.bt <> Pass.BMethod then 
+          error [l, Printf.sprintf "process %s : processes can't return non-void type" decl.name] 
+        else
+          begin
+          match decl.ret with 
+          | None -> error [l,"non-void return"] 
+          | Some r ->
+            let* e = reduce_expression e te decl.generics in
+            let+ _ = matchArgParam (extract_exp_ty e) r decl.generics [] l in
+            AstHir.Return(l, Some e),te
+          end
 
+      | AstHir.Block (loc, c) -> 
+        let+ res,te' = aux c (Pass.TypeEnv.new_frame te) in 
+        AstHir.Block(loc,res),te'
+
+
+      | s when decl.bt = Pass.BMethod -> error [extract_statements_loc s, Printf.sprintf "method %s : methods can't contain reactive statements" decl.name]
+
+
+      | AstHir.Watching(loc, s, c) -> let+ res,_ = aux c te in AstHir.Watching(loc, s, res),te
+      | AstHir.Emit(loc, s) -> ok (AstHir.Emit(loc,s),te)
+      | AstHir.Await(loc, s) -> ok (AstHir.When(loc, s, AstHir.Skip(loc)),te)
+      | AstHir.When(loc, s, c) -> let+ res,_ = aux c te in AstHir.When(loc, s, res),te
       | AstHir.Run(loc, id, el) ->
-        let el,errors = partition_result (fun e -> translate_expression e te generics) el in
+        let el,errors = partition_result (fun e -> reduce_expression e te decl.generics) el in
         if errors = [] then
           let+ _ = check_call id el env loc in
           AstHir.Run(loc, id, el),te
         else error errors
+      | AstHir.Par(loc, c1, c2) -> 
+        let* c1,te1 = aux c1 te in
+        let+ c2,te2 = aux c2 te1 in
+        AstHir.Par(loc, c1, c2),te2
+      | AstHir.DeclSignal(loc, s) -> ok (AstHir.DeclSignal(loc, s),te)
+      | AstHir.Skip (loc) -> ok (AstHir.Skip(loc),te)
 
-      | AstHir.Emit(loc, s) -> ok (AstHir.Emit(loc,s),te)
-      | AstHir.Await(loc, s) -> ok (AstHir.When(loc, s, AstHir.Skip(loc)),te)
-      | AstHir.When(loc, s, c) -> let+ res,_ = aux c te in AstHir.When(loc, s, res),te
 
-      | AstHir.Watching(loc, s, c) -> let+ res,_ = aux c te in AstHir.Watching(loc, s, res),te
-      | AstHir.Block (loc, c) -> 
-        let+ res,te' = aux c (Pass.TypeEnv.new_frame te) in 
-        AstHir.Block(loc,res),te'
     in 
-    let+ res,_ = aux c env in res
+    let+ res,_ = aux decl.body env in res
 end
