@@ -3,6 +3,7 @@ open IrHir
 open IrThir
 open Common 
 open Result
+open Pass
 open Monad.MonadSyntax(Error.MonadError)
 
 
@@ -142,14 +143,14 @@ let buildReturn (e : AstThir.expression option) =
     blocks = BlockMap.singleton returnLbl returnBlock
   }
 
-module Pass : Common.Pass.Body with
+module Pass : Body with
               type in_body = AstThir.expression AstHir.statement and   
               type out_body = cfg = 
 struct
   type in_body = AstThir.expression AstHir.statement   
   type out_body = cfg
 
-  let lower s _ _  =
+  let lower decl _   =
     let rec aux = function
       | AstHir.DeclVar(loc, b, id, stype, _v) -> 
         buildSingle [AstMir.DeclVar (loc, b, id, stype)] |> ok
@@ -175,5 +176,5 @@ struct
       | When _ -> error [Lexing.dummy_pos,"not_implemented"]
       | Watching _ -> error [Lexing.dummy_pos,"not_implemented"]
       | Block _ -> error [Lexing.dummy_pos,"not_implemented"]
-    in let+ s = aux s in s
+    in let+ res = aux decl.body in res
 end
