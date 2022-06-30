@@ -6,7 +6,7 @@ open TypesCommon
 open Heap
 open Domain
 open Format
-open Parser
+open SailParser
 
 let rec pp_pattern pf p = 
   match p with 

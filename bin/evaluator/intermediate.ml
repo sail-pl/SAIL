@@ -21,7 +21,7 @@
 (**************************************************************************)
 open Common.TypesCommon 
 open Common.PpCommon
-open Parser.AstParser
+open SailParser.AstParser
 
 type expression =
   Path of path

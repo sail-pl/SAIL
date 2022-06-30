@@ -23,9 +23,9 @@
 {
 
   open Lexing
-  open Parser_
+  open Parser
 
-  exception SyntaxError of string
+  exception SyntaxError of (position * position) * string
 
   let next_line lexbuf =
     let pos = lexbuf.lex_curr_p in
@@ -33,6 +33,10 @@
       { pos with pos_bol = lexbuf.lex_curr_pos;
                 pos_lnum = pos.pos_lnum + 1
       }
+
+  let pos_range lexbuf = 
+    let sp = lexeme_start_p lexbuf and ep = lexeme_end_p lexbuf in 
+    sp,ep
 }
 
 let digit = ['0'-'9']
@@ -113,7 +117,7 @@ rule read_token = parse
   | "'" {read_char lexbuf}
   | newline { next_line lexbuf; read_token lexbuf }
   | eof { EOF }
-  | _ {raise (SyntaxError ("Lexer - Illegal character: " ^ Lexing.lexeme lexbuf)) }
+  | _ {raise (SyntaxError (pos_range lexbuf, "Lexer - Illegal character: " ^ Lexing.lexeme lexbuf)) }
 
 and read_single_line_comment = parse
   | newline { next_line lexbuf; read_token lexbuf } 
@@ -123,7 +127,7 @@ and read_single_line_comment = parse
 and read_multi_line_comment = parse
   | "*/" { read_token lexbuf } 
   | newline { next_line lexbuf; read_multi_line_comment lexbuf } 
-  | eof { raise (SyntaxError ("Lexer - Unexpected EOF - please terminate your comment.")) }
+  | eof { raise (SyntaxError (pos_range lexbuf, "Lexer - Unexpected EOF - please terminate your comment.")) }
   | _ { read_multi_line_comment lexbuf } 
 and read_char = parse 
   | '\\' '/' '\''  { CHAR '/' }
@@ -134,8 +138,8 @@ and read_char = parse
   | '\\' 'r'  '\'' { CHAR '\r'}
   | '\\' 't'  '\'' { CHAR '\t'}
   | [^ '"' '\\'] '\'' {CHAR (String.get (Lexing.lexeme lexbuf) 0)}
-  | eof { raise (SyntaxError ("Char is not terminated")) }
-  | _ { raise (SyntaxError ("Illegal character: " ^ Lexing.lexeme lexbuf)) }
+  | eof { raise (SyntaxError (pos_range lexbuf, "Char is not terminated")) }
+  | _ { raise (SyntaxError (pos_range lexbuf, "Illegal character: " ^ Lexing.lexeme lexbuf)) }
 and read_string buf = parse
   | '"'       { STRING (Buffer.contents buf) }
   | '\\' '/'  { Buffer.add_char buf '/'; read_string buf lexbuf }
@@ -149,7 +153,8 @@ and read_string buf = parse
     { Buffer.add_string buf (Lexing.lexeme lexbuf);
       read_string buf lexbuf
     }
-  | _ { raise (SyntaxError ("Illegal string character: " ^ Lexing.lexeme lexbuf)) }
-  | eof { raise (SyntaxError ("String is not terminated")) }
+  | _ { raise (SyntaxError (pos_range lexbuf, "Illegal string character: " ^ Lexing.lexeme lexbuf )) }
+  | eof { raise (SyntaxError (pos_range lexbuf, "String is not terminated")) }
 
 
+  

@@ -1,5 +1,4 @@
-
-open Parser
+open SailParser
 open Common.Pass
 open Common.TypesCommon
 open Common.Option.MonadOption
@@ -46,9 +45,9 @@ struct
       | AstParser.Invoke(loc, id, id', el) -> AstHir.Invoke(loc, id, id', List.map lower_expression el)
       | AstParser.Return(loc, e) -> AstHir.Return(loc, fmap lower_expression e)
       | AstParser.Run(loc, id, el) -> AstHir.Run(loc, id,  List.map lower_expression el)
-      | AstParser.Loop(loc, c) -> AstHir.While(loc, Literal(Lexing.dummy_pos, LBool true) , aux c)
+      | AstParser.Loop(loc, c) -> AstHir.While(loc, Literal(dummy_pos, LBool true) , aux c)
       | AstParser.Emit(loc, s) -> AstHir.Emit(loc,s)
-      | AstParser.Await(loc, s) -> AstHir.When(loc, s, AstHir.Skip(Lexing.dummy_pos))
+      | AstParser.Await(loc, s) -> AstHir.When(loc, s, AstHir.Skip(dummy_pos))
       | AstParser.When(loc, s, c) -> AstHir.When(loc, s, aux c)
       | AstParser.Watching(loc, s, c) -> AstHir.Watching(loc, s, aux c)
       | AstParser.Block (loc, c) -> AstHir.Block(loc, aux c)
