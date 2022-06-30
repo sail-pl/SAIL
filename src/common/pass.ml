@@ -130,7 +130,7 @@ struct
 
   let get_start_env decls args =
     let env = TypeEnv.empty decls |> TypeEnv.new_frame in
-    List.fold_left (fun m (n,t) -> let* m in TypeEnv.declare_var m n t Lexing.dummy_pos) (Result.ok env) args
+    List.fold_left (fun m (n,t) -> let* m in TypeEnv.declare_var m n t dummy_pos) (Result.ok env) args
 
   let lower_method (m:T.in_body method_defn) (decls : DeclEnv.t) : T.out_body method_defn result = 
     let* start_env = get_start_env decls m.m_proto.params in

@@ -1,3 +1,4 @@
+open SailParser
 open CliCommon
 open Cmdliner
 open Llvm
@@ -92,12 +93,8 @@ let execute (llm:llmodule) =
 let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () = 
   let rec aux = function
   | f::r -> 
-    let file_r = open_in f in
-    let lexbuf = Lexing.from_channel file_r in
     let module_name = Filename.chop_extension (Filename.basename f) in
     begin
-      match parse_program lexbuf with
-      | Ok p ->
         enable_pretty_stacktrace ();
         install_fatal_error_handler error_handler;
 
@@ -105,12 +102,13 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         let module Thir = Pass.Make(Thir.Pass) in
         let module Mir = Pass.Make(Mir.Pass) in
 
-        let sail_module = Result.ok (p module_name) |> Hir.lower_module |> Thir.lower_module in
+        let fcontent,sail_module = Parsing.parse_program f in
+        let sail_module = sail_module |> Hir.lower_module |> Thir.lower_module in
         begin
 
         match sail_module with
         | Ok _ ->
-          let funs = Result.ok (p module_name) |> Hir.lower_module |> Result.get_ok |> type_check_module in (* fixme : this will be removed when mir is done*)
+          let funs = Parsing.parse_program f |> snd |> Hir.lower_module |> Result.get_ok |> type_check_module in (* fixme : this will be removed when mir is done*)
           let llm = moduleToIR module_name funs dump_decl in
           let tm = init_llvm llm in
 
@@ -136,11 +134,9 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
           if jit then execute llm else dispose_module llm;
 
           aux r
-        | Error errlist -> Error.print_errors errlist; `Error(false, "compilation aborted")
+        | Error errlist -> Error.print_errors fcontent errlist; `Error(false, "compilation aborted")
         end
-        
-      | Error e ->`Error (false, e)
-    end
+            end
   | [] -> `Ok ()
   
   in 

@@ -1,24 +1,4 @@
-open Parser
-open Lexer
-open Lexing
 open Cmdliner
-
-let print_error_position lexbuf =
-  let pos = lexbuf.lex_curr_p in
-  Fmt.str "Line:%d Position:%d" pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1)
-
-
-let parse_program lexbuf =
-  try
-    Ok (Parser_.sailModule read_token lexbuf)
-  with
-  | SyntaxError msg ->
-    let error_msg = Fmt.str "%s: %s@." (print_error_position lexbuf) msg in
-    Error error_msg
-  | Parser_.Error ->
-    let error_msg = Fmt.str "%s: syntax error @."
-        (print_error_position lexbuf) in
-    Error error_msg
 
 
 let setup_log style_renderer level =

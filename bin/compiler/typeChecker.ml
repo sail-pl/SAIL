@@ -187,9 +187,9 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : Hir.express
           end
       end
 
-  and analyse_command (_cmd: Hir.expression AstHir.statement) (_ts : varTypesMap) (_monos : monomorphics) (_funs : sailor_functions) : varTypesMap * monomorphics * sailor_functions =
+  and analyse_command (_cmd: Hir.expression AstHir.statement) (ts : varTypesMap) (monos : monomorphics) (funs : sailor_functions) : varTypesMap * monomorphics * sailor_functions =
       match f.ty with
-      | FProcess -> failwith "todo: typecheck commands"
+      | FProcess -> ts,monos,funs
       | _ -> failwith "Methods can't have reactive statements!"
 
 

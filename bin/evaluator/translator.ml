@@ -20,7 +20,7 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Parser.AstParser
+open SailParser.AstParser
 open Common
 open Monoid
 open Writer
