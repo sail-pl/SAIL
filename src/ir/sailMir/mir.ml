@@ -154,27 +154,27 @@ struct
     let rec aux = function
       | AstHir.DeclVar(loc, b, id, stype, _v) -> 
         buildSingle [AstMir.DeclVar (loc, b, id, stype)] |> ok
-      | DeclSignal _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | DeclSignal _ -> error [TypesCommon.dummy_pos,"not_implemented"]
       | Skip _ -> buildSingle [] |> ok 
       | Assign (loc, e1, e2) -> 
         buildSingle [AstMir.Assign (loc, e1, e2)] |> ok 
       | Seq (_, s1, s2) ->
         let* s1 = aux s1 and* s2 = aux s2 in buildSeq s1 s2 |> ok
-      | Par _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | Par _ -> error [TypesCommon.dummy_pos,"not_implemented"]
       | If (_loc, e, s, None) -> let+ s = aux s in buildIfThen e s
       | If (_loc, e, s1, Some s2) -> 
         let* s1 = aux s1 and* s2 = aux s2 in 
         buildIfThenElse e s1 s2 |> ok
       | While (_loc, e, s) -> 
         let+ s = aux s in buildLoop e s
-      | Case _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | Case _ -> error [TypesCommon.dummy_pos,"not_implemented"]
       | Invoke (_loc, _, id, el) -> buildInvoke id el |> ok
       | Return (_, e) -> buildReturn e |> ok 
-      | Run _ -> error [Lexing.dummy_pos,"not_implemented"]
-      | Emit _ -> error [Lexing.dummy_pos,"not_implemented"]
-      | Await _ -> error [Lexing.dummy_pos,"not_implemented"]
-      | When _ -> error [Lexing.dummy_pos,"not_implemented"]
-      | Watching _ -> error [Lexing.dummy_pos,"not_implemented"]
-      | Block _ -> error [Lexing.dummy_pos,"not_implemented"]
+      | Run _ -> error [TypesCommon.dummy_pos,"not_implemented"]
+      | Emit _ -> error [TypesCommon.dummy_pos,"not_implemented"]
+      | Await _ -> error [TypesCommon.dummy_pos,"not_implemented"]
+      | When _ -> error [TypesCommon.dummy_pos,"not_implemented"]
+      | Watching _ -> error [TypesCommon.dummy_pos,"not_implemented"]
+      | Block _ -> error [TypesCommon.dummy_pos,"not_implemented"]
     in let+ res = aux decl.body in res
 end

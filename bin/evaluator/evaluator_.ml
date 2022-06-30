@@ -20,7 +20,7 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Parser
+open SailParser
 open Common
 open TypesCommon
 open Monad

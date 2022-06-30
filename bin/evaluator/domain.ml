@@ -26,7 +26,7 @@ open Common.Monad
 open Common.Option
 open MonadSyntax(MonadOption)
 
-open Parser
+open SailParser
 
 open Error
 open Intermediate

@@ -1,3 +1,3 @@
 (library
- (libraries common logs irHir parser llvm llvm.analysis llvm.executionengine llvm.scalar_opts llvm.all_backends)
+ (libraries common logs irHir sailParser llvm llvm.analysis llvm.executionengine llvm.scalar_opts llvm.all_backends)
  (name compiler))

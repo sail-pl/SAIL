@@ -78,13 +78,13 @@ sailModule:
             
 defn:
 | STRUCT id = ID g = generic LBRACE f = separated_list(COMMA, id_colon(sailtype)) RBRACE
-    {Struct ({s_pos=$startpos;s_name = id; s_generics = g; s_fields = f})}
+    {Struct ({s_pos=$loc;s_name = id; s_generics = g; s_fields = f})}
 | ENUM name=ID generics=generic LBRACE fields = separated_list(COMMA, enum_elt) RBRACE
-    {Enum {e_pos=$startpos;e_name=name; e_generics=generics; e_injections=fields}}
+    {Enum {e_pos=$loc;e_name=name; e_generics=generics; e_injections=fields}}
 | proto = fun_sig body = block {Method {m_proto=proto; m_body = body}}
 
 | PROCESS name = UID generics=generic LPAREN interface=interface RPAREN  body=block
-    {Process ({p_pos=$startpos;p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
+    {Process ({p_pos=$loc;p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
 
 | EXTERN LBRACE protos = separated_list(SEMICOLON,fun_sig) RBRACE {Ffi protos}
 ;
@@ -92,7 +92,7 @@ defn:
 
 
 fun_sig : METHOD name=ID generics=generic LPAREN params=separated_list(COMMA, id_colon(sailtype)) RPAREN rtype=returnType 
-        {({pos=$startpos;name=name; generics=generics; params=params ; rtype=rtype})}
+        {({pos=$loc;name=name; generics=generics; params=params ; rtype=rtype})}
 ;
 
 
@@ -118,29 +118,29 @@ interface :
 | VAR globals = separated_nonempty_list(COMMA, id_colon(sailtype)) SEMICOLON SIGNAL signals = separated_nonempty_list(COMMA, ID)  {(globals, signals)};
 
 simpl_expression :
-| id = ID  {Variable ($startpos,id)}
-| l = literal {Literal ($startpos,l)}
-| e1 = simpl_expression e2 = delimited(LSQBRACE, expression, RSQBRACE) {ArrayRead ($startpos,e1,e2)}
-| e = simpl_expression DOT id = ID {StructRead ($startpos,e,id)}
+| id = ID  {Variable ($loc,id)}
+| l = literal {Literal ($loc,l)}
+| e1 = simpl_expression e2 = delimited(LSQBRACE, expression, RSQBRACE) {ArrayRead ($loc,e1,e2)}
+| e = simpl_expression DOT id = ID {StructRead ($loc,e,id)}
 | e = delimited (LPAREN, expression, RPAREN) {e}
 
 expression :
 | e = simpl_expression {e}
-| MINUS e = expression %prec UNARY {UnOp($startpos,Neg, e)}
-| NOT e=expression %prec UNARY {UnOp($startpos,Not, e)}
-| REF MUT e = expression %prec UNARY {Ref ($startpos,true,e)}
-| REF e = expression %prec UNARY {Ref ($startpos,false,e)}
-| MUL e = expression %prec UNARY {Deref ($startpos,e)}
-| e1=expression o=binOp e2=expression {BinOp ($startpos,o,e1,e2)}
-| el = delimited (LSQBRACE, separated_list(COMMA, expression), RSQBRACE) {ArrayStatic($startpos,el)}
+| MINUS e = expression %prec UNARY {UnOp($loc,Neg, e)}
+| NOT e=expression %prec UNARY {UnOp($loc,Not, e)}
+| REF MUT e = expression %prec UNARY {Ref ($loc,true,e)}
+| REF e = expression %prec UNARY {Ref ($loc,false,e)}
+| MUL e = expression %prec UNARY {Deref ($loc,e)}
+| e1=expression o=binOp e2=expression {BinOp ($loc,o,e1,e2)}
+| el = delimited (LSQBRACE, separated_list(COMMA, expression), RSQBRACE) {ArrayStatic($loc,el)}
 | id=ID l = delimited (LBRACE, separated_nonempty_list(COMMA, id_colon(expression)), RBRACE) 
     {
       let m = List.fold_left (fun x (y,z) -> FieldMap.add y z x) FieldMap.empty l
-      in StructAlloc($startpos,id, m)
+      in StructAlloc($loc,id, m)
       }
-| id = UID {EnumAlloc($startpos,id, [])}
-| id = UID l = delimited (LPAREN, separated_list(COMMA, expression), RPAREN) {EnumAlloc($startpos,id, l)}
-| id = ID params = delimited (LPAREN, separated_list (COMMA, expression), RPAREN) {MethodCall ($startpos,id,params)}
+| id = UID {EnumAlloc($loc,id, [])}
+| id = UID l = delimited (LPAREN, separated_list(COMMA, expression), RPAREN) {EnumAlloc($loc,id, l)}
+| id = ID params = delimited (LPAREN, separated_list (COMMA, expression), RPAREN) {MethodCall ($loc,id,params)}
 
 id_colon(X):
 | id=ID COLON x=X {(id,x)}; 
@@ -171,49 +171,49 @@ literal :
 ;
 
 block :
-| LBRACE RBRACE {Skip $startpos}
-| LBRACE s = statement RBRACE {Block ($startpos, s)}
+| LBRACE RBRACE {Skip $loc}
+| LBRACE s = statement RBRACE {Block ($loc, s)}
 ;
 
 single_statement :
-| VAR b = mut id = ID COLON typ=sailtype  {DeclVar($startpos,b,id,Some typ,None)}
-| VAR b = mut id = ID COLON typ=sailtype ASSIGN e = expression  {DeclVar($startpos,b,id,Some typ,Some e)}
-| VAR b = mut id = ID ASSIGN e = expression  {DeclVar($startpos,b,id,None,Some e)}
-| VAR b = mut id = ID  {DeclVar($startpos,b,id,None,None)}
-| SIGNAL id = ID  {DeclSignal($startpos,id)}
-| l = expression ASSIGN e = expression {Assign($startpos,l, e)}
-| IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement  {If($startpos,e, s1, None)}
-| IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement ELSE s2 = single_statement {If($startpos,e, s1, Some s2)}
-| WHILE e = delimited(LPAREN, expression, RPAREN) s = single_statement {While($startpos,e, s)}
-| CASE e = delimited(LPAREN, expression, RPAREN) l = delimited(LBRACE, separated_list(COMMA,case), RBRACE) {Case($startpos,e,l)}
-| id = ID LPAREN p = separated_list(COMMA, expression) RPAREN  {Invoke($startpos,None, id, p)}
-| RETURN e = option(expression)  {Return ($startpos, e)}
-| id = UID params=delimited(LPAREN, separated_list(COMMA, expression), RPAREN)  {Run ($startpos,id, params)}
-| EMIT id = ID  {Emit($startpos,id)}
-| AWAIT id = ID  {Await($startpos,id)}
-| WATCHING id = ID s = single_statement {Watching($startpos,id, s)}
-| WHEN id = ID s = single_statement {When($startpos,id, s)}
+| VAR b = mut id = ID COLON typ=sailtype  {DeclVar($loc,b,id,Some typ,None)}
+| VAR b = mut id = ID COLON typ=sailtype ASSIGN e = expression  {DeclVar($loc,b,id,Some typ,Some e)}
+| VAR b = mut id = ID ASSIGN e = expression  {DeclVar($loc,b,id,None,Some e)}
+| VAR b = mut id = ID  {DeclVar($loc,b,id,None,None)}
+| SIGNAL id = ID  {DeclSignal($loc,id)}
+| l = expression ASSIGN e = expression {Assign($loc,l, e)}
+| IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement  {If($loc,e, s1, None)}
+| IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement ELSE s2 = single_statement {If($loc,e, s1, Some s2)}
+| WHILE e = delimited(LPAREN, expression, RPAREN) s = single_statement {While($loc,e, s)}
+| CASE e = delimited(LPAREN, expression, RPAREN) l = delimited(LBRACE, separated_list(COMMA,case), RBRACE) {Case($loc,e,l)}
+| id = ID LPAREN p = separated_list(COMMA, expression) RPAREN  {Invoke($loc,None, id, p)}
+| RETURN e = option(expression)  {Return ($loc, e)}
+| id = UID params=delimited(LPAREN, separated_list(COMMA, expression), RPAREN)  {Run ($loc,id, params)}
+| EMIT id = ID  {Emit($loc,id)}
+| AWAIT id = ID  {Await($loc,id)}
+| WATCHING id = ID s = single_statement {Watching($loc,id, s)}
+| WHEN id = ID s = single_statement {When($loc,id, s)}
 | s = block {s}
 
 left : 
 | s1 = block {s1}
-| IF e = delimited(LPAREN, expression, RPAREN) s1 = block  {If($startpos,e, s1, None)}
-| IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement ELSE s2 = block {If($startpos,e, s1, Some s2)}
-| WHILE e = delimited(LPAREN, expression, RPAREN) s = block{While($startpos,e, s)}
-| WATCHING id = ID s = block {Watching($startpos,id, s)}
-| WHEN id = ID s = block {When($startpos,id, s)}
+| IF e = delimited(LPAREN, expression, RPAREN) s1 = block  {If($loc,e, s1, None)}
+| IF e = delimited(LPAREN, expression, RPAREN) s1 = single_statement ELSE s2 = block {If($loc,e, s1, Some s2)}
+| WHILE e = delimited(LPAREN, expression, RPAREN) s = block{While($loc,e, s)}
+| WATCHING id = ID s = block {Watching($loc,id, s)}
+| WHEN id = ID s = block {When($loc,id, s)}
 ;
 
 statement_seq : 
 | s = single_statement {s}
 | s = single_statement SEMICOLON {s}
-| s1 = left s2 = statement_seq {Seq($startpos,s1, s2)}
-| s1 = single_statement SEMICOLON s2 = statement_seq {Seq($startpos,s1,s2)}
+| s1 = left s2 = statement_seq {Seq($loc,s1, s2)}
+| s1 = single_statement SEMICOLON s2 = statement_seq {Seq($loc,s1,s2)}
 ;
 
 statement :
 | s = statement_seq {s}
-| s1 = statement_seq PAR  s2 = statement {Par ($startpos,s1, s2)}
+| s1 = statement_seq PAR  s2 = statement {Par ($loc,s1, s2)}
 ;
 
 case :

@@ -22,7 +22,8 @@
 
 module FieldMap = Map.Make (String)
 
-type loc = Lexing.position
+type loc = Lexing.position * Lexing.position
+let dummy_pos = Lexing.dummy_pos,Lexing.dummy_pos
 
 type sailtype =
   | Bool 

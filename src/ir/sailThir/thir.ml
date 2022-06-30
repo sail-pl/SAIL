@@ -58,7 +58,7 @@ struct
   type out_body = expression AstHir.statement
 
    
-  let matchArgParam (arg: sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: (string * sailtype ) list) loc : (sailtype * (string * sailtype ) list) result =
+  let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: (string * sailtype ) list) : (sailtype * (string * sailtype ) list) result =
     let rec aux (a:sailtype) (m:sailtype) (g: (string * sailtype) list) = 
     match (a,m) with
     | Bool,Bool -> ok (Bool,g)
@@ -70,20 +70,20 @@ struct
       if s = s' then
         let+ t,g = aux at mt g in ArrayType (t,s),g
       else
-        error [loc,Printf.sprintf "array length mismatch : wants %i but %i provided" s' s]
-    | CompoundType _, CompoundType _ -> error [loc, "todocompoundtype"]
-    | Box _at, Box _mt -> error [loc,"todobox"]
-    | RefType (at,am), RefType (mt,mm) -> if am <> mm then error [loc, "different mutability"] else aux at mt g
+        error [l,Printf.sprintf "array length mismatch : wants %i but %i provided" s' s]
+    | CompoundType _, CompoundType _ -> error [l, "todocompoundtype"]
+    | Box _at, Box _mt -> error [l,"todobox"]
+    | RefType (at,am), RefType (mt,mm) -> if am <> mm then error [l, "different mutability"] else aux at mt g
     | at,GenericType gt ->
      begin
         if List.mem gt generics then
           match List.assoc_opt gt g with
           | None -> ok (at,(gt,at)::g)
-          | Some t -> if t = at then ok (at,g) else error [loc,"generic type mismatch"]
+          | Some t -> if t = at then ok (at,g) else error [l,"generic type mismatch"]
         else
-          error [loc,Printf.sprintf "generic type %s not declared" gt]
+          error [l,Printf.sprintf "generic type %s not declared" gt]
       end
-    | _ -> error [loc,Printf.sprintf "wants %s but %s provided" 
+    | _ -> error [l,Printf.sprintf "wants %s but %s provided" 
            (string_of_sailtype (Some m_param))
            (string_of_sailtype (Some arg))]
     in aux arg m_param resolved_generics  
@@ -100,7 +100,7 @@ struct
           (
             fun g ca (_,a) ->
               let* g in 
-              let+ x = matchArgParam (extract_exp_loc_ty ca |> snd) a f.generics g loc in
+              let+ x = matchArgParam (extract_exp_loc_ty ca) a f.generics g in
               snd x
           )  
           (ok [])
@@ -132,7 +132,7 @@ struct
       begin 
         match extract_exp_loc_ty array_exp |> snd with
         | ArrayType (t,_) -> 
-          let* _ = matchArgParam (extract_exp_loc_ty idx |> snd) Int generics [] l in
+          let* _ = matchArgParam (extract_exp_loc_ty idx) Int generics [] in
           AstHir.ArrayRead((l,t),array_exp,idx) |> ok
         | _ -> error [l,"not an array !"]
       end
@@ -142,8 +142,8 @@ struct
     | AstHir.UnOp (l,op,e) -> let+ e = aux e in AstHir.UnOp ((l, extract_exp_loc_ty e |> snd),op,e)
     | AstHir.BinOp (l,op,le,re) ->  
       let* le = aux le and* re = aux re in
-      let lt = extract_exp_loc_ty le |> snd and rt = extract_exp_loc_ty re |> snd in
-      let+ t = matchArgParam lt rt generics [] l  in
+      let lt = extract_exp_loc_ty le  and rt = extract_exp_loc_ty re |> snd in
+      let+ t = matchArgParam lt rt generics [] in
       let op_t = type_of_binOp op (fst t) in
       AstHir.BinOp ((l,op_t),op,le,re)
 
@@ -184,7 +184,7 @@ struct
         begin
           let* var_type =             
             match (t,optexp) with
-            | (Some t,Some e) -> let* e in let tv = extract_exp_loc_ty e |> snd in let+ a = matchArgParam tv t decl.generics [] l in fst a
+            | (Some t,Some e) -> let* e in let tv = extract_exp_loc_ty e in let+ a = matchArgParam tv t decl.generics [] in fst a
             | (Some t, None) -> ok t
             | (None,Some t) -> let+ t in extract_exp_loc_ty t |> snd
             | (None,None) -> error [l,"can't infere type with no expression"]
@@ -200,7 +200,7 @@ struct
       | AstHir.Assign(loc, e1, e2) -> 
         let* e1 = lower_expression e1 te decl.generics
         and* e2 = lower_expression e2 te decl.generics in
-        let* _ = matchArgParam (extract_exp_loc_ty e1 |> snd) (extract_exp_loc_ty e2 |> snd) [] [] loc in
+        let* _ = matchArgParam (extract_exp_loc_ty e1) (extract_exp_loc_ty e2 |> snd) [] [] in
         ok (AstHir.Assign(loc, e1, e2),te)
 
       | AstHir.Seq(loc, c1, c2) -> 
@@ -212,7 +212,7 @@ struct
 
       | AstHir.If(loc, cond_exp, then_s, else_s) -> 
         let* cond_exp = lower_expression cond_exp te decl.generics in
-        let* _ = matchArgParam (extract_exp_loc_ty cond_exp |> snd) Bool [] [] loc in
+        let* _ = matchArgParam (extract_exp_loc_ty cond_exp) Bool [] [] in
         let* res,_ = aux then_s te in
         begin
         match else_s with
@@ -250,7 +250,7 @@ struct
           | None -> error [l,"non-void return"] 
           | Some r ->
             let* e = lower_expression e te decl.generics in
-            let+ _ = matchArgParam (extract_exp_loc_ty e |> snd) r decl.generics [] l in
+            let+ _ = matchArgParam (extract_exp_loc_ty e) r decl.generics [] in
             AstHir.Return(l, Some e),te
           end
 
