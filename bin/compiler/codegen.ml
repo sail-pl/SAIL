@@ -1,6 +1,5 @@
 open CompilerCommon
 open CompilerEnv
-open Parser
 open Common.TypesCommon
 open Llvm
 open IrHir
@@ -45,8 +44,7 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
     | None ->  Printf.sprintf "bad binary operand type : '%s'. Only doubles and ints are supported" (string_of_sailtype (Some t)) |> failwith
 
 
-let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstParser.expression) exts : (sailtype * llvalue) = 
-  let open AstParser in
+let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Hir.expression) exts : (sailtype * llvalue) = 
   match x with
   | Variable (l, x) ->  SailEnv.get_var env x l |> Result.get_ok
   | Deref (_, x) -> eval_r env llvm x exts
@@ -70,7 +68,7 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstParser.expression) exts :
   | Ref _ -> failwith "reference read is not a lvalue"
   | MethodCall _ -> failwith "method call is not a lvalue"
 
-and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstParser.expression) (exts:sailor_external string_assoc) : (sailtype * llvalue) = 
+and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Hir.expression) (exts:sailor_external string_assoc) : (sailtype * llvalue) = 
   match x with
   | Variable _ ->  let t,v = eval_l env llvm x exts in t,build_load v "" llvm.b
   | Literal (_, l) ->  TypeChecker.sailtype_of_literal l,getLLVMLiteral l llvm
@@ -114,7 +112,7 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstParser.expression) (exts:sailo
     let t,c = construct_call name args env llvm exts in
     (Option.get t),c
   
-  and construct_call (name:string) (args:AstParser.expression list) (env:SailEnv.t) (llvm:llvm_args) exts : sailtype option * llvalue = 
+  and construct_call (name:string) (args:Hir.expression list) (env:SailEnv.t) (llvm:llvm_args) exts : sailtype option * llvalue = 
     let args_type,args = List.map (fun arg -> eval_r env llvm arg exts) args |> List.split
     in
     let mname = mangle_method_name name args_type in 
@@ -141,8 +139,8 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstParser.expression) (exts:sailo
     | None -> false
   
     
-let statementToIR (m:llvalue) (x: AstParser.expression AstHir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) exts : unit =
-  let declare_var (mut:bool) (name:string) (ty:sailtype option) (exp:AstParser.expression option) (env:SailEnv.t) : SailEnv.t =
+let statementToIR (m:llvalue) (x: Hir.expression AstHir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) exts : unit =
+  let declare_var (mut:bool) (name:string) (ty:sailtype option) (exp:Hir.expression option) (env:SailEnv.t) : SailEnv.t =
     let _ = mut in (* todo manage mutable types *)
     let entry_b = entry_block m |> instr_begin |> builder_at llvm.c in
     let t,v =  

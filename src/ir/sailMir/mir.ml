@@ -68,7 +68,7 @@ let addGoto (lbl : label) (cfg : cfg) : cfg =
   let cfg' = singleBlock bb in 
   buildSeq cfg cfg' 
 
-  let buildIfThen (e : AstThir.expression) (cfg : cfg) : cfg = 
+  let buildIfThen (e : Thir.expression) (cfg : cfg) : cfg = 
     let outputLbl = fresh_label () in
     let outputBlock = {statements = []; terminator = None} in
     let inputLbl = fresh_label () in 
@@ -81,7 +81,7 @@ let addGoto (lbl : label) (cfg : cfg) : cfg =
         (BlockMap.add outputLbl outputBlock (BlockMap.singleton inputLbl inputBlock))
     }
 
-let buildIfThenElse (e : AstThir.expression) (cfgTrue : cfg) (cfgFalse : cfg) : cfg = 
+let buildIfThenElse (e : Thir.expression) (cfgTrue : cfg) (cfgFalse : cfg) : cfg = 
   let outputLbl = fresh_label () in
   let outputBlock = {statements = []; terminator = None} in
   let inputLbl = fresh_label () in 
@@ -95,7 +95,7 @@ let buildIfThenElse (e : AstThir.expression) (cfgTrue : cfg) (cfgFalse : cfg) : 
        (BlockMap.add outputLbl outputBlock (BlockMap.singleton inputLbl inputBlock)))
   }
 
-let buildSwitch (e : AstThir.expression) (blocks : (int * cfg) list) (cfg : cfg): cfg = 
+let buildSwitch (e : Thir.expression) (blocks : (int * cfg) list) (cfg : cfg): cfg = 
   let input = fresh_label () in 
   let cases = List.map (fun (value, cfg) -> (value, cfg.input)) blocks in 
   let bb1 = {statements = []; terminator = Some (SwitchInt (e, cases, cfg.input))} in
@@ -110,7 +110,7 @@ let buildSwitch (e : AstThir.expression) (blocks : (int * cfg) list) (cfg : cfg)
         (List.map (fun x  -> addGoto output (snd x))  blocks)
   }
 
-let buildLoop (e : AstThir.expression) (cfg : cfg) : cfg = 
+let buildLoop (e : Thir.expression) (cfg : cfg) : cfg = 
   let headLbl = fresh_label () in
   let outputLbl = fresh_label () in
   let headBlock = {statements = []; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
@@ -123,7 +123,7 @@ let buildLoop (e : AstThir.expression) (cfg : cfg) : cfg =
       (BlockMap.add outputLbl outputBlock (BlockMap.singleton headLbl headBlock))
   }
 
-let buildInvoke (id : string) (el : AstThir.expression list) : cfg =
+let buildInvoke (id : string) (el : Thir.expression list) : cfg =
   let invokeLbl = fresh_label () in 
   let returnLbl = fresh_label () in
   let invokeBlock = {statements = []; terminator = Some (Invoke {id = id; params = el; next = returnLbl})} in
@@ -134,7 +134,7 @@ let buildInvoke (id : string) (el : AstThir.expression list) : cfg =
     blocks = BlockMap.add returnLbl returnBlock (BlockMap.singleton invokeLbl invokeBlock)
   }
 
-let buildReturn (e : AstThir.expression option) =
+let buildReturn (e : Thir.expression option) =
   let returnLbl = fresh_label () in
   let returnBlock = {statements=[]; terminator= Some (Return e)} in 
   {
@@ -144,10 +144,10 @@ let buildReturn (e : AstThir.expression option) =
   }
 
 module Pass : Body with
-              type in_body = AstThir.expression AstHir.statement and   
+              type in_body = Thir.expression AstHir.statement and   
               type out_body = cfg = 
 struct
-  type in_body = AstThir.expression AstHir.statement   
+  type in_body = Thir.expression AstHir.statement   
   type out_body = cfg
 
   let lower decl _   =
