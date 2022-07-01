@@ -1,7 +1,6 @@
 open Llvm
 open Common.TypesCommon
-open Parser
-open IrHir.AstHir
+open IrHir
 
 type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; }
 
@@ -18,14 +17,14 @@ type sailor_decl =
 type sailor_method = 
 {
 	decl : sailor_decl ;
-	body: AstParser.expression statement;
+	body: Hir.expression AstHir.statement;
   generics : sailor_args
 }
 
 type sailor_process = 
 {
   args : sailor_args;
-  body: AstParser.expression statement;
+  body: Hir.expression AstHir.statement;
   generics : sailor_args
 }
 
@@ -37,7 +36,7 @@ type sailor_function =
   r_type : sailtype option;
   args : sailor_args;
   generics : string list;
-  body : AstParser.expression statement option;
+  body : Hir.expression AstHir.statement option;
   ty : function_type
 }
 

@@ -101,16 +101,16 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         enable_pretty_stacktrace ();
         install_fatal_error_handler error_handler;
 
-        let module HirPass = Pass.Make(Hir.Pass) in
-        let module ThirPass = Pass.Make(Thir.Pass) in
-        let module MirPass = Pass.Make(Mir.Pass) in
+        let module Hir = Pass.Make(Hir.Pass) in
+        let module Thir = Pass.Make(Thir.Pass) in
+        let module Mir = Pass.Make(Mir.Pass) in
 
-        let sail_module = Result.ok (p module_name) |> HirPass.lower_module |> ThirPass.lower_module in
+        let sail_module = Result.ok (p module_name) |> Hir.lower_module |> Thir.lower_module in
         begin
 
         match sail_module with
         | Ok _ ->
-          let funs = Result.ok (p module_name) |> HirPass.lower_module |> Result.get_ok |> type_check_module in (* fixme : this will be removed when mir is done*)
+          let funs = Result.ok (p module_name) |> Hir.lower_module |> Result.get_ok |> type_check_module in (* fixme : this will be removed when mir is done*)
           let llm = moduleToIR module_name funs dump_decl in
           let tm = init_llvm llm in
 
