@@ -22,20 +22,20 @@
 
 open Common.TypesCommon
 
-(* expressions are control free *)
-(*type expression = 
-  Variable of loc * string 
-  | Deref of loc * expression 
-  | StructRead of loc * expression * string
-  | ArrayRead of loc * expression * expression  
-  | Literal of loc * literal
-  | UnOp of loc * unOp * expression
-  | BinOp of loc * binOp * expression * expression
-  | Ref of loc * bool * expression
-  | ArrayStatic of loc * expression list
-  | StructAlloc of loc * string * expression FieldMap.t
-  | EnumAlloc of loc * string * expression list 
-  | MethodCall of loc * string * expression list*)
+
+type 'a expression = 
+  Variable of 'a * string 
+  | Deref of 'a * 'a expression 
+  | StructRead of 'a * 'a expression * string
+  | ArrayRead of 'a * 'a expression * 'a expression  
+  | Literal of 'a * literal
+  | UnOp of 'a * unOp * 'a expression
+  | BinOp of 'a * binOp * 'a expression * 'a expression
+  | Ref of 'a * bool * 'a expression
+  | ArrayStatic of 'a * 'a expression list
+  | StructAlloc of 'a * string * 'a expression FieldMap.t
+  | EnumAlloc of 'a * string * 'a expression list 
+  | MethodCall of 'a * string * 'a expression list
   
 
 type 'a statement =
@@ -56,27 +56,5 @@ type 'a statement =
   | When of loc * string * 'a statement
   | Watching of loc * string * 'a statement
   | Block of loc * 'a statement
-
-(* type defn =
-  | Struct of struct_defn
-  | Enum of enum_defn
-  | Method of statement method_defn
-  | Process of statement process_defn
-
-let mk_program name l =
-  let rec aux l =
-    match l with
-      [] -> ([],[],[],[])
-    | d::l ->
-      let (s,e,m,p) = aux l in
-        match d with
-          | Struct d -> (d::s,e,m,p)
-          | Enum d -> (s,d::e,m,p)
-          | Method d -> (s,e,d::m,p)
-          | Process d -> (s,e, m,d::p)
-  in 
-  let (s,e,m,p) = aux l in 
-    {name = name; structs = s; enums =e; methods=m; processes=p}
-*)
 
   
