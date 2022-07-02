@@ -75,18 +75,21 @@
 let sailModule := l = defn* ; EOF ; {fun x -> mk_program x l}
 
 
+let brace_del_sep_list(sep,x) == delimited("{", separated_list(sep, x), "}") 
+
 let defn :=
-| STRUCT ; name = ID ; g = generic ; "{" ; f = separated_list(",", id_colon(sailtype)) ; "}" ;
+| STRUCT ; name = ID ; g = generic ;  f = brace_del_sep_list(",", id_colon(sailtype)) ;
     {Struct {s_pos=$loc;s_name = name; s_generics = g; s_fields = f}}
-| ENUM ; name = ID ; g = generic ; "{" ; fields = separated_list(",", enum_elt) ; "}" ;
+| ENUM ; name = ID ; g = generic ; fields = brace_del_sep_list(",", enum_elt) ;
     {Enum {e_pos=$loc;e_name=name; e_generics=g; e_injections=fields}}
-| proto = fun_sig ; body = block ; {Method {m_proto=proto; m_body = body}}
-| PROCESS ; name = UID ; generics=generic ; "(" ; interface=interface ; ")" ; body=block ;
+| proto = fun_sig ; body = block ; 
+    {Method {m_proto=proto; m_body = body}}
+| PROCESS ; name = UID ; generics=generic ; interface=delimited("(",interface,")") ; body =block ;
     {Process ({p_pos=$loc;p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
-| EXTERN ; "{" ; ~ = separated_list(";",fun_sig) ; "}" ; <Ffi>
+| EXTERN ; ~ = brace_del_sep_list(";", fun_sig) ; <Ffi>
 
 
-let fun_sig :=  METHOD ; name=ID ; generics=generic ; "(" ; params=separated_list(",", id_colon(sailtype)) ; ")" ; rtype=returnType ; 
+let fun_sig :=  METHOD ; name=ID ; generics=generic ; params = delimited("(",separated_list(",", id_colon(sailtype)),")") ; rtype=returnType ; 
     {({pos=$loc;name=name; generics=generics; params=params ; rtype=rtype})}
 
 
@@ -95,17 +98,17 @@ let enum_elt :=
 | ~ = UID ; ~ = delimited("(", separated_list(",", sailtype), ")") ; <>
 
 
-let generic := {[]} | "<" ; ~ =separated_list(",", UID) ; ">" ; <>
+let generic := {[]} | delimited("<", separated_list(",", UID), ">")
 
 
-let returnType := {None} | ":" ; ~ = sailtype ; <Some>
+let returnType := preceded(":", sailtype)? 
 
 
 let interface :=
 | {([],[])}
-| SIGNAL ; signals = separated_nonempty_list(",", ID) ; {([], signals)}
-| VAR ; global = separated_nonempty_list(",", id_colon(sailtype)) ; {(global, [])}
-| VAR ; ~ = separated_nonempty_list(",", id_colon(sailtype)) ; ";" ; SIGNAL ; ~ = separated_nonempty_list(",", ID) ; <>
+| SIGNAL ; signals = separated_nonempty_list(",",ID); {([], signals)}
+| VAR ; global = separated_nonempty_list(",",id_colon(sailtype)) ; {(global, [])}
+| VAR ; ~ = separated_nonempty_list(",", id_colon(sailtype)) ; ";" ; SIGNAL ; ~ = separated_nonempty_list(",",ID) ; <>
 
 
 let simpl_expression := 
@@ -115,20 +118,19 @@ let simpl_expression :=
     | ~ = simpl_expression ; e2 = delimited("[", expression, "]") ; <ArrayRead>
     | ~ = simpl_expression ; "." ; ~ = ID ; <StructRead>
     )
-| ~ = delimited ("(", expression, ")") ; <>
+| parenthesized_exp 
 
 
 let expression :=
-| ~ = simpl_expression ; <>
+| simpl_expression 
 | located(
     | "-" ; e = expression ; %prec UNARY {UnOp(Neg, e)} 
-    | "!" ; e=expression ; %prec UNARY {UnOp(Not, e)} 
-    | "&" ; MUT ; e = expression ; %prec UNARY {Ref (true,e)} 
-    | "&" ; e = expression ; %prec UNARY {Ref (false,e)} 
+    | "!" ; e = expression ; %prec UNARY {UnOp(Not, e)} 
+    | "&" ; ~ = mut ; ~ = expression ; %prec UNARY <Ref>
     | "*" ; ~ = expression ; %prec UNARY <Deref>
     | e1 = expression ; op =binOp ; e2 =expression ; { BinOp(op,e1,e2) }
     | ~ = delimited ("[", separated_list(",", expression), "]") ; <ArrayStatic>
-    | id=ID ; l = delimited ("{", separated_nonempty_list(",", id_colon(expression)), "}") ;
+    | id=ID ; l = brace_del_sep_list(",", id_colon(expression)) ;
         {
         let m = List.fold_left (fun x (y,z) -> FieldMap.add y z x) FieldMap.empty l
         in 
@@ -140,7 +142,7 @@ let expression :=
 )
 
 
-let id_colon(X) := ~ =ID ; ":" ; ~ =X ; <>
+let id_colon(X) := ~ =ID ; ":" ; ~ = X ; <>
 
 
 let literal :=
@@ -170,10 +172,11 @@ let binOp ==
 
 let block := located (
 | "{" ; "}" ; {Skip}
-| "{" ; ~ = statement ; "}" ; <Block>
+| ~ = delimited("{",statement,"}") ; <Block>
 )
 
 
+let parenthesized_exp == delimited("(", expression, ")")
 
 let single_statement := 
 | located (
@@ -182,36 +185,36 @@ let single_statement :=
     | VAR ; b = mut ; id = ID ; "=" ; e = expression ; {DeclVar(b,id,None,Some e)}
     | VAR ; b = mut ; id = ID ; {DeclVar(b,id,None,None)}
     | SIGNAL ; ~ = ID ; <DeclSignal>
-    | l = expression ; "=" ; e = expression ; {Assign(l, e)}
-    | IF ; e = delimited("(", expression, ")") ; s1 = single_statement ; {If(e, s1, None)}
-    | IF ; e = delimited("(", expression, ")") ; s1 = single_statement ; ELSE ; s2 = single_statement ; {If(e, s1, Some s2)}
-    | WHILE ; ~ = delimited("(", expression, ")") ; ~ = single_statement ; <While>
-    | CASE ; ~ = delimited("(", expression, ")") ; ~ = delimited("{", separated_list(",",case), "}") ; <Case>
-    | ~ = ID ; "(" ; ~ = separated_list(",", expression) ; ")" ; <Invoke>
+    | l = expression ; "=" ; e = expression ; <Assign>
+    | IF ; e = parenthesized_exp; s1 = single_statement ; {If(e, s1, None)}
+    | IF ; e = parenthesized_exp ; s1 = single_statement ; ELSE ; s2 = single_statement ; {If(e, s1, Some s2)}
+    | WHILE ; ~ = parenthesized_exp ; ~ = single_statement ; <While>
+    | CASE ; ~ = parenthesized_exp ; ~ = brace_del_sep_list(",", case) ; <Case>
+    | ~ = ID ; ~ = delimited("(", separated_list(",", expression), ")") ; <Invoke>
     | RETURN ; ~ = expression? ; <Return>
-    | ~ = UID ; ~ =delimited("(", separated_list(",", expression ), ")") ; <Run>
+    | ~ = UID ; ~ = delimited("(", separated_list(",", expression ), ")") ; <Run>
     | EMIT ; ~ = ID ; <Emit>
     | AWAIT ; ~ = ID ; <Await>
     | WATCHING ; ~ = ID ; ~ = single_statement ; <Watching>
     | WHEN ; ~ = ID ; ~ = single_statement ;  <When>
     )
-| ~ = block ; <>
+| block
 
 
 let left :=
-| ~ = block ; <>
+| block
 | located (
-    | IF ; e = delimited("(", expression, ")") ; s1 = block ; {If(e, s1, None)}
-    | IF ; e = delimited("(", expression, ")") ; s1 = single_statement ; ELSE ; s2 = block ; {If(e, s1, Some s2)}
-    | WHILE ; ~ = delimited("(", expression, ")") ; ~ = block ; <While>
+    | IF ; e = parenthesized_exp ; s1 = block ; {If(e, s1, None)}
+    | IF ; e = parenthesized_exp ; s1 = single_statement ; ELSE ; s2 = block ; {If(e, s1, Some s2)}
+    | WHILE ; ~ = parenthesized_exp ; ~ = block ; <While>
     | WATCHING ; ~ = ID ; s = block ; <Watching>
     | WHEN ; ~ = ID ; ~ = block ; <When>
 )
 
 
 let statement_seq := 
-| ~ = single_statement ; <>
-| ~ = single_statement ; ";" ; <>
+| single_statement
+| terminated(single_statement, ";")
 | located (
     | ~ = left ; ~ = statement_seq ; <Seq>
     | ~ = single_statement ; ";" ; ~ = statement_seq ; <Seq>
@@ -219,11 +222,11 @@ let statement_seq :=
 
 
 let statement := 
-|  ~ = statement_seq ; <>
+| statement_seq
 | located(  ~ = statement_seq ; "||" ; ~ = statement ; <Par>)
 
 
-let case := ~ = pattern ; ":" ; ~ = statement ; <>
+let case := separated_pair(pattern, ":", statement)
 
 
 let pattern :=
@@ -244,10 +247,10 @@ let sailtype :=
 | REF ; b = mut ; t = sailtype ; {RefType(t,b)}
 
 
-let mut := MUT ; {true} | {false}
+let mut := boption(MUT)
 
 
-let instance := {[]} | "<" ; ~ =separated_list(",", sailtype) ; ">" ; <>
+let instance := {[]} | delimited("<", separated_list(",", sailtype), ">")
 
 
 let located(x) == ~ = x ; { ($loc,x) }
