@@ -43,9 +43,9 @@
 %token TRUE FALSE 
 %token PLUS "+" MINUS "-" MUL "*" DIV "/" REM "%"
 %token LE "<=" GE ">=" EQ "==" NEQ "!="
-%token AND OR NOT 
+%token AND OR NOT "!"
 %token CASE
-%token REF
+%token REF "&"
 %token MUT
 %token ARRAY
 %token EOF
@@ -77,13 +77,13 @@ let sailModule := l = defn* ; EOF ; {fun x -> mk_program x l}
 
 let defn :=
 | STRUCT ; name = ID ; g = generic ; "{" ; f = separated_list(",", id_colon(sailtype)) ; "}" ;
-    {Struct ({s_pos=$loc;s_name = name; s_generics = g; s_fields = f})}
+    {Struct {s_pos=$loc;s_name = name; s_generics = g; s_fields = f}}
 | ENUM ; name = ID ; g = generic ; "{" ; fields = separated_list(",", enum_elt) ; "}" ;
     {Enum {e_pos=$loc;e_name=name; e_generics=g; e_injections=fields}}
 | proto = fun_sig ; body = block ; {Method {m_proto=proto; m_body = body}}
 | PROCESS ; name = UID ; generics=generic ; "(" ; interface=interface ; ")" ; body=block ;
     {Process ({p_pos=$loc;p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
-| EXTERN ; "{" ; protos = separated_list(";",fun_sig) ; "}" ; {Ffi protos}
+| EXTERN ; "{" ; ~ = separated_list(";",fun_sig) ; "}" ; <Ffi>
 
 
 let fun_sig :=  METHOD ; name=ID ; generics=generic ; "(" ; params=separated_list(",", id_colon(sailtype)) ; ")" ; rtype=returnType ; 
@@ -92,59 +92,64 @@ let fun_sig :=  METHOD ; name=ID ; generics=generic ; "(" ; params=separated_lis
 
 let enum_elt :=
 | id = UID ; {(id, [])}
-| id = UID ; l = delimited("(", separated_list(",", sailtype), ")") ; {(id,l)}
+| ~ = UID ; ~ = delimited("(", separated_list(",", sailtype), ")") ; <>
 
 
-let generic := {[]} | "<" ; params=separated_list(",", UID) ; ">" ; {params}
+let generic := {[]} | "<" ; ~ =separated_list(",", UID) ; ">" ; <>
 
 
-let returnType := {None} | ":" ; rtype=sailtype ; {Some(rtype)}
+let returnType := {None} | ":" ; ~ = sailtype ; <Some>
 
 
 let interface :=
 | {([],[])}
 | SIGNAL ; signals = separated_nonempty_list(",", ID) ; {([], signals)}
 | VAR ; global = separated_nonempty_list(",", id_colon(sailtype)) ; {(global, [])}
-| VAR ; globals = separated_nonempty_list(",", id_colon(sailtype)) ; ";" ; SIGNAL ; signals = separated_nonempty_list(",", ID) ; {(globals, signals)}
+| VAR ; ~ = separated_nonempty_list(",", id_colon(sailtype)) ; ";" ; SIGNAL ; ~ = separated_nonempty_list(",", ID) ; <>
 
 
-let simpl_expression :=
-| id = ID ; {Variable ($loc,id)}
-| l = literal ; {Literal ($loc,l)}
-| e1 = simpl_expression ; e2 = delimited("[", expression, "]") ; {ArrayRead ($loc,e1,e2)}
-| e = simpl_expression ; "." ; id = ID ; {StructRead ($loc,e,id)}
-| e = delimited ("(", expression, ")") ; {e}
+let simpl_expression := 
+| located (
+    | ~ = ID ; <Variable>
+    | ~ = literal ; <Literal>
+    | ~ = simpl_expression ; e2 = delimited("[", expression, "]") ; <ArrayRead>
+    | ~ = simpl_expression ; "." ; ~ = ID ; <StructRead>
+    )
+| ~ = delimited ("(", expression, ")") ; <>
 
 
 let expression :=
-| e = simpl_expression ; {e}
-| MINUS ; e = expression ; %prec UNARY {UnOp($loc,Neg, e)} 
-| NOT ; e=expression ; %prec UNARY {UnOp($loc,Not, e)} 
-| REF ; MUT ; e = expression ; %prec UNARY {Ref ($loc,true,e)} 
-| REF ; e = expression ; %prec UNARY {Ref ($loc,false,e)} 
-| MUL ; e = expression ; %prec UNARY {Deref ($loc,e)} 
-| e1=expression ; o=binOp ; e2=expression ; {BinOp ($loc,o,e1,e2)}
-| el = delimited ("[", separated_list(",", expression), "]") ; {ArrayStatic($loc,el)}
-| id=ID ; l = delimited ("{", separated_nonempty_list(",", id_colon(expression)), "}") ;
-    {
-      let m = List.fold_left (fun x (y,z) -> FieldMap.add y z x) FieldMap.empty l
-      in StructAlloc($loc,id, m)
-    }
-| id = UID ; {EnumAlloc($loc,id, [])}
-| id = UID ; l = delimited ("(", separated_list(",", expression), ")") ; {EnumAlloc($loc,id, l)}
-| id = ID ; params = delimited ("(", separated_list (",", expression), ")") ; {MethodCall ($loc,id,params)}
+| ~ = simpl_expression ; <>
+| located(
+    | "-" ; e = expression ; %prec UNARY {UnOp(Neg, e)} 
+    | "!" ; e=expression ; %prec UNARY {UnOp(Not, e)} 
+    | "&" ; MUT ; e = expression ; %prec UNARY {Ref (true,e)} 
+    | "&" ; e = expression ; %prec UNARY {Ref (false,e)} 
+    | "*" ; ~ = expression ; %prec UNARY <Deref>
+    | e1 = expression ; op =binOp ; e2 =expression ; { BinOp(op,e1,e2) }
+    | ~ = delimited ("[", separated_list(",", expression), "]") ; <ArrayStatic>
+    | id=ID ; l = delimited ("{", separated_nonempty_list(",", id_colon(expression)), "}") ;
+        {
+        let m = List.fold_left (fun x (y,z) -> FieldMap.add y z x) FieldMap.empty l
+        in 
+        StructAlloc(id, m)
+        }
+    | id = UID ; {EnumAlloc(id, [])}
+    | ~ = UID ; ~ = delimited ("(", separated_list(",", expression), ")") ; <EnumAlloc>
+    | ~ = ID ; ~ = delimited ("(", separated_list (",", expression), ")") ; <MethodCall>
+)
 
 
-let id_colon(X) := id=ID ; ":" ; x=X ; {(id,x)}
+let id_colon(X) := ~ =ID ; ":" ; ~ =X ; <>
 
 
 let literal :=
 | TRUE ; {LBool(true) }
 | FALSE ; {LBool(false)}
-| n = INT ; {LInt n}
-| f = FLOAT ; {LFloat f}
-| c = CHAR ; {LChar c}
-| s = STRING ; {LString s}
+| ~ = INT ; <LInt>
+| ~ = FLOAT ; <LFloat>
+| ~ = CHAR ; <LChar>
+| ~ = STRING ; <LString>
 
 
 let binOp ==
@@ -163,60 +168,68 @@ let binOp ==
 | OR ; {Or}
 
 
-let block := 
-| "{" ; "}" ; {Skip $loc} 
-| "{" ; s = statement ; "}" ; {Block ($loc, s)}
+let block := located (
+| "{" ; "}" ; {Skip}
+| "{" ; ~ = statement ; "}" ; <Block>
+)
 
 
-let single_statement :=
-| VAR ; b = mut ; id = ID ; ":" ; typ=sailtype ; {DeclVar($loc,b,id,Some typ,None)}
-| VAR ; b = mut ; id = ID ; ":" ; typ=sailtype ; "=" ; e = expression ; {DeclVar($loc,b,id,Some typ,Some e)}
-| VAR ; b = mut ; id = ID ; "=" ; e = expression ; {DeclVar($loc,b,id,None,Some e)}
-| VAR ; b = mut ; id = ID ; {DeclVar($loc,b,id,None,None)}
-| SIGNAL ; id = ID ; {DeclSignal($loc,id)}
-| l = expression ; "=" ; e = expression ; {Assign($loc,l, e)}
-| IF ; e = delimited("(", expression, ")") ; s1 = single_statement ; {If($loc,e, s1, None)}
-| IF ; e = delimited("(", expression, ")") ; s1 = single_statement ; ELSE ; s2 = single_statement ; {If($loc,e, s1, Some s2)}
-| WHILE ; e = delimited("(", expression, ")") ; s = single_statement ; {While($loc,e, s)}
-| CASE ; e = delimited("(", expression, ")") ; l = delimited("{", separated_list(",",case), "}") ; {Case($loc,e,l)}
-| id = ID ; "(" ; p = separated_list(",", expression) ; ")" ; {Invoke($loc,None, id, p)}
-| RETURN ; e = expression? ; {Return ($loc, e)}
-| id = UID ; params=delimited("(", separated_list(",", expression), ")") ; {Run ($loc,id, params)}
-| EMIT ; id = ID ; {Emit($loc,id)}
-| AWAIT ; id = ID ; {Await($loc,id)}
-| WATCHING ; id = ID ; s = single_statement ; {Watching($loc,id, s)}
-| WHEN ; id = ID ; s = single_statement ;  {When($loc,id, s)}
-| s = block ; {s}
+
+let single_statement := 
+| located (
+    | VAR ; b = mut ; id = ID ; ":" ; typ=sailtype ; {DeclVar(b,id,Some typ,None)}
+    | VAR ; b = mut ; id = ID ; ":" ; typ=sailtype ; "=" ; e = expression ; {DeclVar(b,id,Some typ,Some e)}
+    | VAR ; b = mut ; id = ID ; "=" ; e = expression ; {DeclVar(b,id,None,Some e)}
+    | VAR ; b = mut ; id = ID ; {DeclVar(b,id,None,None)}
+    | SIGNAL ; ~ = ID ; <DeclSignal>
+    | l = expression ; "=" ; e = expression ; {Assign(l, e)}
+    | IF ; e = delimited("(", expression, ")") ; s1 = single_statement ; {If(e, s1, None)}
+    | IF ; e = delimited("(", expression, ")") ; s1 = single_statement ; ELSE ; s2 = single_statement ; {If(e, s1, Some s2)}
+    | WHILE ; ~ = delimited("(", expression, ")") ; ~ = single_statement ; <While>
+    | CASE ; ~ = delimited("(", expression, ")") ; ~ = delimited("{", separated_list(",",case), "}") ; <Case>
+    | ~ = ID ; "(" ; ~ = separated_list(",", expression) ; ")" ; <Invoke>
+    | RETURN ; ~ = expression? ; <Return>
+    | ~ = UID ; ~ =delimited("(", separated_list(",", expression ), ")") ; <Run>
+    | EMIT ; ~ = ID ; <Emit>
+    | AWAIT ; ~ = ID ; <Await>
+    | WATCHING ; ~ = ID ; ~ = single_statement ; <Watching>
+    | WHEN ; ~ = ID ; ~ = single_statement ;  <When>
+    )
+| ~ = block ; <>
 
 
 let left :=
-| s1 = block ; {s1}
-| IF ; e = delimited("(", expression, ")") ; s1 = block ; {If($loc,e, s1, None)}
-| IF ; e = delimited("(", expression, ")") ; s1 = single_statement ; ELSE ; s2 = block ; {If($loc,e, s1, Some s2)}
-| WHILE ; e = delimited("(", expression, ")") ; s = block ; {While($loc,e, s)}
-| WATCHING ; id = ID ; s = block ; {Watching($loc,id, s)}
-| WHEN ; id = ID ; s = block ; {When($loc,id, s)}
+| ~ = block ; <>
+| located (
+    | IF ; e = delimited("(", expression, ")") ; s1 = block ; {If(e, s1, None)}
+    | IF ; e = delimited("(", expression, ")") ; s1 = single_statement ; ELSE ; s2 = block ; {If(e, s1, Some s2)}
+    | WHILE ; ~ = delimited("(", expression, ")") ; ~ = block ; <While>
+    | WATCHING ; ~ = ID ; s = block ; <Watching>
+    | WHEN ; ~ = ID ; ~ = block ; <When>
+)
 
 
 let statement_seq := 
-| s = single_statement ; {s}
-| s = single_statement ; ";" ; {s}
-| s1 = left ; s2 = statement_seq ; {Seq($loc,s1, s2)}
-| s1 = single_statement ; ";" ; s2 = statement_seq ; {Seq($loc,s1,s2)}
+| ~ = single_statement ; <>
+| ~ = single_statement ; ";" ; <>
+| located (
+    | ~ = left ; ~ = statement_seq ; <Seq>
+    | ~ = single_statement ; ";" ; ~ = statement_seq ; <Seq>
+)
 
 
-let statement :=
-| s = statement_seq ; {s}
-| s1 = statement_seq ; "||" ; s2 = statement ; {Par ($loc,s1, s2)}
+let statement := 
+|  ~ = statement_seq ; <>
+| located(  ~ = statement_seq ; "||" ; ~ = statement ; <Par>)
 
 
-let case := p = pattern ; ":" ; s = statement ; {(p, s)}
+let case := ~ = pattern ; ":" ; ~ = statement ; <>
 
 
 let pattern :=
-| id = ID ; {PVar id}
+| ~ = ID ; <PVar>
 | id = UID ; {PCons (id, [])}
-| id = UID ; l = delimited("(", separated_list(",", pattern), ")") ; {PCons(id,l)}
+| ~ = UID ; ~ = delimited("(", separated_list(",", pattern), ")") ; <PCons>
 
 
 let sailtype :=
@@ -225,13 +238,16 @@ let sailtype :=
 | TYPE_FLOAT ; {Float}
 | TYPE_CHAR ; {Char}
 | TYPE_STRING ; {String}
-| ARRAY ; "<" ; typ = sailtype ; ";" ; size=INT ; ">" ; {ArrayType (typ, size)}
-| id = ID ; params=instance ; {CompoundType(id,params)}
-| name = UID ; {GenericType(name)}
-| REF ; b=mut ; t = sailtype ; {RefType(t,b)}
+| ARRAY ; "<" ; ~ = sailtype ; ";" ; ~ = INT ; ">" ; <ArrayType>
+| ~ = ID ; ~ = instance ; <CompoundType>
+| ~ = UID ; <GenericType>
+| REF ; b = mut ; t = sailtype ; {RefType(t,b)}
 
 
 let mut := MUT ; {true} | {false}
 
 
-let instance := {[]} | "<" ; params=separated_list(",", sailtype) ; ">" ; {params}
+let instance := {[]} | "<" ; ~ =separated_list(",", sailtype) ; ">" ; <>
+
+
+let located(x) == ~ = x ; { ($loc,x) }

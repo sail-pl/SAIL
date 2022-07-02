@@ -61,26 +61,26 @@ let removeCalls (p : moduleSignature list) (e : expression) : Intermediate.expre
   let open MonadSyntax(M) in
   let open MonadFunctions(M) in
     let rec aux e = 
-  match e with 
-    | Variable (_, x) -> return (Intermediate.Path (Intermediate.Variable x))
-    | Literal (_, c) -> return (Intermediate.Literal c)
-    | UnOp(_, o, e) -> 
+  match snd e with 
+    | Variable x -> return (Intermediate.Path (Intermediate.Variable x))
+    | Literal c -> return (Intermediate.Literal c)
+    | UnOp(o, e) -> 
       let* x = aux e in return (Intermediate.UnOp(o,x))
-    | BinOp(_, o, e1, e2) -> 
+    | BinOp(o, e1, e2) -> 
       let* e1 = aux e1 and* e2 = aux e2 in 
         return (Intermediate.BinOp(o,e1,e2))
-    | Ref(_, b,e) ->
+    | Ref(b,e) ->
       let* e = aux e in
       let (p,c) = pathOfExpression e in 
       let _ = write c in
       return (Intermediate.Ref(b, p))
-    | Deref(_, e) ->
+    | Deref e ->
       let* e = aux e in
         let (p0, c) = pathOfExpression e in
         let _ = write c in
         return (Intermediate.Path (Intermediate.Deref(p0)))
-    | ArrayRead(_, _,_) -> raise (NotSupportedInCoreSail "arrays")
-    | ArrayStatic(_, _) -> raise (NotSupportedInCoreSail "arrays")
+    | ArrayRead _ -> raise (NotSupportedInCoreSail "arrays")
+    | ArrayStatic _ -> raise (NotSupportedInCoreSail "arrays")
  (*   | Ast.ArrayRead (e1, e2) -> 
       let* e1 = aux e1 and* e2 = aux e2 in
         let (p0, c) = pathOfExpression e1 in
@@ -89,20 +89,20 @@ let removeCalls (p : moduleSignature list) (e : expression) : Intermediate.expre
     | Ast.ArrayStatic (el) -> 
         let* el = listMapM aux el in 
         return (Intermediate.ArrayAlloc el)*)
-    | StructRead (_, e,f) -> 
+    | StructRead (e,f) -> 
         let* e = aux e in 
         let (p0, c) = pathOfExpression e in
         let _ = write c in
           return (Intermediate.Path (Intermediate.StructField(p0,f)))
-    | StructAlloc (_, x, fel) -> 
+    | StructAlloc (x, fel) -> 
         let l = FieldMap.fold (fun x a y -> (x,a)::y) fel [] in    
         let* l = listMapM (pairMap2 aux) l in
         let m = List.fold_left (fun x (y,e) -> FieldMap.add y e x) FieldMap.empty l in
         return (Intermediate.StructAlloc(x,m)) 
-    | EnumAlloc (_, x,el) ->
+    | EnumAlloc (x,el) ->
         let* el = listMapM aux el in 
           return (Intermediate.EnumAlloc(x, el))
-    | MethodCall (_, id, el) ->
+    | MethodCall (id, el) ->
       if (id = "box") then
         match el with
           [e] -> let* e = aux e in return (Intermediate.Box e)
@@ -142,8 +142,8 @@ let rec normalize (c : Intermediate.statement) : Intermediate.statement =
 
 let translate (p : moduleSignature list) (t : statement) : Intermediate.statement  = 
   let rec aux t : Intermediate.statement = 
-  match t with 
-      | DeclVar (_pos, b,x,t,e) -> 
+  match (snd t) with 
+      | DeclVar (b,x,t,e) -> 
         begin match t,e with 
           | (Some t, None) -> Intermediate.DeclVar(b,x,t,None)
           | (Some t, Some e) -> 
@@ -151,28 +151,28 @@ let translate (p : moduleSignature list) (t : statement) : Intermediate.statemen
             seq_oflist (l@[Intermediate.DeclVar(b,x,t,Some e)])
           | (None, _) ->  raise (NotSupportedInCoreSail "type inference")
         end
-      | DeclSignal (_, s) -> Intermediate.DeclSignal(s)
-      | Skip _ -> Intermediate.Skip
-      | Assign (_, e1, e2) ->
+      | DeclSignal (s) -> Intermediate.DeclSignal(s)
+      | Skip -> Intermediate.Skip
+      | Assign (e1, e2) ->
         let (e1, l1) = removeCalls p e1 in
         let (p0, l3) = pathOfExpression e1 in 
         let (e2, l2) = removeCalls p e2 in 
           seq_oflist (l1@l2@l3@[Intermediate.Assign(p0,e2)])
-      | Seq (_, c1, c2) -> Intermediate.Seq(aux c1, aux c2)
-      | If(_, e, t1, t2) -> 
+      | Seq (c1, c2) -> Intermediate.Seq(aux c1, aux c2)
+      | If(e, t1, t2) -> 
           let t1 = aux t1 in
           let t2 = begin match t2 with None -> Intermediate.Skip | Some t2 -> aux t2 end in            
           let (e, l) = removeCalls p e in 
           seq_oflist (l @ [Intermediate.If(e, t1, t2)])
-      | While (_, e, t) -> 
+      | While (e, t) -> 
           let t = aux t in 
           let (e, l) = removeCalls p e in 
           seq_oflist (l @ [Intermediate.While(e, t)])
-      | Case(_, e, pl) -> 
+      | Case(e, pl) -> 
           let (e,l) = removeCalls p e in 
             let pl = (List.map (fun (x,y) -> (x, aux y) ) pl) in
             seq_oflist (l @ [Intermediate.Case(e, pl)])
-      | Invoke(_, target, m, el) -> 
+      | Invoke(m, el) -> 
         Logs.debug (fun m -> m "Here 0"); 
         let l = List.map (removeCalls p) el in 
         let l1 = List.map fst l in 
@@ -180,29 +180,27 @@ let translate (p : moduleSignature list) (t : statement) : Intermediate.statemen
         begin match fetch_rtype p m with 
             Some t -> 
               let backup = Intermediate.DeclVar (true, "_tmp", t, None) in 
-              let backup_param = begin match target with 
-                Some x -> [Intermediate.Assign(Intermediate.Variable x, Intermediate.Path (Intermediate.Variable "_tmp"))] 
-              | None -> []
-              end in
+              let backup_param =[]
+              in
               let auxiliary = Intermediate.Ref(true, Intermediate.Variable "_tmp") in
               Logs.debug (fun m -> m "Here 1"); (* si x = récupérer résultat *)
                 seq_oflist (l2 @ [backup; Intermediate.Invoke (m, l1@[auxiliary])] @ backup_param )
             | None ->
                 seq_oflist (l2 @ [Intermediate.Invoke (m, l1)])
         end
-      | Return (_, None) -> Intermediate.Return 
-      | Return (_, Some e) -> 
+      | Return None -> Intermediate.Return 
+      | Return Some e -> 
           let (e,l) = removeCalls p e in
           seq_oflist (l @ [Intermediate.Assign(Intermediate.Deref(Intermediate.Variable resvar), e);Intermediate.Return])
-      | Loop (_, c) -> 
+      | Loop (c) -> 
         Intermediate.While (Literal (LBool true), aux c)
       | Run _ -> failwith "processes not supported yet"
-      | Emit(_, s) -> Intermediate.Emit(s)
-      | When (_, s, c) -> Intermediate.When(s, aux c)
-      | Watching (_, s, c) -> Intermediate.Watching(s, aux c)
-      | Await (_, s) -> Intermediate.When(s, Skip)
-      | Par (_, c1, c2) -> Intermediate.Par (aux c1, aux c2)
-      | Block (_, c) -> Intermediate.Block(aux c)
+      | Emit s -> Intermediate.Emit(s)
+      | When (s, c) -> Intermediate.When(s, aux c)
+      | Watching (s, c) -> Intermediate.Watching(s, aux c)
+      | Await s -> Intermediate.When(s, Skip)
+      | Par (c1, c2) -> Intermediate.Par (aux c1, aux c2)
+      | Block c -> Intermediate.Block(aux c)
         in aux t
 
 (* If the return type is non void, we add a parameter to hold the result *)
