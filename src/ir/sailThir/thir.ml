@@ -19,7 +19,7 @@ let extract_statements_loc = function
 | AstHir.Watching(l, _, _) | AstHir.Emit(l, _) | AstHir.Await(l, _)
 | AstHir.When(l, _, _)  | AstHir.Run(l, _, _) | AstHir.Par(l, _, _)
 | AstHir.DeclSignal(l, _)  | AstHir.Skip (l)  | AstHir.Return (l,_)
-| AstHir.Invoke (l,_,_,_) | AstHir.Block (l, _) | AstHir.If (l,_,_,_)
+| AstHir.Invoke (l,_,_) | AstHir.Block (l, _) | AstHir.If (l,_,_,_)
 | AstHir.DeclVar (l,_,_,_,_) | AstHir.Seq (l,_,_) | AstHir.Assign (l,_,_)
 | AstHir.While (l,_,_) | AstHir.Case (l,_,_) -> l
 
@@ -230,12 +230,12 @@ struct
         AstHir.Case (loc, e, []),te
 
 
-      | AstHir.Invoke(loc, ign, id, el) -> 
+      | AstHir.Invoke(loc, id, el) -> 
         let el,errors = partition_result (fun e -> lower_expression e te decl.generics) el in
         
         if errors = [] then
           let+ _ = check_call id el env loc in
-          AstHir.Invoke(loc, ign, id,el),te
+          AstHir.Invoke(loc, id,el),te
         else error errors
 
       | AstHir.Return(l, None) as r -> 
