@@ -298,7 +298,7 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : Hir.express
     else failwith "missing return type"
   | Return (_, None) ->  if Option.is_some f.r_type then failwith "non-void return type" else ts,monos,funs
   (*| Loop (_, s) -> analyse_statement s ts monos funs*)
-  | Invoke (_, _,name,el) -> let rt,monos',sc' = construct_call name el ts monos funs in 
+  | Invoke (_,name,el) -> let rt,monos',sc' = construct_call name el ts monos funs in 
     if Option.is_some rt then
       Logs.warn (fun m -> m "result of non-void function %s is discarded" name);
     ts,monos',sc'

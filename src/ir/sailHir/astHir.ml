@@ -48,7 +48,7 @@ type 'a statement =
   | If of loc * 'a * 'a statement * 'a statement option
   | While of loc * 'a * 'a statement
   | Case of loc * 'a * (string * string list * 'a statement) list
-  | Invoke of loc * string option * string * 'a list
+  | Invoke of loc * string * 'a list
   | Return of loc * 'a option
   | Run of loc * string * 'a list
   | Emit of loc * string

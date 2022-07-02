@@ -230,7 +230,7 @@ let statementToIR (m:llvalue) (x: Hir.expression AstHir.statement) (generics: sa
       s_ret
   | Case (_, _,  _) ->  failwith "case unimplemented"
 
-  | Invoke (_, _, name, args) -> construct_call name args env llvm exts |> ignore; env
+  | Invoke (_, name, args) -> construct_call name args env llvm exts |> ignore; env
 
   | Return (_, opt_e) -> 
     let current_bb = insertion_block llvm.b in
