@@ -189,7 +189,7 @@ struct
       d1@d2, buildIfThenElse e cfg1 cfg2
     | While (_loc, e, s) ->  let+ d, cfg = aux s in (d, buildLoop e cfg)
     | Case _ -> failwith "not implemented"
-    | Invoke (_loc,id, el) -> ([], buildInvoke id el) |> ok
+    | Invoke (_loc,_,id, el) -> ([], buildInvoke id el) |> ok
     | Return (_, e) -> ( [], buildReturn e ) |> ok
     | Run _ ->  error [TypesCommon.dummy_pos,"not_implemented"]
     | Emit _ -> error [TypesCommon.dummy_pos,"not_implemented"]

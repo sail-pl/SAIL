@@ -19,7 +19,7 @@ let print_errors (file:string) (errs:error_type) : unit =
   let s = List.fold_left (
     fun s (l,msg) ->
       let location = MenhirLib.LexerUtil.range l in
-      let indication = show_context file l in
+      let indication = show_context file l in 
       let start = String.make ((fst l).pos_cnum - (fst l).pos_bol )' ' in
       let ending = String.make ((snd l).pos_cnum - (fst l).pos_cnum )'~' in
       Printf.sprintf "\n%s\n\t%s\n\t%s%s\n%s\n\n%s" location indication start ending msg s
