@@ -196,12 +196,6 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : Hir.express
   and analyse_expression (e:Hir.expression) (ts : varTypesMap) (monos : monomorphics) (funs : sailor_functions) : sailtype * monomorphics * sailor_functions =
     let rec aux e monos sc = match e with
     | AstHir.Variable (_, s) -> get_var ts s, monos, sc
-    | MethodCall (_, name,el) -> 
-      begin
-        match construct_call name el ts monos sc with
-        | None,_,_ -> "trying to use the result of void function " ^ name |> failwith
-        | Some t,monos',sc -> t, monos', sc
-      end
     | Literal (_, l) -> sailtype_of_literal l, monos, sc
     | StructRead (_, _,_) -> failwith "todo: struct read"
     | ArrayRead (_, e,idx) -> 
@@ -298,8 +292,8 @@ let type_check (f: sailor_function) (env: sailtype FieldMap.t) (sm : Hir.express
     else failwith "missing return type"
   | Return (_, None) ->  if Option.is_some f.r_type then failwith "non-void return type" else ts,monos,funs
   (*| Loop (_, s) -> analyse_statement s ts monos funs*)
-  | Invoke (_,name,el) -> let rt,monos',sc' = construct_call name el ts monos funs in 
-    if Option.is_some rt then
+  | Invoke (_,v,name,el) -> let rt,monos',sc' = construct_call name el ts monos funs in 
+    if Option.is_some rt && Option.is_none v then
       Logs.warn (fun m -> m "result of non-void function %s is discarded" name);
     ts,monos',sc'
   | Skip _ -> ts,monos,funs

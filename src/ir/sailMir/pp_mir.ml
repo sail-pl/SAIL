@@ -26,8 +26,6 @@ let rec ppPrintExpression (pf : Format.formatter) (e : Thir.expression) : unit =
     | EnumAlloc ((_, _),id,el) ->  
       Format.fprintf pf "[%s(%a)]" id
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    | MethodCall ((_, _), _id, _el) -> 
-      failwith "method call should not occur in mir expressions"
 
 let ppPrintDeclaration (pf : Format.formatter) (d : declaration) : unit = 
   if d.mut then

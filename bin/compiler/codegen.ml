@@ -66,7 +66,6 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Hir.expression) exts : (sail
   | UnOp _ -> failwith "unary operator is not a lvalue"
   | BinOp _ -> failwith "binary operator is not a lvalue"
   | Ref _ -> failwith "reference read is not a lvalue"
-  | MethodCall _ -> failwith "method call is not a lvalue"
 
 and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Hir.expression) (exts:sailor_external string_assoc) : (sailtype * llvalue) = 
   match x with
@@ -108,9 +107,6 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Hir.expression) (exts:sailor_exte
     end
   | StructAlloc _ -> failwith "struct alloc is not a rvalue"
   | EnumAlloc _   -> failwith "enum alloc is not a rvalue"
-  | MethodCall ( _, name, args) -> 
-    let t,c = construct_call name args env llvm exts in
-    (Option.get t),c
   
   and construct_call (name:string) (args:Hir.expression list) (env:SailEnv.t) (llvm:llvm_args) exts : sailtype option * llvalue = 
     let args_type,args = List.map (fun arg -> eval_r env llvm arg exts) args |> List.split
@@ -230,7 +226,22 @@ let statementToIR (m:llvalue) (x: Hir.expression AstHir.statement) (generics: sa
       s_ret
   | Case (_, _,  _) ->  failwith "case unimplemented"
 
-  | Invoke (_, name, args) -> construct_call name args env llvm exts |> ignore; env
+  | Invoke (_, None, name, args) -> construct_call name args env llvm exts |> ignore; env
+
+  | Invoke (l, Some v, name, args) -> 
+    begin
+      match SailEnv.get_var env v l with 
+      | Error _ -> 
+        let x,c = construct_call name args env llvm exts in
+        begin
+        match x with
+        | None -> env
+        | Some t -> SailEnv.declare_var env v (t, c) l |> Result.get_ok
+        end
+      | Ok (_,v) -> 
+        let _,c = construct_call name args env llvm exts in
+        build_store c v llvm.b |> ignore; env
+    end
 
   | Return (_, opt_e) -> 
     let current_bb = insertion_block llvm.b in

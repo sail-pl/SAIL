@@ -13,13 +13,13 @@ let extract_exp_loc_ty = function
 | AstHir.Variable (lt,_) | AstHir.Deref (lt,_) | AstHir.StructRead (lt,_,_)
 | AstHir.ArrayRead (lt,_,_) | AstHir.Literal (lt,_) | AstHir.UnOp (lt,_,_)
 | AstHir.BinOp (lt,_,_,_) | AstHir.Ref  (lt,_,_) | AstHir.ArrayStatic (lt,_)
-| AstHir.StructAlloc (lt,_,_) | AstHir.EnumAlloc  (lt,_,_) | AstHir.MethodCall (lt,_,_) -> lt
+| AstHir.StructAlloc (lt,_,_) | AstHir.EnumAlloc  (lt,_,_) -> lt
 
 let extract_statements_loc = function
 | AstHir.Watching(l, _, _) | AstHir.Emit(l, _) | AstHir.Await(l, _)
 | AstHir.When(l, _, _)  | AstHir.Run(l, _, _) | AstHir.Par(l, _, _)
 | AstHir.DeclSignal(l, _)  | AstHir.Skip (l)  | AstHir.Return (l,_)
-| AstHir.Invoke (l,_,_) | AstHir.Block (l, _) | AstHir.If (l,_,_,_)
+| AstHir.Invoke (l,_,_,_) | AstHir.Block (l, _) | AstHir.If (l,_,_,_)
 | AstHir.DeclVar (l,_,_,_,_) | AstHir.Seq (l,_,_) | AstHir.Assign (l,_,_)
 | AstHir.While (l,_,_) | AstHir.Case (l,_,_) -> l
 
@@ -162,17 +162,6 @@ struct
 
     | AstHir.StructAlloc (l,_name,_fields) -> error [l, "todo: struct alloc"]
     | AstHir.EnumAlloc (l,_name,_el) -> error [l, "todo: enum alloc"]
-    | AstHir.MethodCall (l,name,args) -> 
-      let args,errors = partition_result aux args in 
-
-      if errors = [] then
-        let* res = check_call name args te l in
-        match res with
-        | None -> error [l,"trying to use the result of void method"]
-        | Some t -> AstHir.MethodCall((l, t), name, args) |> ok
-      else
-        Error errors
-
 
     in aux e
 
@@ -230,12 +219,12 @@ struct
         AstHir.Case (loc, e, []),te
 
 
-      | AstHir.Invoke(loc, id, el) -> 
+      | AstHir.Invoke(loc, var, id, el) -> (* todo: handle var *)
         let el,errors = partition_result (fun e -> lower_expression e te decl.generics) el in
         
         if errors = [] then
           let+ _ = check_call id el env loc in
-          AstHir.Invoke(loc, id,el),te
+          AstHir.Invoke(loc, var, id,el),te
         else error errors
 
       | AstHir.Return(l, None) as r -> 
@@ -258,6 +247,7 @@ struct
         let+ res,te' = aux c (Pass.TypeEnv.new_frame te) in 
         AstHir.Block(loc,res),te'
 
+      | AstHir.Skip (loc) -> ok (AstHir.Skip(loc),te)
 
       | s when decl.bt = Pass.BMethod -> error [extract_statements_loc s, Printf.sprintf "method %s : methods can't contain reactive statements" decl.name]
 
@@ -277,7 +267,6 @@ struct
         let+ c2,te2 = aux c2 te1 in
         AstHir.Par(loc, c1, c2),te2
       | AstHir.DeclSignal(loc, s) -> ok (AstHir.DeclSignal(loc, s),te)
-      | AstHir.Skip (loc) -> ok (AstHir.Skip(loc),te)
 
 
     in 

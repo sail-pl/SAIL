@@ -58,6 +58,20 @@ end
 
 
 module MonadFunctions (M : Monad) = struct 
+  open TypesCommon 
+
+  let mapMapM (f : 'a -> 'b M.t) (m : 'a FieldMap.t) : ('b FieldMap.t) M.t = 
+  let open MonadSyntax (M) in
+  let rec aux (l : (string * 'a) Seq.t) : (string * 'b) Seq.t M.t =
+    match l () with
+    | Seq.Nil -> return (fun () -> Seq.Nil)
+    | Seq.Cons ((x, a), v) ->
+        let* u = f a in 
+        let* l' = aux v in
+        return (fun () -> Seq.Cons ((x,u),l' ))
+  in  
+  let* l' = aux (FieldMap.to_seq m) in 
+  return (FieldMap.of_seq l')
   
   let rec listMapM (f : 'a -> 'b M.t) (l : 'a list) : ('b list) M.t = 
     let open M in
