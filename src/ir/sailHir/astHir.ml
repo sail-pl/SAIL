@@ -24,7 +24,7 @@ open Common.TypesCommon
 
 
 type 'a expression = 
-  Variable of 'a * string 
+  | Variable of 'a * string 
   | Deref of 'a * 'a expression 
   | StructRead of 'a * 'a expression * string
   | ArrayRead of 'a * 'a expression * 'a expression  
@@ -35,7 +35,6 @@ type 'a expression =
   | ArrayStatic of 'a * 'a expression list
   | StructAlloc of 'a * string * 'a expression FieldMap.t
   | EnumAlloc of 'a * string * 'a expression list 
-  | MethodCall of 'a * string * 'a expression list
   
 
 type 'a statement =
@@ -48,7 +47,7 @@ type 'a statement =
   | If of loc * 'a * 'a statement * 'a statement option
   | While of loc * 'a * 'a statement
   | Case of loc * 'a * (string * string list * 'a statement) list
-  | Invoke of loc * string * 'a list
+  | Invoke of loc * string option * string * 'a list
   | Return of loc * 'a option
   | Run of loc * string * 'a list
   | Emit of loc * string
