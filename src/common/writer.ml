@@ -42,7 +42,7 @@ module Writer = struct
     let (<*>) (f, l1) (x, l2) = (f x, T.mconcat l1 l2)
 
     let (>>=) (x, l) f = let (y,l') = f x in (y, T.mconcat l l')
-    let (>>|) (x, l) f = let (y,l') = f x |> pure in (y, T.mconcat l l')
+    let ( >>| ) x f = x >>= fun x -> f x |> pure
 
 
     let write : T.t -> 'a t = fun a  -> ((), a) 

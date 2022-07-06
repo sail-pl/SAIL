@@ -39,7 +39,26 @@ module type Monad = sig
   val (>>|) : 'a t -> ('a -> 'b) -> 'b t
 end
 
-module MonadSyntax (M : Monad )= struct 
+module type MonadTransformer = sig
+  include Monad
+  type 'a old_t
+  val lift : 'a old_t -> 'a t
+end
+
+module MonadIdentity : Monad with type 'a t = 'a = struct
+  type 'a t = 'a
+  let pure x = x
+
+  let fmap f x = f x
+
+  let (<*>) = fmap
+
+  let (>>=) x f = f <*> x
+
+  let (>>|) = (>>=)
+end
+
+module MonadSyntax (M : Monad ) = struct 
   let return = M.pure
 
   let (let*) : 'a M.t -> ('a -> 'b M.t) -> 'b M.t = M.(>>=)
@@ -52,9 +71,6 @@ module MonadSyntax (M : Monad )= struct
     let+ x = x in let+ y = y in return (x,y)
 
 end
-
-
-
 
 
 module MonadFunctions (M : Monad) = struct 
@@ -129,11 +145,39 @@ module MonadEither = struct
       | Either.Left e -> Either.Left e
 
 
-  let (>>|)  x f = 
-  match x with 
-    | Either.Right x -> f x |> pure
-    | Either.Left e -> Either.Left e
+  let ( >>| ) x f = x >>= fun x -> f x |> pure
 end
 
   
 end
+
+module MonadCountTransfm (M : Monad) : MonadTransformer 
+  with type 'a t = int -> ('a  * int) M.t  and  type 'a old_t  = 'a M.t  = struct
+
+  open MonadSyntax(M)
+
+  type 'a t = int -> ('a  * int) M.t
+  type 'a old_t  = 'a M.t
+
+  let pure x : 'a t = fun n -> M.pure (x,n)
+
+  let fmap (f:'a -> 'b) (x : 'a t) : 'b t = 
+    fun n ->  let+ v,c = x n in  f v,c
+
+  let (<*>) (f:('a -> 'b) t) (a: 'a t) : 'b t = 
+    fun n -> 
+      let* f,c = f n in fmap f a c
+
+
+  let (>>=) (x:'a t) (f : ('a -> 'b t)) : 'b t =
+    fun n -> 
+      let* v,c = x n in f v c
+
+  let (>>|) x f = x >>= (fun x -> pure (f x))
+        
+
+  let lift x = fun n -> let* x in M.pure (x,n)
+    
+end
+
+module MonadCount = MonadCountTransfm(MonadIdentity)

@@ -37,5 +37,5 @@ end
 module MonadOption : Monad with type 'a t = 'a option = struct 
   include ApplicativeOption
   let (>>=) x f = match x with Some x -> f x | None -> None 
-  let (>>|) x f = match x with Some x -> f x |> pure | None -> None
+  let (>>|) x f = x >>= fun x -> f x |> pure
 end
