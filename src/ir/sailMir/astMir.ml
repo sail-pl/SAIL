@@ -1,16 +1,15 @@
-open IrThir
-
+type expression = IrThir.Thir.expression
 
 type declaration = {location : Common.TypesCommon.loc; mut : bool; id : string; varType : Common.TypesCommon.sailtype}
-type assignment = {location : Common.TypesCommon.loc; target : Thir.expression; expression : Thir.expression}
+type assignment = {location : Common.TypesCommon.loc; target : expression; expression : expression}
 
 type label = int
 
 type terminator = 
 | Goto of label
-| Invoke of {id : string; params : Thir.expression list; next:label}
-| Return of Thir.expression option
-| SwitchInt of Thir.expression * (int * label) list * label
+| Invoke of {id : string; params : expression list; next:label}
+| Return of expression option
+| SwitchInt of expression * (int * label) list * label
 
 type basicBlock = {
   assignments : assignment list;

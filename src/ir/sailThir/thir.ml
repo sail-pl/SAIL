@@ -9,6 +9,8 @@ open Monad.MonadSyntax(Error.MonadError)
 
 type expression = (loc * sailtype) AstHir.expression
 
+type statement = expression AstHir.statement
+
 let extract_exp_loc_ty = function
 | AstHir.Variable (lt,_) | AstHir.Deref (lt,_) | AstHir.StructRead (lt,_,_)
 | AstHir.ArrayRead (lt,_,_) | AstHir.Literal (lt,_) | AstHir.UnOp (lt,_,_)
@@ -51,11 +53,11 @@ let type_of_binOp (op:binOp) (operands_type:sailtype) : sailtype = match op with
   | Plus | Mul | Div | Minus | Rem -> operands_type
 
 module Pass : Body with
-              type in_body = Hir.expression AstHir.statement and   
-              type out_body = expression  AstHir.statement = 
+              type in_body = Hir.statement and   
+              type out_body = statement = 
 struct
-  type in_body = Hir.expression AstHir.statement
-  type out_body = expression AstHir.statement
+  type in_body = Hir.statement
+  type out_body = statement
 
    
   let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: (string * sailtype ) list) : (sailtype * (string * sailtype ) list) result =
