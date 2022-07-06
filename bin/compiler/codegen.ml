@@ -135,7 +135,7 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Hir.expression) (exts:sailor_exte
     | None -> false
   
     
-let statementToIR (m:llvalue) (x: Hir.expression AstHir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) exts : unit =
+let statementToIR (m:llvalue) (x: Hir.statement) (generics: sailor_args) (llvm:llvm_args) (env :SailEnv.t) exts : unit =
   let declare_var (mut:bool) (name:string) (ty:sailtype option) (exp:Hir.expression option) (env:SailEnv.t) : SailEnv.t =
     let _ = mut in (* todo manage mutable types *)
     let entry_b = entry_block m |> instr_begin |> builder_at llvm.c in
