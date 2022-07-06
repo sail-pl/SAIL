@@ -2,12 +2,54 @@ open AstMir
 open IrHir
 open IrThir
 open Common 
+open TypesCommon
 open Result
 open Pass
 open Monad.MonadSyntax(Error.MonadError)
 
 
 let label_cpt = ref 0
+
+
+let var_cpt = ref 0 
+
+let fresh_var () =
+  let fresh = !var_cpt in 
+  let _ = incr var_cpt in "_"^(string_of_int fresh)
+
+
+(* module P = Writer.Writer.Make (Monoid.MonoidList (struct type t = AstMir.expression AstHir.statement end))
+
+
+let simplifyExpression (e : Thir.expression) : AstMir.expression P.t  =
+  let open Monad.MonadSyntax(P) in
+  let open Monad.MonadFunctions(P) in
+  let rec aux e : AstMir.expression P.t  = 
+  match e with
+  | AstHir.Variable _ | AstHir.Literal _ -> return e
+  | AstHir.Deref (lt, e) -> 
+      let* e = aux e in return (AstHir.Deref (lt, e))
+  | AstHir.StructRead (lt, e, f) -> 
+      let* e = aux e in return (AstHir.StructRead (lt, e, f))
+  | AstHir.ArrayRead (lt, e1, e2) -> 
+      let* e1 = aux e1 in 
+      let* e2 = aux e2 in 
+      return (AstHir.ArrayRead (lt, e1, e2))
+  | AstHir.UnOp (lt, o, e) -> 
+      let* e = aux e in return (AstHir.UnOp (lt,o,e))
+  | AstHir.BinOp (lt, o, e1, e2) -> 
+      let* e1 = aux e1 in 
+      let* e2 = aux e2 in 
+      return (AstHir.BinOp(lt, o,e1, e2))
+  | AstHir.Ref (lt, b, e) -> 
+      let* e = aux e in return (AstHir.Ref(lt, b, e))
+  | AstHir.ArrayStatic (lt, el) ->
+      let* el = listMapM aux el in return (AstHir.ArrayStatic(lt, el))
+  | AstHir.StructAlloc (lt, id, em) -> 
+    let* em = mapMapM aux em in return (AstHir.StructAlloc(lt, id, em))
+  | AstHir.EnumAlloc (lt, id, el) ->
+    let* el = listMapM aux el in return (AstHir.EnumAlloc (lt, id, el))
+  in aux e *)
 
 let fresh_label () = 
   let fresh = !label_cpt in 
@@ -49,32 +91,40 @@ let assignBasicBlock (a : assignment) =
 
 exception InvalidOutputNode
 
+let disjointUnion = BlockMap.union (fun _ _ _ -> failwith "illegal label sharing")
+
 let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg = 
-  let left = BlockMap.find cfg1.output cfg1.blocks in 
-  let right = BlockMap.find cfg2.input cfg2.blocks in
+  let left = try BlockMap.find cfg1.output cfg1.blocks 
+  with Not_found -> failwith "not found1"
+  in 
+  let res = 
   match left.terminator with 
-  | None -> 
-    let bb = {assignments = left.assignments@right.assignments; terminator = right.terminator} in
-    {
-      input = cfg1.input;
-      output = if cfg1.input = cfg2.output then cfg1.output else cfg2.output;
-      blocks =
-        let left = BlockMap.remove cfg1.output cfg1.blocks in 
-        let right = BlockMap.map 
-                      (fun {assignments; terminator} -> 
-                        {assignments; terminator = Option.MonadOption.fmap (rename cfg2.input cfg1.output) terminator}) 
-                      (BlockMap.remove cfg2.input cfg2.blocks) in       
-        let right =  BlockMap.add cfg1.output bb (BlockMap.union (fun _ _ _ -> None) left right)
-      in BlockMap.union (fun _ _ _ -> None) cfg1.blocks right 
-    }
   | Some (Invoke _) -> raise InvalidOutputNode (* Handle other cases*)
   | Some _ -> 
     {
       input = cfg1.input;
       output = cfg2.output;
-      blocks = BlockMap.union (fun _ _ _ -> None) cfg1.blocks cfg2.blocks
+      blocks = disjointUnion cfg1.blocks cfg2.blocks
     }
-
+  | None -> 
+    let right = 
+      try BlockMap.find cfg2.input cfg2.blocks 
+      with Not_found -> failwith "not found2" 
+    in let bb = {assignments = left.assignments@right.assignments; terminator = right.terminator} in
+    {
+      input = cfg1.input;
+      output = if cfg2.input = cfg2.output then cfg1.output else cfg2.output;
+      blocks =
+        let left = BlockMap.remove cfg1.output cfg1.blocks in 
+        let right = BlockMap.map 
+                      (fun {assignments; terminator} -> 
+                        {assignments; 
+                          terminator = Option.MonadOption.fmap (rename cfg2.input cfg1.output) terminator}) 
+                      (BlockMap.remove cfg2.input cfg2.blocks) in       
+        BlockMap.add cfg1.output bb (disjointUnion left right)
+     }
+    in 
+    res
 
 let addGoto (lbl : label) (cfg : cfg) : cfg = 
   let bb = {assignments=[]; terminator=Some (Goto lbl)} in
@@ -130,7 +180,7 @@ let buildLoop (e : Thir.expression) (cfg : cfg) : cfg =
   let outputBlock = {assignments = []; terminator = None} in
   {
     input = headLbl;
-    output = headLbl;
+    output = outputLbl; (* false jumps here *)
     blocks = 
       BlockMap.union (fun _ _ _ -> None) (addGoto outputLbl cfg).blocks
       (BlockMap.add outputLbl outputBlock (BlockMap.singleton headLbl headBlock))
@@ -156,48 +206,77 @@ let buildReturn (e : Thir.expression option) =
     blocks = BlockMap.singleton returnLbl returnBlock
   }
 
-module Pass : Body with
-              type in_body = Thir.expression AstHir.statement and   
-              type out_body = declaration list * cfg = 
+
+let texpr (e : Thir.expression) : AstMir.expression = 
+  let rec aux e = 
+  match e with 
+    | AstHir.Variable (lt, id) -> AstHir.Variable (lt, id) 
+    | AstHir.Deref (lt, e) -> AstHir.Deref (lt, aux e)
+    | AstHir.StructRead (lt, e, id) -> AstHir.StructRead (lt, aux e, id)
+    | AstHir.ArrayRead (lt, e1, e2) -> AstHir.ArrayRead (lt, aux e1, aux e2)
+    | AstHir.Literal (lt, l) -> AstHir.Literal (lt, l)
+    | AstHir.UnOp (lt, o, e) -> AstHir.UnOp (lt, o, aux e)
+    | AstHir.BinOp (lt, o ,e1, e2) -> AstHir.BinOp(lt, o, aux e1, aux e2)
+    | AstHir.Ref (lt, b, e) -> AstHir.Ref(lt, b, aux e)
+    | AstHir.ArrayStatic (lt, el) -> AstHir.ArrayStatic (lt, List.map aux el)
+    | AstHir.StructAlloc (lt, id, m) -> AstHir.StructAlloc(lt, id, FieldMap.map aux m)
+    | AstHir.EnumAlloc(lt, id, el) -> AstHir.EnumAlloc(lt, id, List.map aux el)
+  in aux e
+
+let seqOfList (l : 'a AstHir.statement list) : 'a AstHir.statement = 
+  List.fold_left (fun s l -> AstHir.Seq (dummy_pos, s, l)) (AstHir.Skip dummy_pos) l
+
+module Pass  : Body with
+              type in_body = Thir.statement and   
+              type out_body = declaration list * cfg  = 
 struct
-  type in_body = Thir.expression AstHir.statement   
+  type in_body = Thir.statement
   type out_body = declaration list * cfg
 
-  let lower decl _   =
-    let rec aux = function
-    | AstHir.DeclVar(loc, b, id, Some stype, None) ->
-      (
-        [{location=loc; mut=b; id=id; varType=stype}],
-        emptyBasicBlock ()
-      ) |> ok
-    | AstHir.DeclVar(loc, b, id, Some stype, Some e) -> 
-      (
-        [{location=loc; mut=b; id=id; varType=stype}],
-        assignBasicBlock ({location=loc; target=Variable ((loc, stype), id); expression = e})
-      ) |> ok
-    | AstHir.DeclVar _ -> 
-      failwith "Declaration should have type " (* -> add generic parameter to statements *)
-    | Skip _ -> ([], emptyBasicBlock ()) |> ok
-    | Assign (loc, e1, e2) ->  ([], assignBasicBlock ({location=loc; target=e1; expression = e2})) |> ok
-    | Seq (_, s1, s2) ->
-      let+ d1, cfg1 = aux s1 and* d2, cfg2 = aux s2 in d1@d2, buildSeq cfg1 cfg2
-    | If (_loc, e, s, None) -> 
-      let+ d, cfg = aux s in
-      d,  buildIfThen e cfg
-    | If (_loc, e, s1, Some s2) -> 
-      let+ d1,cfg1 = aux s1 and* d2,cfg2 = aux s2 in
-      d1@d2, buildIfThenElse e cfg1 cfg2
-    | While (_loc, e, s) ->  let+ d, cfg = aux s in (d, buildLoop e cfg)
-    | Case _ -> failwith "not implemented"
-    | Invoke (_loc,_,id, el) -> ([], buildInvoke id el) |> ok
-    | Return (_, e) -> ( [], buildReturn e ) |> ok
-    | Run _ ->  error [TypesCommon.dummy_pos,"not_implemented"]
-    | Emit _ -> error [TypesCommon.dummy_pos,"not_implemented"]
-    | Await _ -> error [TypesCommon.dummy_pos,"not_implemented"]
-    | When _ -> error [TypesCommon.dummy_pos,"not_implemented"]
-    | Watching _ -> error [TypesCommon.dummy_pos,"not_implemented"]
-    | DeclSignal _ -> error [TypesCommon.dummy_pos,"not_implemented"]
-    | Par _ -> error [TypesCommon.dummy_pos,"not_implemented"]
-    | Block (_, s) -> aux s
-    in let+ ret = aux decl.body in ret
+  open Monad.MonadSyntax(Error.MonadError)
+  open Error.MonadError
+  let lower decl _ =
+    label_cpt := 0;
+    let rec aux : Thir.statement -> (declaration list * cfg) Error.MonadError.t = function
+      | AstHir.DeclVar(loc, b, id, Some stype, None) ->
+        (
+          [{location=loc; mut=b; id=id; varType=stype}],emptyBasicBlock ()
+        ) |> lift
+
+      | AstHir.DeclVar(loc, b, id, Some stype, Some e) -> 
+        (
+          [{location=loc; mut=b; id=id; varType=stype}],
+          assignBasicBlock ({location=loc; target=Variable ((loc, stype), id); expression = texpr e}) (* ++ other statements *)
+        ) |> lift
+
+      | AstHir.DeclVar _ as s -> error [Thir.extract_statements_loc s, "Declaration should have type "] (* -> add generic parameter to statements *)
+
+      | AstHir.Skip _ -> ([], emptyBasicBlock ()) |> lift
+      | AstHir.Assign (loc, e1, e2) -> 
+        (
+          [], assignBasicBlock ({location=loc; target=texpr e1; expression = texpr e2})
+        ) |> lift
+      | Seq (_, s1, s2) ->
+        let+ d1, cfg1 = aux s1 and* d2, cfg2 = aux s2 in
+        d1@d2, buildSeq cfg1 cfg2
+
+      | If (_loc, e, s, None) -> 
+        let+ d, cfg = aux s in d, buildIfThen (texpr e) cfg
+      | If (_loc, e, s1, Some s2) -> 
+        let+ d1,cfg1 = aux s1 and* d2,cfg2 = aux s2 in
+        d1@d2, buildIfThenElse (texpr e) cfg1 cfg2
+      | While (_loc, e, s) -> 
+        let+ d, cfg = aux s in
+        d, buildLoop (texpr e) cfg
+      | Invoke (_loc, _, id, el) -> 
+        ([], buildInvoke id (List.map texpr el)) |> lift
+      | Return (_, e) ->
+        let e = match e with None -> None | Some e -> Some (texpr e) in 
+        ([], buildReturn e) |> lift
+
+      | Run _ | Emit _ | Await _ | When _  | Watching _ 
+      | Par _  | Case _ | AstHir.DeclSignal _ as s -> error [Thir.extract_statements_loc s, "unimplemented"]
+
+      | Block (_loc, s) -> aux s
+    in let+ res = aux decl.body in res
 end

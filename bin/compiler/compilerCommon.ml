@@ -17,14 +17,14 @@ type sailor_decl =
 type sailor_method = 
 {
 	decl : sailor_decl ;
-	body: Hir.expression AstHir.statement;
+	body: Hir.statement;
   generics : sailor_args
 }
 
 type sailor_process = 
 {
   args : sailor_args;
-  body: Hir.expression AstHir.statement;
+  body: Hir.statement;
   generics : sailor_args
 }
 
@@ -36,7 +36,7 @@ type sailor_function =
   r_type : sailtype option;
   args : sailor_args;
   generics : string list;
-  body : Hir.expression AstHir.statement option;
+  body : Hir.statement option;
   ty : function_type
 }
 

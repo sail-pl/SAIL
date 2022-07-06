@@ -9,7 +9,7 @@ open Error
 
 
 type expression = loc AstHir.expression
-
+type statement = expression AstHir.statement
 
 module MonoidSeq: Monoid with type t = expression AstHir.statement = struct
   type t = expression AstHir.statement
