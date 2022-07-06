@@ -8,11 +8,6 @@
   120
   $ sailor helloworld.sl --run
   Hello World
-  $ sailor min2.sl --run
-  3
-  $ sailor minArrayGeneric.sl --run
-  2
-  0.100000
   $ sailor minArray.sl --run
   2
   $ sailor min.sl --run
