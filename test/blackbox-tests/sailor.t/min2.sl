@@ -1,1 +1,0 @@
-../../../examples/imperative/genericity/min2.sl

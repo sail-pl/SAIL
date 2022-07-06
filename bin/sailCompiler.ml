@@ -103,11 +103,19 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         let module Mir = Pass.Make(Mir.Pass) in
 
         let fcontent,sail_module = Parsing.parse_program f in
-        let sail_module = sail_module |> Hir.lower_module |> Thir.lower_module in
+        let sail_module = sail_module |> Hir.lower_module |> Thir.lower_module |> Mir.lower_module in
         begin
 
         match sail_module with
-        | Ok _ ->
+        | Ok m ->
+          
+          let mir_debug = module_name ^ "_mir" |> open_out in
+
+          Format.fprintf (Format.formatter_of_out_channel mir_debug) "%a" Pp_mir.ppPrintModule m;
+
+          close_out mir_debug;
+
+
           let funs = Parsing.parse_program f |> snd |> Hir.lower_module |> Result.get_ok |> type_check_module in (* fixme : this will be removed when mir is done*)
           let llm = moduleToIR module_name funs dump_decl in
           let tm = init_llvm llm in
