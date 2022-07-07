@@ -3,8 +3,9 @@ open Pass
 open TypesCommon
 open IrHir
 open Error
-open Result
+open Error.MonadError
 open Monad.MonadSyntax(Error.MonadError)
+open Result
 
 
 type expression = (loc * sailtype) AstHir.expression
@@ -27,11 +28,11 @@ let extract_statements_loc = function
 
 let degenerifyType (t: sailtype) (generics: (string * sailtype ) list) loc : sailtype result =
   let rec aux = function
-  | Bool -> ok Bool
-  | Int -> ok Int 
-  | Float -> ok Float
-  | Char -> ok Char
-  | String -> ok String
+  | Bool -> lift Bool
+  | Int -> lift Int 
+  | Float -> lift Float
+  | Char -> lift Char
+  | String -> lift String
   | ArrayType (t,s) -> let+ t = aux t in ArrayType (t, s)
   | CompoundType (_name, _tl)-> error [ loc ,"todo compoundtype"]
   | Box t -> let+ t = aux t in Box t
@@ -40,7 +41,7 @@ let degenerifyType (t: sailtype) (generics: (string * sailtype ) list) loc : sai
   | GenericType n -> 
     begin
       match List.assoc_opt n generics with
-      | Some GenericType t -> GenericType t |> ok
+      | Some GenericType t -> GenericType t |> lift
       | Some t -> aux t
       | None -> error [loc,Printf.sprintf "generic type %s not present in the generics list" n]
     end
@@ -63,11 +64,11 @@ struct
   let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: (string * sailtype ) list) : (sailtype * (string * sailtype ) list) result =
     let rec aux (a:sailtype) (m:sailtype) (g: (string * sailtype) list) = 
     match (a,m) with
-    | Bool,Bool -> ok (Bool,g)
-    | Int,Int -> ok (Int,g)
-    | Float,Float -> ok (Float,g)
-    | Char,Char -> ok (Char,g)
-    | String,String -> ok (String,g)
+    | Bool,Bool -> lift (Bool,g)
+    | Int,Int -> lift (Int,g)
+    | Float,Float -> lift (Float,g)
+    | Char,Char -> lift (Char,g)
+    | String,String -> lift (String,g)
     | ArrayType (at,s),ArrayType (mt,s') -> 
       if s = s' then
         let+ t,g = aux at mt g in ArrayType (t,s),g
@@ -80,8 +81,8 @@ struct
      begin
         if List.mem gt generics then
           match List.assoc_opt gt g with
-          | None -> ok (at,(gt,at)::g)
-          | Some t -> if t = at then ok (at,g) else error [l,"generic type mismatch"]
+          | None -> lift (at,(gt,at)::g)
+          | Some t -> if t = at then lift (at,g) else error [l,"generic type mismatch"]
         else
           error [l,Printf.sprintf "generic type %s not declared" gt]
       end
@@ -97,7 +98,7 @@ struct
       begin
         let nb_args = List.length args and nb_params = List.length f.args in
 
-          let* _ = if nb_args <> nb_params then error [loc, Printf.sprintf "unexpected number of arguments passed to %s : expected %i but got %i" name nb_params nb_args] else ok () in
+          let* _ = if nb_args <> nb_params then error [loc, Printf.sprintf "unexpected number of arguments passed to %s : expected %i but got %i" name nb_params nb_args] else lift () in
           let* resolved_generics = List.fold_left2 
           (
             fun g ca (_,a) ->
@@ -105,7 +106,7 @@ struct
               let+ x = matchArgParam (extract_exp_loc_ty ca) a f.generics g in
               snd x
           )  
-          (ok [])
+          (lift [])
           args 
           f.args 
         in
@@ -113,7 +114,7 @@ struct
         begin
           match f.ret with
           | Some r ->  let+ r = degenerifyType r resolved_generics loc in Some r
-          | None -> ok None
+          | None -> lift None
         end
       end
 
@@ -126,7 +127,7 @@ struct
     | AstHir.Deref (l,e) -> let* e = aux e in
       begin
         match e with
-        | AstHir.Ref _ as t -> AstHir.Deref((l,extract_exp_loc_ty t |> snd), e) |> ok
+        | AstHir.Ref _ as t -> AstHir.Deref((l,extract_exp_loc_ty t |> snd), e) |> lift
         | _ -> error [l,"can't deref a non-reference!"]
       end
 
@@ -135,12 +136,12 @@ struct
         match extract_exp_loc_ty array_exp |> snd with
         | ArrayType (t,_) -> 
           let* _ = matchArgParam (extract_exp_loc_ty idx) Int generics [] in
-          AstHir.ArrayRead((l,t),array_exp,idx) |> ok
+          AstHir.ArrayRead((l,t),array_exp,idx) |> lift
         | _ -> error [l,"not an array !"]
       end
 
     | AstHir.StructRead (l,_struct_exp,_field) -> error [l,"todo: struct read"]
-    | AstHir.Literal (l,li) -> let t = sailtype_of_literal li in AstHir.Literal((l,t),li) |> ok
+    | AstHir.Literal (l,li) -> let t = sailtype_of_literal li in AstHir.Literal((l,t),li) |> lift
     | AstHir.UnOp (l,op,e) -> let+ e = aux e in AstHir.UnOp ((l, extract_exp_loc_ty e |> snd),op,e)
     | AstHir.BinOp (l,op,le,re) ->  
       let* le = aux le and* re = aux re in
@@ -155,10 +156,10 @@ struct
       let first_t = extract_exp_loc_ty first_t |> snd in
       let el,errors = partition_result (
         fun e -> let* t = aux e in
-        if extract_exp_loc_ty t |> snd = first_t then ok t else error [l,"mixed type array"]
+        if extract_exp_loc_ty t |> snd = first_t then lift t else error [l,"mixed type array"]
       ) el in 
       if errors = [] then
-        let t = ArrayType (first_t, List.length el) in AstHir.ArrayStatic((l,t),el)  |> ok
+        let t = ArrayType (first_t, List.length el) in AstHir.ArrayStatic((l,t),el)  |> lift
       else
         Error errors
 
@@ -176,7 +177,7 @@ struct
           let* var_type =             
             match (t,optexp) with
             | (Some t,Some e) -> let* e in let tv = extract_exp_loc_ty e in let+ a = matchArgParam tv t decl.generics [] in fst a
-            | (Some t, None) -> ok t
+            | (Some t, None) -> lift t
             | (None,Some t) -> let+ t in extract_exp_loc_ty t |> snd
             | (None,None) -> error [l,"can't infere type with no expression"]
             
@@ -184,15 +185,15 @@ struct
           let* te' = Pass.TypeEnv.declare_var te id var_type l in 
           
           match optexp with
-          | None -> ok (AstHir.DeclVar (l,mut,id,t,None),te')
-          | Some e -> let+ e in AstHir.DeclVar (l,mut,id,t,Some e),te'
+          | None -> (AstHir.DeclVar (l,mut,id,Some var_type,None),te') |> lift
+          | Some e -> let+ e in AstHir.DeclVar (l,mut,id,Some var_type,Some e),te'
         end
         
       | AstHir.Assign(loc, e1, e2) -> 
         let* e1 = lower_expression e1 te decl.generics
         and* e2 = lower_expression e2 te decl.generics in
         let* _ = matchArgParam (extract_exp_loc_ty e1) (extract_exp_loc_ty e2 |> snd) [] [] in
-        ok (AstHir.Assign(loc, e1, e2),te)
+        lift (AstHir.Assign(loc, e1, e2),te)
 
       | AstHir.Seq(loc, c1, c2) -> 
         let* c1,te1 = aux c1 te in
@@ -207,7 +208,7 @@ struct
         let* res,_ = aux then_s te in
         begin
         match else_s with
-        | None -> ok (AstHir.If(loc, cond_exp, res, None),te)
+        | None -> lift (AstHir.If(loc, cond_exp, res, None),te)
         | Some s -> let+ s,_ = aux s te in (AstHir.If(loc, cond_exp, res, Some s),te)
         end
 
@@ -230,7 +231,7 @@ struct
         else error errors
 
       | AstHir.Return(l, None) as r -> 
-        if decl.ret = None then ok (r,te) else  error [l,"void return"]
+        if decl.ret = None then lift (r,te) else  error [l,"void return"]
 
       | AstHir.Return(l, Some e) ->
         if decl.bt <> Pass.BMethod then 
@@ -249,14 +250,14 @@ struct
         let+ res,te' = aux c (Pass.TypeEnv.new_frame te) in 
         AstHir.Block(loc,res),te'
 
-      | AstHir.Skip (loc) -> ok (AstHir.Skip(loc),te)
+      | AstHir.Skip (loc) -> lift (AstHir.Skip(loc),te)
 
       | s when decl.bt = Pass.BMethod -> error [extract_statements_loc s, Printf.sprintf "method %s : methods can't contain reactive statements" decl.name]
 
 
       | AstHir.Watching(loc, s, c) -> let+ res,_ = aux c te in AstHir.Watching(loc, s, res),te
-      | AstHir.Emit(loc, s) -> ok (AstHir.Emit(loc,s),te)
-      | AstHir.Await(loc, s) -> ok (AstHir.When(loc, s, AstHir.Skip(loc)),te)
+      | AstHir.Emit(loc, s) -> lift (AstHir.Emit(loc,s),te)
+      | AstHir.Await(loc, s) -> lift (AstHir.When(loc, s, AstHir.Skip(loc)),te)
       | AstHir.When(loc, s, c) -> let+ res,_ = aux c te in AstHir.When(loc, s, res),te
       | AstHir.Run(loc, id, el) ->
         let el,errors = partition_result (fun e -> lower_expression e te decl.generics) el in
@@ -268,7 +269,7 @@ struct
         let* c1,te1 = aux c1 te in
         let+ c2,te2 = aux c2 te1 in
         AstHir.Par(loc, c1, c2),te2
-      | AstHir.DeclSignal(loc, s) -> ok (AstHir.DeclSignal(loc, s),te)
+      | AstHir.DeclSignal(loc, s) -> lift (AstHir.DeclSignal(loc, s),te)
 
 
     in 
