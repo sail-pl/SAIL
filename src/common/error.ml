@@ -46,14 +46,12 @@ with type 'a t = ('a, error_type) Result.t M.t and type 'a old_t = 'a M.t  = str
 
   let fmap (f:'a -> 'b) (x : 'a t) : 'b t = let+ x in Result.map f x 
 
-  let ( <*> ) f x = let* f in match f with Ok f -> fmap f x  | Error e -> Error e |> M.pure
+  let apply f x = let* f in match f with Ok f -> fmap f x  | Error e -> Error e |> M.pure
 
-  let (>>=) (x: 'a t) (f:('a -> 'b t)) : 'b t = 
+  let bind (x: 'a t) (f:('a -> 'b t)) : 'b t = 
     let* x in match x with
     | Ok v -> f v
     | Error e -> Error e |> M.pure
-
-  let (>>|) (x:'a t) (f:('a -> 'b)) : 'b t = x >>= (fun x -> pure (f x))
 
   let lift x = let+ x in Result.ok x
 
@@ -62,4 +60,4 @@ end
 
 module MonadError = MonadErrorTransformer(MonadIdentity)
 
-
+(* module MonadError = MonadWriter.Make(Monoid.MonoidList(struct type t = error_type end)) *)

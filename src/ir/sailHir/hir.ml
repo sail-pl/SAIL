@@ -4,7 +4,7 @@ open Pass
 open TypesCommon
 open Monad
 open Monoid
-open Writer
+open MonadWriter
 open Error
 
 
@@ -17,13 +17,11 @@ module MonoidSeq: Monoid with type t = expression AstHir.statement = struct
   let mconcat = fun x y -> AstHir.Seq (dummy_pos, x,y) 
 end 
 
-module P = Writer.Make (MonoidSeq)
+module P = Make (MonoidSeq)
 
 module EP = MonadErrorTransformer(P)
 
 module E = MonadError
-
-
 
  module Pass : Body with
               type in_body = AstParser.statement and   

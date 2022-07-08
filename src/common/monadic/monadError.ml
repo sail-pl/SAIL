@@ -20,31 +20,41 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Monad 
-open Monoid
+open Monad
 
-module Writer = struct
+module type ErrorMonad  = sig 
+  include Monad 
 
-  module type Writer = sig 
-    include Monad
-    type elt 
-    val write : elt -> unit t
-  end
+  type error
+  val throwError : error -> 'a t
+  val catchError : 'a t -> (error -> 'a t) -> 'a t
+end
 
-  module Make (T : Monoid) : Writer with type 'a t = 'a * T.t and type elt = T.t = struct 
-    type 'a t = 'a * T.t
+module ErrorMonadOption : ErrorMonad with type 'a t = 'a option and type error = unit = struct 
 
-    type elt = T.t
+  include MonadOption.M
+  
+  type error = unit 
 
-    let fmap f (x, l) = (f x, l)
-    let pure x = (x,T.mempty)
+  let throwError () = None 
 
-    let (<*>) (f, l1) (x, l2) = (f x, T.mconcat l1 l2)
-
-    let (>>=) (x, l) f = let (y,l') = f x in (y, T.mconcat l l')
-    let ( >>| ) x f = x >>= fun x -> f x |> pure
+  let catchError x f = match x with Some _ -> x | None -> f () 
+  
+end
 
 
-    let write : T.t -> 'a t = fun a  -> ((), a) 
-  end
+module ErrorMonadEither = struct
+
+  module Make (T : Type) : ErrorMonad with type 'a t = (T.t, 'a) Either.t and type error = T.t = struct 
+   
+    include MonadEither.Make(T)
+    
+    type error = T.t
+
+    let throwError e = Either.Left e 
+
+    let catchError x f = 
+      match x with Either.Right _ -> x | Either.Left e -> f e 
+
+  end 
 end

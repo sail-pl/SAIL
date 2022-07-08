@@ -20,7 +20,7 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 open Common.Monad
-open Common.Option
+open Common.MonadOption
 open Heap
 open PpEvaluator
 open ErrorOfOption
@@ -28,6 +28,7 @@ open Common.TypesCommon
 open SailParser.AstParser
 open Intermediate
 open Domain
+open MonadOperator(Result)
 
 let evalunop (u : unOp) (v : value) : value Result.t =
   let open Result in
@@ -124,7 +125,6 @@ let boolOfValue (v:value) : bool Result.t =
     | _ -> throwError TypingError
 
 let rec evalL (env : env) (h :heap) (p : Intermediate.path) : (Heap.address * offset) Result.t =
-    let open Result in
   let open MonadSyntax (Result) in
   Logs.debug (fun m ->
       m "evaluate left path < %a >" Intermediate.pp_print_path p);
@@ -214,8 +214,8 @@ and dropReferencesFromValue (h : heap) (v : value) : heap Result.t =
     foldLeftM deepFree h (ownedLocations v)
 
 let rec filter ((v, p) : value * pattern) : (string * value) list option =
-  let open MonadOption in
-  let open MonadFunctions (MonadOption) in
+  let open MonadFunctions (M) in
+  let open MonadOperator(Common.MonadOption.M) in
   match (v, p) with
   | _, PVar x -> Some [ (x, v) ]
   | VEnum (x, l), PCons (y, m) when x = y ->

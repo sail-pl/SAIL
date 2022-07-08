@@ -50,7 +50,7 @@ module DeclarationsEnv (D:Declarations) = struct
   | Struct s -> { decls with structs=(M.add id s decls.structs)}
 
   let find_declaration decls ty = 
-  let open Monad.MonadSyntax(Option.MonadOption) in
+  let open Monad.MonadSyntax(MonadOption.M) in
   match ty with
   | Process id -> let+ p = M.find_opt id decls.processes in Process p
   | Method id ->  let+ m = M.find_opt id decls.methods in Method m

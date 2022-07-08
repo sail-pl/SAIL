@@ -4,6 +4,8 @@ open TypesCommon
 open IrHir
 open Error
 open Error.MonadError
+open MonadOption
+open Monad.MonadOperator(M)
 open Monad.MonadSyntax(Error.MonadError)
 open Result
 
@@ -170,9 +172,10 @@ struct
 
 
   let lower (decl:in_body declaration_type) env = 
+    let open Common.Monad.MonadOperator(Common.MonadOption.M) in
     let rec aux s (te:Pass.TypeEnv.t) = match s with
       | AstHir.DeclVar (l, mut, id, t, (optexp : Hir.expression option)) -> 
-        let optexp = Option.MonadOption.(>>|) optexp  (fun e -> lower_expression e te decl.generics) in 
+        let optexp =  optexp  >>| fun e -> lower_expression e te decl.generics in 
         begin
           let* var_type =             
             match (t,optexp) with

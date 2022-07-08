@@ -23,12 +23,9 @@
 
 open Common.TypesCommon
 open Common.Monad
-open Common.Option
-open MonadSyntax(MonadOption)
-
+open Common.MonadError
+open MonadSyntax(Common.MonadOption.M)
 open SailParser
-
-open Error
 open Intermediate
 open EvalEnv
 open Heap
