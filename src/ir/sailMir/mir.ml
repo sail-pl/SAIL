@@ -5,6 +5,7 @@ open Common
 open TypesCommon
 open Result
 open Pass
+open MonadOption
 open Monad.MonadSyntax(Error.MonadError)
 
 
@@ -119,7 +120,7 @@ let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg =
         let right = BlockMap.map 
                       (fun {assignments; terminator} -> 
                         {assignments; 
-                          terminator = Option.MonadOption.fmap (rename cfg2.input cfg1.output) terminator}) 
+                          terminator = M.fmap (rename cfg2.input cfg1.output) terminator}) 
                       (BlockMap.remove cfg2.input cfg2.blocks) in       
         BlockMap.add cfg1.output bb (disjointUnion left right)
      }

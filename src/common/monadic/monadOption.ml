@@ -20,43 +20,35 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Common.Monad
-open Common.Option 
-open Common.Type
+open Monad 
 
-module type ErrorMonad  = sig 
-  include Monad 
+module T (M: Monad )   : MonadTransformer 
+  with type 'a t = 'a option M.t  and  type 'a old_t  := 'a M.t  = struct
 
-  type error
-  val throwError : error -> 'a t
-  val catchError : 'a t -> (error -> 'a t) -> 'a t
-end
+  open MonadSyntax(M)
 
-module ErrorMonadOption : ErrorMonad with type 'a t = 'a option and type error = unit = struct 
+  type 'a t = 'a option M.t
 
-  include MonadOption
+  let pure x : 'a t = M.pure (Some x)
+
+  let fmap (f:'a -> 'b) (x : 'a t) : 'b t =
+    let+ x in match x with 
+    | Some v -> Some (f v) 
+    | _ -> None
+
+  let apply (f:('a -> 'b) t) (x: 'a t) : 'b t = 
+    let* f in match f with 
+    | Some f -> fmap f x
+    | None -> M.pure None
+
   
-  type error = unit 
+  let bind (x:'a t) (f : ('a -> 'b t)) : 'b t = 
+    let* x in match x with 
+    | Some x -> f x 
+    | _ -> M.pure None
 
-  let throwError () = None 
-
-  let catchError x f = match x with Some _ -> x | None -> f () 
-  
+  let lift (x:'a M.t) : 'a t = let+ x in Some x
 end
 
 
-module ErrorMonadEither = struct
-
-  module Make (T : Type) : ErrorMonad with type 'a t = (T.t, 'a) Either.t and type error = T.t = struct 
-   
-    include MonadEither.Make(T)
-    
-    type error = T.t
-
-    let throwError e = Either.Left e 
-
-    let catchError x f = 
-      match x with Either.Right _ -> x | Either.Left e -> f e 
-
-  end 
-end
+module M = T(MonadIdentity)

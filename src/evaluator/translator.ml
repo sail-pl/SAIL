@@ -23,9 +23,7 @@
 open SailParser.AstParser
 open Common
 open Monoid
-open Writer
 open Monad
-open Option
 open TypesCommon
 
 exception NotSupportedInCoreSail of string
@@ -34,9 +32,9 @@ exception NotSupportedInCoreSail of string
   and type elt = (string * string * Intermediate.expression list) list = 
   Writer.Make(MonoidList(struct type  t = (string * string * Intermediate.expression list) end)) *)
 
-module M : Writer.Writer with type 'a t = 'a * Intermediate.statement list  
+module M : MonadWriter.Writer with type 'a t = 'a * Intermediate.statement list  
 and type elt = Intermediate.statement list = 
-Writer.Make(MonoidList(struct type  t = Intermediate.statement end))
+MonadWriter.Make(MonoidList(struct type  t = Intermediate.statement end))
 
 let cpt = ref 0
 let freshVar () = 
@@ -51,7 +49,7 @@ let pathOfExpression ( e :Intermediate.expression) : Intermediate.path * Interme
     let x = freshVar () in (Intermediate.Variable x, [Assign (Intermediate.Variable x, e) ])
 
 let fetch_rtype (p : moduleSignature list) (id : string) : sailtype option =
-  let open MonadSyntax(MonadOption) in
+  let open MonadSyntax(MonadOption.M) in
   let l = List.concat_map (fun m-> m.methods) p in
   let* m = List.find_opt (fun m -> m.m_proto.name = id) l in 
   m.m_proto.rtype

@@ -38,7 +38,7 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
     ] in
 
     let l = List.assoc_opt t operators in
-    let open Common.Option.MonadOption in
+    let open Common.Monad.MonadOperator(Common.MonadOption.M) in
     match l >>| List.assoc op with
     | Some oper -> oper l1 l2 ""
     | None ->  Printf.sprintf "bad binary operand type : '%s'. Only doubles and ints are supported" (string_of_sailtype (Some t)) |> failwith

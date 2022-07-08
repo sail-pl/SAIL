@@ -20,7 +20,9 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Type
+module type Type = sig 
+  type t
+end
 
 module type Functor = sig 
   type 'a t 
@@ -30,13 +32,12 @@ end
 module type Applicative = sig
 include Functor
   val pure : 'a -> 'a t  
-  val (<*>) : ('a -> 'b ) t -> 'a t -> 'b t
+  val apply : ('a -> 'b ) t -> 'a t -> 'b t
 end 
 
 module type Monad = sig
   include Applicative
-  val (>>=) : 'a t -> ('a -> 'b t) -> 'b t
-  val (>>|) : 'a t -> ('a -> 'b) -> 'b t
+  val bind : 'a t -> ('a -> 'b t) -> 'b t
 end
 
 module type MonadTransformer = sig
@@ -51,22 +52,28 @@ module MonadIdentity : Monad with type 'a t = 'a = struct
 
   let fmap f x = f x
 
-  let (<*>) = fmap
+  let apply = fmap
 
-  let (>>=) x f = f <*> x
+  let bind x f = f x
+end
 
-  let (>>|) = (>>=)
+module MonadOperator (M : Monad) = struct
+  let (<*>) = M.apply
+  let (>>=) = M.bind
+  let (>>|) x f = x >>= fun x -> f x |> M.pure
 end
 
 module MonadSyntax (M : Monad ) = struct 
-  let return = M.pure
+  open M
+  open MonadOperator(M)
+  let return = pure
 
-  let (let*) : 'a M.t -> ('a -> 'b M.t) -> 'b M.t = M.(>>=)
+  let (let*) : 'a M.t -> ('a -> 'b M.t) -> 'b M.t = M.bind
 
   let (and*) x y = 
     let* x = x in let* y = y in return (x,y)
 
-  let (let+) : 'a M.t -> ('a -> 'b) -> 'b M.t = M.(>>|)
+  let (let+) : 'a M.t -> ('a -> 'b) -> 'b M.t = (>>|)
   let (and+) x y =
     let+ x = x in let+ y = y in return (x,y)
 
@@ -74,9 +81,7 @@ end
 
 
 module MonadFunctions (M : Monad) = struct 
-  open TypesCommon 
-
-  let mapMapM (f : 'a -> 'b M.t) (m : 'a FieldMap.t) : ('b FieldMap.t) M.t = 
+  let mapMapM (f : 'a -> 'b M.t) (m : 'a TypesCommon.FieldMap.t) : ('b TypesCommon.FieldMap.t) M.t = 
   let open MonadSyntax (M) in
   let rec aux (l : (string * 'a) Seq.t) : (string * 'b) Seq.t M.t =
     match l () with
@@ -86,98 +91,40 @@ module MonadFunctions (M : Monad) = struct
         let* l' = aux v in
         return (fun () -> Seq.Cons ((x,u),l' ))
   in  
-  let* l' = aux (FieldMap.to_seq m) in 
-  return (FieldMap.of_seq l')
+  let* l' = aux (TypesCommon.FieldMap.to_seq m) in 
+  return (TypesCommon.FieldMap.of_seq l')
   
   let rec listMapM (f : 'a -> 'b M.t) (l : 'a list) : ('b list) M.t = 
     let open M in
-    let open MonadSyntax(M) in
+    let open MonadOperator(M) in
     match l with 
-      | [] -> return []
-      | h::t -> (f h) >>= (fun h -> listMapM f t >>= fun t -> return (h::t))  
+      | [] -> pure []
+      | h::t -> (f h) >>= (fun h -> listMapM f t >>= fun t -> pure (h::t))  
 
   let rec foldLeftM (f : 'a -> 'b -> 'a M.t) (x : 'a) (l : 'b list) : 'a M.t = 
     let open M in
-    let open MonadSyntax(M) in
+    let open MonadOperator(M) in
     match l with 
-      | [] -> M.pure x 
+      | [] -> pure x 
       | h :: t -> foldLeftM f x t >>=  (Fun.flip f) h      
 
   let rec sequence (l : 'a M.t list) : 'a list M.t =
     let open MonadSyntax(M) in
     match l with
-    | [] -> M.pure []
+    | [] -> return []
     | h :: t -> 
-      let* h = h and* t = sequence t in M.pure (h::t)
+      let* h = h and* t = sequence t in return (h::t)
 
   let pairMap1 (f : 'a -> 'b M.t) ((x,y) : 'a * 'c) :('b * 'c) M.t =
     let open M in
-    let open MonadSyntax(M) in
-      f x >>= (fun x -> return (x, y))
+    let open MonadOperator(M) in
+      f x >>= (fun x -> pure (x, y))
 
 
   let pairMap2 (f : 'c -> 'b M.t) ((x,y) : 'a * 'c) :('a * 'b) M.t =
     let open M in
-    let open MonadSyntax(M) in
-      f y >>= (fun y -> return (x, y))
-end
-
-module MonadEither = struct 
-  
-  module  Make (T : Type) : Monad with type 'a t = (T.t, 'a) Either.t = struct
-
-    type 'a t = (T.t, 'a) Either.t
-    let fmap f x = 
-      match x with 
-        | Either.Left e -> Either.Left e
-        | Either.Right x -> Either.Right (f x)
-
-    let pure x = Either.Right x 
-
-    let (<*>) f x = 
-      match (f, x) with 
-        | Either.Right f, x -> fmap f x
-        | Either.Left e, _ -> Either.Left e
-    
-  let (>>=)  x f = 
-    match x with 
-      | Either.Right x -> f x 
-      | Either.Left e -> Either.Left e
-
-
-  let ( >>| ) x f = x >>= fun x -> f x |> pure
+    let open MonadOperator(M) in
+      f y >>= (fun y -> pure (x, y))
 end
 
   
-end
-
-module MonadCountTransfm (M : Monad) : MonadTransformer 
-  with type 'a t = int -> ('a  * int) M.t  and  type 'a old_t  = 'a M.t  = struct
-
-  open MonadSyntax(M)
-
-  type 'a t = int -> ('a  * int) M.t
-  type 'a old_t  = 'a M.t
-
-  let pure x : 'a t = fun n -> M.pure (x,n)
-
-  let fmap (f:'a -> 'b) (x : 'a t) : 'b t = 
-    fun n ->  let+ v,c = x n in  f v,c
-
-  let (<*>) (f:('a -> 'b) t) (a: 'a t) : 'b t = 
-    fun n -> 
-      let* f,c = f n in fmap f a c
-
-
-  let (>>=) (x:'a t) (f : ('a -> 'b t)) : 'b t =
-    fun n -> 
-      let* v,c = x n in f v c
-
-  let (>>|) x f = x >>= (fun x -> pure (f x))
-        
-
-  let lift x = fun n -> let* x in M.pure (x,n)
-    
-end
-
-module MonadCount = MonadCountTransfm(MonadIdentity)
