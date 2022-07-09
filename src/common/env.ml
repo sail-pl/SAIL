@@ -1,4 +1,3 @@
-
 module type Declarations = sig
   type process_decl
   type method_decl
@@ -144,10 +143,10 @@ module VariableEnv (V:Variable) (D:DeclEnvType) = struct
       | _ -> aux env
       in aux e
 
-  let declare_var e name tyval loc =
+  let declare_var e name tyval =
     let current,_env = current_frame e in
     match M.find_opt name current with 
-    | Some _ -> Result.error [loc,Printf.sprintf "variable %s already exists !" name]
+    | Some _ -> Result.error [fst tyval,Printf.sprintf "variable %s already exists !" name]
     | None -> 
       let upd_frame = M.add name tyval current in
       push_frame _env upd_frame |> Result.ok

@@ -33,7 +33,7 @@ struct
   type out_body = expression AstHir.statement
       
 
-  let lower_expression (env : sailtype FieldMap.t list * DeclEnv.t) (e : AstParser.expression) : expression ECW.t = 
+  let lower_expression (env : (loc * sailtype) FieldMap.t list * DeclEnv.t) (e : AstParser.expression) : expression ECW.t = 
     let open MonadSyntax(ECW) in
     let open MonadFunctions(ECW) in 
 
@@ -66,7 +66,8 @@ struct
       | loc, MethodCall (id, el) ->
         let open MonadOperator(E) in 
         try 
-          match (FieldMap.find id ((snd env).methods)).ret with 
+          let _proto_loc,proto = FieldMap.find id ((snd env).methods) in
+          match proto.ret with 
             | None ->  Result.error [loc,"error methods in expressions should return a value"] |> EC.lift
             | Some rtype -> fun n ->
               let x = freshVar n in

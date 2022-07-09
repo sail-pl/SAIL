@@ -96,7 +96,7 @@ struct
 
   let check_call (name:string) (args: expression list) (env:Pass.TypeEnv.t) loc : sailtype option result =
     match Pass.TypeEnv.get_function env (Method name)  with
-    | Some (Method f) -> 
+    | Some (Method (_l,f)) -> 
       begin
         let nb_args = List.length args and nb_params = List.length f.args in
 
@@ -125,7 +125,7 @@ struct
 
   let lower_expression (e : Hir.expression) (te: Pass.TypeEnv.t) (generics : string list): expression result = 
   let rec aux = function
-    | AstHir.Variable (l,id) -> let+ t = Pass.TypeEnv.get_var te id l in AstHir.Variable((l,t),id)
+    | AstHir.Variable (l,id) -> let+ _,t = Pass.TypeEnv.get_var te id l in AstHir.Variable((l,t),id)
     | AstHir.Deref (l,e) -> let* e = aux e in
       begin
         match e with
@@ -185,7 +185,7 @@ struct
             | (None,None) -> error [l,"can't infere type with no expression"]
             
           in 
-          let* te' = Pass.TypeEnv.declare_var te id var_type l in 
+          let* te' = Pass.TypeEnv.declare_var te id (l,var_type) in 
           
           match optexp with
           | None -> (AstHir.DeclVar (l,mut,id,Some var_type,None),te') |> lift
