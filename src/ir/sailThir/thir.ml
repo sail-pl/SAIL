@@ -125,7 +125,7 @@ struct
 
   let lower_expression (e : Hir.expression) (te: Pass.TypeEnv.t) (generics : string list): expression result = 
   let rec aux = function
-    | AstHir.Variable (l,id) -> let+ _,t = Pass.TypeEnv.get_var te id l in AstHir.Variable((l,t),id)
+    | AstHir.Variable (l,id) -> let+ _,(_,t) = Pass.TypeEnv.get_var te id l in AstHir.Variable((l,t),id)
     | AstHir.Deref (l,e) -> let* e = aux e in
       begin
         match e with
@@ -185,7 +185,7 @@ struct
             | (None,None) -> error [l,"can't infere type with no expression"]
             
           in 
-          let* te' = Pass.TypeEnv.declare_var te id (l,var_type) in 
+          let* te' = Pass.TypeEnv.declare_var te id (l,(mut,var_type)) in 
           
           match optexp with
           | None -> (AstHir.DeclVar (l,mut,id,Some var_type,None),te') |> lift
