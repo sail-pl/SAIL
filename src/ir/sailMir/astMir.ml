@@ -1,4 +1,5 @@
 type expression = IrThir.Thir.expression
+type statement = IrThir.Thir.statement
 
 type declaration = {location : Common.TypesCommon.loc; mut : bool; id : string; varType : Common.TypesCommon.sailtype}
 type assignment = {location : Common.TypesCommon.loc; target : expression; expression : expression}

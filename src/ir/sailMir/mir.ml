@@ -1,5 +1,4 @@
 open AstMir
-open IrHir
 open IrThir
 open Common 
 open TypesCommon
@@ -177,23 +176,23 @@ let buildReturn (e : Thir.expression option) : cfg C.t =
 
 
 let texpr (e : Thir.expression) : AstMir.expression = 
-  let rec aux e = 
-  match e with 
-    | AstHir.Variable (lt, id) -> AstHir.Variable (lt, id) 
-    | AstHir.Deref (lt, e) -> AstHir.Deref (lt, aux e)
-    | AstHir.StructRead (lt, e, id) -> AstHir.StructRead (lt, aux e, id)
-    | AstHir.ArrayRead (lt, e1, e2) -> AstHir.ArrayRead (lt, aux e1, aux e2)
-    | AstHir.Literal (lt, l) -> AstHir.Literal (lt, l)
-    | AstHir.UnOp (lt, o, e) -> AstHir.UnOp (lt, o, aux e)
-    | AstHir.BinOp (lt, o ,e1, e2) -> AstHir.BinOp(lt, o, aux e1, aux e2)
-    | AstHir.Ref (lt, b, e) -> AstHir.Ref(lt, b, aux e)
-    | AstHir.ArrayStatic (lt, el) -> AstHir.ArrayStatic (lt, List.map aux el)
-    | AstHir.StructAlloc (lt, id, m) -> AstHir.StructAlloc(lt, id, FieldMap.map aux m)
-    | AstHir.EnumAlloc(lt, id, el) -> AstHir.EnumAlloc(lt, id, List.map aux el)
+  let rec aux e : AstMir.expression = 
+  match (e:Thir.expression) with 
+    | Variable (lt, id) -> Variable (lt, id) 
+    | Deref (lt, e) -> Deref (lt, aux e)
+    | StructRead (lt, e, id) -> StructRead (lt, aux e, id)
+    | ArrayRead (lt, e1, e2) -> ArrayRead (lt, aux e1, aux e2)
+    | Literal (lt, l) -> Literal (lt, l)
+    | UnOp (lt, o, e) -> UnOp (lt, o, aux e)
+    | BinOp (lt, o ,e1, e2) -> BinOp(lt, o, aux e1, aux e2)
+    | Ref (lt, b, e) -> Ref(lt, b, aux e)
+    | ArrayStatic (lt, el) -> ArrayStatic (lt, List.map aux el)
+    | StructAlloc (lt, id, m) -> StructAlloc(lt, id, FieldMap.map aux m)
+    | EnumAlloc(lt, id, el) -> EnumAlloc(lt, id, List.map aux el)
   in aux e
 
-let seqOfList (l : 'a AstHir.statement list) : 'a AstHir.statement = 
-  List.fold_left (fun s l -> AstHir.Seq (dummy_pos, s, l)) (AstHir.Skip dummy_pos) l
+let seqOfList (l : statement list) : statement = 
+  List.fold_left (fun s l : statement -> Seq (dummy_pos, s, l)) (Skip dummy_pos) l
 
 module Pass : Body with
               type in_body = Thir.statement and   
@@ -208,14 +207,14 @@ struct
 
   let lower decl _ : (declaration list * cfg)  E.t =
     let rec aux : Thir.statement -> (declaration list * cfg) CE.t = function
-      | AstHir.DeclVar(loc, b, id, Some stype, None) -> 
+      | DeclVar(loc, b, id, Some stype, None) -> 
         
         emptyBasicBlock >>| fun bb ->
         (
           [{location=loc; mut=b; id=id; varType=stype}],bb
         ) |> E.lift
 
-      | AstHir.DeclVar(loc, b, id, Some stype, Some e) -> 
+      | DeclVar(loc, b, id, Some stype, Some e) -> 
         assignBasicBlock ({location=loc; target=Variable ((loc, stype), id); expression = texpr e})
         >>| fun bn ->
         ( 
@@ -223,11 +222,11 @@ struct
           (* ++ other statements *)
         ) |> E.lift
 
-      | AstHir.DeclVar _ as s -> error [Thir.extract_statements_loc s, "Declaration should have type "] |> C.lift (* -> add generic parameter to statements *)
+      | DeclVar _ as s -> error [Thir.extract_statements_loc s, "Declaration should have type "] |> C.lift (* -> add generic parameter to statements *)
 
-      | AstHir.Skip _ -> 
+      | Skip _ -> 
         emptyBasicBlock >>| fun bb -> ([],  bb) |> E.lift
-      | AstHir.Assign (loc, e1, e2) -> 
+      | Assign (loc, e1, e2) -> 
         assignBasicBlock ({location=loc; target=texpr e1; expression = texpr e2}) >>| fun bb ->
         (
           [],bb
@@ -260,7 +259,7 @@ struct
         ([], ret) |> E.lift
 
       | Run _ | Emit _ | Await _ | When _  | Watching _ 
-      | Par _  | Case _ | AstHir.DeclSignal _ as s -> error [Thir.extract_statements_loc s, "unimplemented"] |> C.lift
+      | Par _  | Case _ | DeclSignal _ as s -> error [Thir.extract_statements_loc s, "unimplemented"] |> C.lift
 
       | Block (_loc, s) -> aux s
     in aux decl.body 0 |> fst
