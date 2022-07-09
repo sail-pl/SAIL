@@ -37,17 +37,17 @@ type 'a declaration_type =
 
 module DeclEnv = Env.DeclarationsEnv (
   struct
-    type process_decl = function_proto
-    type method_decl = function_proto 
-    type struct_decl = struct_proto
-    type enum_decl = enum_proto
+    type process_decl = loc * function_proto
+    type method_decl = loc * function_proto 
+    type struct_decl = loc * struct_proto
+    type enum_decl = loc * enum_proto
   end
 )
 
 module TypeEnv = Env.VariableEnv(
   struct 
-    type t = sailtype
-    let string_of_var v = string_of_sailtype (Some v)
+    type t = loc * sailtype
+    let string_of_var (_,v) = string_of_sailtype (Some v)
   end
 ) (
   DeclEnv
@@ -80,25 +80,27 @@ struct
 
     let register_external  name ret args generics (env:DeclEnv.t)  : DeclEnv.t  = 
     let args = List.mapi (fun i t -> (string_of_int i,t)) args  in
-    DeclEnv.add_declaration env name (Method {ret;args;generics})
+    DeclEnv.add_declaration env name (Method (dummy_pos,{ret;args;generics}))
     in
 
     DeclEnv.empty () |> fun d -> 
 
     List.fold_left (
       fun acc m -> 
-        let ret = m.m_proto.rtype 
+        let pos = m.m_proto.pos
+        and ret = m.m_proto.rtype 
         and args = m.m_proto.params 
         and generics = m.m_proto.generics in 
-        DeclEnv.add_declaration acc m.m_proto.name (Method {ret;args;generics})
+        DeclEnv.add_declaration acc m.m_proto.name (Method (pos,{ret;args;generics}))
     ) d m.methods |> fun d ->  
 
     List.fold_left (
-      fun acc m -> 
-        let ret = m.rtype 
+      fun acc (m:method_sig) -> 
+        let pos = m.pos
+        and ret = m.rtype 
         and args = m.params 
         and generics = m.generics in 
-        DeclEnv.add_declaration acc m.name (Method {ret;args;generics})
+        DeclEnv.add_declaration acc m.name (Method (pos,{ret;args;generics}))
     ) d m.ffi 
       
     (* fixme : generalize *)
@@ -112,25 +114,26 @@ struct
 
     List.fold_left (
       fun acc p -> 
-        let ret = None
+        let pos = p.p_pos
+        and ret = None
         and args = fst p.p_interface
         and generics = p.p_generics in 
-        DeclEnv.add_declaration acc p.p_name (Process {ret;args;generics})
+        DeclEnv.add_declaration acc p.p_name (Process (pos,{ret;args;generics}))
     ) d m.processes |> fun d -> 
 
     List.fold_left (
       fun acc s ->  
-        DeclEnv.add_declaration acc s.s_name (Struct {generics=s.s_generics;fields=s.s_fields})
+        DeclEnv.add_declaration acc s.s_name (Struct (s.s_pos, {generics=s.s_generics;fields=s.s_fields}))
     ) d m.structs  |> fun d -> 
 
     List.fold_left (
       fun acc e ->  
-        DeclEnv.add_declaration acc e.e_name (Enum {generics=e.e_generics;injections=e.e_injections})
+        DeclEnv.add_declaration acc e.e_name (Enum (e.e_pos,{generics=e.e_generics;injections=e.e_injections}))
     ) d m.enums 
 
   let get_start_env decls args =
     let env = TypeEnv.empty decls |> TypeEnv.new_frame in
-    List.fold_left (fun m (n,t) -> let* m in TypeEnv.declare_var m n t dummy_pos) (Result.ok env) args
+    List.fold_left (fun m (n,t) -> let* m in TypeEnv.declare_var m n (dummy_pos,t)) (Result.ok env) args
 
   let lower_method (m:T.in_body method_defn) (decls : DeclEnv.t) : T.out_body method_defn result = 
     let* start_env = get_start_env decls m.m_proto.params in
