@@ -46,8 +46,8 @@ module DeclEnv = Env.DeclarationsEnv (
 
 module TypeEnv = Env.VariableEnv(
   struct 
-    type t = loc * sailtype
-    let string_of_var (_,v) = string_of_sailtype (Some v)
+    type t = loc * (bool * sailtype)
+    let string_of_var (_,(_,v)) = string_of_sailtype (Some v)
   end
 ) (
   DeclEnv
@@ -133,7 +133,7 @@ struct
 
   let get_start_env decls args =
     let env = TypeEnv.empty decls |> TypeEnv.new_frame in
-    List.fold_left (fun m (n,t) -> let* m in TypeEnv.declare_var m n (dummy_pos,t)) (Result.ok env) args
+    List.fold_left (fun m (n,t) -> let* m in TypeEnv.declare_var m n (dummy_pos,(false,t))) (Result.ok env) args
 
   let lower_method (m:T.in_body method_defn) (decls : DeclEnv.t) : T.out_body method_defn result = 
     let* start_env = get_start_env decls m.m_proto.params in

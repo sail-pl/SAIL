@@ -33,7 +33,7 @@ struct
   type out_body = expression AstHir.statement
       
 
-  let lower_expression (env : (loc * sailtype) FieldMap.t list * DeclEnv.t) (e : AstParser.expression) : expression ECW.t = 
+  let lower_expression (env : TypeEnv.t) (e : AstParser.expression) : expression ECW.t = 
     let open MonadSyntax(ECW) in
     let open MonadFunctions(ECW) in 
 
