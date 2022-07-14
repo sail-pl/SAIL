@@ -134,3 +134,4 @@ let signatureOfModule m =
   methods = List.map (fun m -> {m with m_body=()}) m.methods;
   processes = List.map (fun p-> {p with p_body=()}) m.processes
 }
+

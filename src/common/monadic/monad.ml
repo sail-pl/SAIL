@@ -126,5 +126,4 @@ module MonadFunctions (M : Monad) = struct
     let open MonadOperator(M) in
       f y >>= (fun y -> pure (x, y))
 end
-
   

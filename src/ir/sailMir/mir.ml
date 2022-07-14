@@ -7,7 +7,7 @@ open Pass
 open MonadOption
 
 
-module C = MonadCounter.M
+module C = MonadState.Counter
 module E = Error.MonadError
 module CE = Error.MonadErrorTransformer(C)
 

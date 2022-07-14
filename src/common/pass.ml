@@ -58,6 +58,7 @@ module type Body = sig
   type in_body
   type out_body
   val lower : in_body declaration_type ->  TypeEnv.t  -> out_body result
+  (*todo : make passes provide a name for debugging *)
 end
 
 
