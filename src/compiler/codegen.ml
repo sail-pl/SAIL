@@ -46,7 +46,7 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
 
 let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: Hir.expression) exts : (sailtype * llvalue) = 
   match x with
-  | Variable (l, x) ->  SailEnv.get_var env x l |> Result.get_ok
+  | Variable (_, x) ->  SailEnv.get_var env x |> Result.get_ok
   | Deref (_, x) -> eval_r env llvm x exts
   | ArrayRead (_, array_exp, index_exp) -> 
     let array_t,array_val = eval_l env llvm array_exp exts in
@@ -228,9 +228,9 @@ let statementToIR (m:llvalue) (x: Hir.statement) (generics: sailor_args) (llvm:l
 
   | Invoke (_, None, name, args) -> construct_call name args env llvm exts |> ignore; env
 
-  | Invoke (l, Some v, name, args) -> 
+  | Invoke (_, Some v, name, args) -> 
     begin
-      match SailEnv.get_var env v l with 
+      match SailEnv.get_var env v with 
       | Error _ -> 
         let x,c = construct_call name args env llvm exts in
         begin

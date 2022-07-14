@@ -16,11 +16,20 @@ module MonoidSeq: Monoid with type t = expression AstHir.statement = struct
   let mconcat = fun x y -> AstHir.Seq (dummy_pos, x,y) 
 end 
 
-module C = MonadCounter.M
+module EnvReader : MonadReader.Read with  type id = DeclEnv.decl_ty and type elt = DeclEnv.decl option and type env = TypeEnv.t  = struct
+  type id = DeclEnv.decl_ty
+  type elt = DeclEnv.decl option
+  type env = TypeEnv.t
+  let read id = fun e -> TypeEnv.get_function e id
+end
+
 module W = MonadWriter.Make (MonoidSeq)
+module R = MonadReader.M(EnvReader)
+module C = MonadState.Counter
 module E = MonadError
-module EC = MonadCounter.T(E)
-module ECW = MonadWriter.MakeTransformer(EC)(MonoidSeq)
+module EC = MonadState.CounterTransformer(E)
+module ECR =  MonadReader.T(EC)(EnvReader)
+module ECRW = MonadWriter.MakeTransformer(ECR)(MonoidSeq)
 
 
 let freshVar n = "_x"^ (string_of_int n)
@@ -33,11 +42,11 @@ struct
   type out_body = expression AstHir.statement
       
 
-  let lower_expression (env : TypeEnv.t) (e : AstParser.expression) : expression ECW.t = 
-    let open MonadSyntax(ECW) in
-    let open MonadFunctions(ECW) in 
+  let lower_expression (e : AstParser.expression) : expression ECRW.t = 
+    let open MonadSyntax(ECRW) in
+    let open MonadFunctions(ECRW) in 
 
-    let rec aux (e : AstParser.expression) : expression ECW.t  = 
+    let rec aux (e : AstParser.expression) : expression ECRW.t  = 
     match e with 
       | loc, AstParser.Variable id  -> return (AstHir.Variable(loc, id))
       | loc, AstParser.Deref e -> 
@@ -64,84 +73,88 @@ struct
       | loc, AstParser.EnumAlloc (id, el) ->
         let+ el = listMapM aux el in  AstHir.EnumAlloc (loc, id, el)
       | loc, MethodCall (id, el) ->
-        let open MonadOperator(E) in 
-        try 
-          let _proto_loc,proto = FieldMap.find id ((snd env).methods) in
-          match proto.ret with 
-            | None ->  Result.error [loc,"error methods in expressions should return a value"] |> EC.lift
-            | Some rtype -> fun n ->
+        let open MonadSyntax(R) in 
+          let* res = R.read (Method id)  in 
+          match res with
+          | Some Method (_proto_loc,proto) -> 
+            begin
+            match proto.ret with 
+            | Some rtype -> 
+              let open MonadSyntax(ECR) in 
+              let* n = EC.fresh |> R.pure in 
               let x = freshVar n in
-              listMapM aux el n >>| fun ((el,_),n') -> 
+              let+ el,_ = listMapM aux el in
               let open MonadSyntax(W) in 
-               (
-                let* () = AstHir.DeclVar (dummy_pos, true, x, Some rtype, None) |> W.write in
-                let+ () = AstHir.Invoke(loc, Some x, id, el) |> W.write in
-                AstHir.Variable (dummy_pos, x)
-                ),n'
-              
-
-      with Not_found -> Result.error [loc, "call to undefined method"] |> EC.lift
+              let* () = AstHir.DeclVar (dummy_pos, true, x, Some rtype, None) |> W.write in
+              let+ () = AstHir.Invoke(loc, Some x, id, el) |> W.write in
+              AstHir.Variable (dummy_pos, x)
+                
+            | None ->  Result.error [loc,"error methods in expressions should return a value"] |> EC.lift |> ECR.lift
+            end
+          | _ -> Result.error [loc, "call to undefined method"] |> EC.lift |> ECR.lift
       in aux e
 
   let buildSeq s1 s2 = AstHir.Seq (dummy_pos, s1, s2)
 
   let lower (c:in_body declaration_type) (env:TypeEnv.t) : out_body E.t = 
-    let open MonadSyntax(EC) in
-    let open MonadFunctions(ECW) in 
+    let open MonadSyntax(ECR) in
+    let open MonadFunctions(ECRW) in 
     let open MonadOperator(E) in 
 
-  let rec aux  : in_body -> out_body EC.t   = function
+  let rec aux  : in_body -> out_body ECR.t   = function
     | l, AstParser.DeclVar (mut, id, t, e ) -> 
       begin match e with 
-        | Some e -> let+ (e, s) = lower_expression env e in 
+        | Some e -> let+ (e, s) = lower_expression e in 
           buildSeq s (AstHir.DeclVar (l, mut,id, t, Some e))
-        | None -> AstHir.DeclVar (l, mut,id, t, None) |> EC.pure
+        | None -> AstHir.DeclVar (l, mut,id, t, None) |> ECR.pure
       end 
 
-    | l, AstParser.DeclSignal s -> AstHir.DeclSignal (l,s) |> EC.pure
-    | l, AstParser.Skip -> AstHir.Skip(l) |> EC.pure
+    | l, AstParser.DeclSignal s -> AstHir.DeclSignal (l,s) |> ECR.pure
+    | l, AstParser.Skip -> AstHir.Skip(l) |> ECR.pure
     | l, AstParser.Assign(e1, e2) ->  
-        let* e1,s1 = lower_expression env e1 in
-        let+ e2,s2 = lower_expression env e2 in
+        let* e1,s1 = lower_expression e1 in
+        let+ e2,s2 = lower_expression e2 in
         AstHir.Seq (dummy_pos, s1, AstHir.Seq (dummy_pos, s2, AstHir.Assign(l, e1, e2)))
     
 
     | l, AstParser.Seq(c1, c2) -> let+ c1 = aux c1 and* c2 = aux c2 in AstHir.Seq(l, c1, c2) 
     | l, AstParser.Par(c1, c2) ->  let+ c1 = aux c1 and* c2 = aux c2 in AstHir.Par(l, c1,c2)
     | l, AstParser.If(e, c1, Some c2) -> 
-      let+ e,s = lower_expression env e and* c1 = aux c1 and* c2 = aux c2 in 
+      let+ e,s = lower_expression e and* c1 = aux c1 and* c2 = aux c2 in 
       AstHir.Seq (dummy_pos, s, AstHir.If(l, e, c1, Some (c2)))
 
     | l, AstParser.If( e, c1, None) -> 
-        let+ (e, s) = lower_expression env e and* c1 = aux c1 in 
+        let+ (e, s) = lower_expression e and* c1 = aux c1 in 
         AstHir.Seq (dummy_pos, s, AstHir.If(l, e, c1, None))
         
     | l, AstParser.While(e, c) -> 
-      let+ (e, s) = lower_expression env e and* c = aux c in
+      let+ (e, s) = lower_expression e and* c = aux c in
       buildSeq s (AstHir.While(l, e,c))
 
  (*   | AstParser.Case(loc, e, cases) -> AstHir.Case (loc, e, List.map (fun (p,c) -> (p, aux c)) cases) *)
-    | l, AstParser.Case(e, _cases) ->  let+ e,s = lower_expression env e in
+    | l, AstParser.Case(e, _cases) ->  let+ e,s = lower_expression e in
         buildSeq s (AstHir.Case (l, e, []))
 
-    | l, AstParser.Invoke(id, el) -> (fun n  -> 
-        listMapM (lower_expression env) el n >>| fun ((el,s),n') -> 
-        buildSeq s (AstHir.Invoke(l, Some (freshVar n'), id, el)),n'+1) 
+    | l, AstParser.Invoke(id, el) -> fun e -> 
+        let open MonadSyntax(EC) in
+        let* (el,s) = listMapM lower_expression el e in
+        let+ n = EC.fresh in 
+        buildSeq s (AstHir.Invoke(l, Some (freshVar n), id, el))
       
     | l, AstParser.Return e -> 
         begin match e with 
-        | None -> AstHir.Return(l, None) |> EC.pure 
-        | Some e -> let+ e,s = lower_expression env e in
+        | None -> AstHir.Return(l, None) |> ECR.pure 
+        | Some e -> let+ e,s = lower_expression e in
           buildSeq s (AstHir.Return(l, Some e))
       end
 
-    | l, AstParser.Run(id, el) -> let+ el,s = listMapM (lower_expression env) el in buildSeq s (AstHir.Run(l, id, el))
+    | l, AstParser.Run(id, el) -> let+ el,s = listMapM lower_expression el in buildSeq s (AstHir.Run(l, id, el))
     | l, AstParser.Loop c -> let+ c = aux c in AstHir.While(l, AstHir.Literal(dummy_pos, LBool true) , c) 
-    | l, AstParser.Emit s -> AstHir.Emit(l,s) |> EC.pure
-    | l, AstParser.Await s -> AstHir.When(l, s, AstHir.Skip(dummy_pos)) |> EC.pure
+    | l, AstParser.Emit s -> AstHir.Emit(l,s) |> ECR.pure
+    | l, AstParser.Await s -> AstHir.When(l, s, AstHir.Skip(dummy_pos)) |> ECR.pure
     | l, AstParser.When (s, c) -> let+ c = aux c in AstHir.When(l, s, c)
     | l, AstParser.Watching(s, c) ->  let+ c = aux c in AstHir.Watching(l, s, c)
     | l, AstParser.Block c -> let+ c = aux c in AstHir.Block(l, c) 
 
-    in aux (c.body) 0 >>| fun (b,_) -> b
+    in aux (c.body) env 0 >>| fun (b,_) -> b
 end
