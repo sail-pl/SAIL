@@ -1,31 +1,45 @@
-open TypesCommon
 open Error
+open Monad
+open MonadFunctions(MonadError)
+open MonadSyntax(MonadError)
+open TypesCommon
 
 
-type body_type = BMethod | BProcess | BEnum | BStruct 
+module type ModulePass = sig
+
+  type in_body
+  type out_body  
+
+  val lower : in_body SailModule.t -> out_body SailModule.t result
+end
 
 
-type function_proto = 
-{
-  ret : sailtype option;
-  args : (string * sailtype) list;
-  generics : string list;
-}
+module type S = sig
+  type in_body
+  type out_body
 
-type enum_proto = 
-{
-  generics : string list;
-  injections : (string * sailtype list) list;
-}
-
-type struct_proto = 
-{
-  generics : string list;
-  fields : (string * sailtype) list
-}
+  val lower : in_body SailModule.t result -> out_body SailModule.t result
+end
 
 
-type 'a declaration_type = 
+
+module Make (T: ModulePass) : S with type in_body = T.in_body and type out_body = T.out_body = 
+struct
+  
+  type in_body = T.in_body
+  type out_body = T.out_body
+      
+
+  let lower (m: T.in_body SailModule.t result) : T.out_body SailModule.t result = 
+    let* m in T.lower m
+end
+
+
+
+type body_type = BMethod | BProcess
+
+
+type 'a function_type = 
 {
   name : string;
   body : 'a;
@@ -35,144 +49,55 @@ type 'a declaration_type =
   pos : loc;
 }
 
-module DeclEnv = Env.DeclarationsEnv (
-  struct
-    type process_decl = loc * function_proto
-    type method_decl = loc * function_proto 
-    type struct_decl = loc * struct_proto
-    type enum_decl = loc * enum_proto
-  end
-)
 
-module TypeEnv = Env.VariableEnv(
-  struct 
-    type t = loc * (bool * sailtype)
-    let string_of_var (_,(_,v)) = string_of_sailtype (Some v)
-  end
-) (
-  DeclEnv
-)
-
-module type Body = sig
-
-  type in_body
-  type out_body
-  val lower : in_body declaration_type ->  TypeEnv.t  -> out_body result
-  (*todo : make passes provide a name for debugging *)
-end
-
-
-module type S = sig
-  type in_body
-  type out_body
-  val lower_module : in_body sailModule result -> out_body sailModule result
-end
-
-
-module Make (T: Body) : S with type in_body = T.in_body and type out_body = T.out_body = 
+module MakeFunctionPass (V : Env.Variable) (T: sig type in_body type out_body val lower_function : in_body function_type -> SailModule.SailEnv(V).t -> out_body result end)   : S with type in_body = T.in_body  and type out_body = T.out_body  = 
 struct
-  open Monad.MonadSyntax(Error.MonadError)
-  
-  type in_body = T.in_body
-  type out_body = T.out_body
 
+type in_body = T.in_body 
+type out_body = T.out_body 
 
-  let collect_declarations (m :T.in_body sailModule) : DeclEnv.t =
+module VEnv = SailModule.SailEnv(V)
 
-    let register_external  name ret args generics (env:DeclEnv.t)  : DeclEnv.t  = 
-    let args = List.mapi (fun i t -> (string_of_int i,t)) args  in
-    DeclEnv.add_declaration env name (Method (dummy_pos,{ret;args;generics}))
-    in
-
-    DeclEnv.empty () |> fun d -> 
-
-    List.fold_left (
-      fun acc m -> 
-        let pos = m.m_proto.pos
-        and ret = m.m_proto.rtype 
-        and args = m.m_proto.params 
-        and generics = m.m_proto.generics in 
-        DeclEnv.add_declaration acc m.m_proto.name (Method (pos,{ret;args;generics}))
-    ) d m.methods |> fun d ->  
-
-    List.fold_left (
-      fun acc (m:method_sig) -> 
-        let pos = m.pos
-        and ret = m.rtype 
-        and args = m.params 
-        and generics = m.generics in 
-        DeclEnv.add_declaration acc m.name (Method (pos,{ret;args;generics}))
-    ) d m.ffi 
-      
-    (* fixme : generalize *)
-    |> register_external "print_int"  None [Int] [] 
-    |> register_external "print_newline"  None [] []
-    |> register_external "print_string"  None [String] []
-    |> register_external "printf"  None [String; GenericType "T"] ["T"]
-
-
-    |> fun d ->
-
-    List.fold_left (
-      fun acc p -> 
-        let pos = p.p_pos
-        and ret = None
-        and args = fst p.p_interface
-        and generics = p.p_generics in 
-        DeclEnv.add_declaration acc p.p_name (Process (pos,{ret;args;generics}))
-    ) d m.processes |> fun d -> 
-
-    List.fold_left (
-      fun acc s ->  
-        DeclEnv.add_declaration acc s.s_name (Struct (s.s_pos, {generics=s.s_generics;fields=s.s_fields}))
-    ) d m.structs  |> fun d -> 
-
-    List.fold_left (
-      fun acc e ->  
-        DeclEnv.add_declaration acc e.e_name (Enum (e.e_pos,{generics=e.e_generics;injections=e.e_injections}))
-    ) d m.enums 
-
-  let get_start_env decls args =
-    let env = TypeEnv.empty decls |> TypeEnv.new_frame in
-    List.fold_left (fun m (n,t) -> let* m in TypeEnv.declare_var m n (dummy_pos,(false,t))) (Result.ok env) args
-
-  let lower_method (m:T.in_body method_defn) (decls : DeclEnv.t) : T.out_body method_defn result = 
-    let* start_env = get_start_env decls m.m_proto.params in
+let lower_method (m:T.in_body method_defn) (decls : SailModule.DeclEnv.t)  = 
+  let start_env = VEnv.get_start_env decls m.m_proto.params in
+  match m.m_body with
+  | Right b -> 
     let decl = {
       name=m.m_proto.name;
-      body=m.m_body;
+      body=b;
       pos=m.m_proto.pos;
       ret=m.m_proto.rtype;
       bt=BMethod;
       generics=m.m_proto.generics
     } in
-    let+ m_body =  T.lower decl start_env  in
-    { m with m_body}
+    let+ b = T.lower_function decl start_env in { m with m_body=Either.right b }
+  | Left x ->  MonadError.pure { m with m_body = Left x}
 
-  let lower_process (p : T.in_body process_defn) (decls : DeclEnv.t) : T.out_body process_defn result= 
-    let* start_env = get_start_env decls (p.p_interface |> fst) in
-    let decl = {
+
+let lower_process (p: T.in_body process_defn) (decls : SailModule.DeclEnv.t)  = 
+  let start_env = VEnv.get_start_env decls (fst p.p_interface) in
+  let decl = {
       name=p.p_name;
       body=p.p_body;
       pos=p.p_pos;
       ret=None;
       bt=BProcess;
       generics=p.p_generics
-    }
-    in let+ p_body = T.lower decl start_env  in
-    { p with p_body}
+  } in
+  let+ p_body = T.lower_function decl start_env in
+  { p with p_body}
 
-    
-  let lower_module (m: T.in_body sailModule result) : T.out_body sailModule result = 
-    let* m in
-      let decls = collect_declarations m in
-      (* DeclEnv.print_declarations decls; *)
-      let methods,m_errors = partition_result (Fun.flip lower_method decls) m.methods
-      and processes,p_errors = partition_result (Fun.flip lower_process decls) m.processes in
 
-      let errors = m_errors @ p_errors in
-      if errors = [] then
-        Ok {m with  methods; processes}    
-      else
-        Error errors
+let lower (m :T.in_body SailModule.t result)  : T.out_body SailModule.t result =
+  let* m in
+  let+ methods = listMapM (Fun.flip lower_method m.declEnv) m.methods 
+  and* processes = listMapM (Fun.flip lower_process m.declEnv) m.processes  in
+  { m with
+    processes;
+    methods;
+  }
+
+
 end
+
+let (|=>) = ()

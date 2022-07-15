@@ -10,8 +10,8 @@ let pp_semi (pf : formatter) (() : unit) : unit = Format.fprintf pf ";"
 
 let pp_semicr (pf : formatter) (() : unit) : unit = Format.fprintf pf ";\n" 
 
-  let pp_field (pp_a : formatter -> 'a -> unit) (pf : formatter) ((x,y) : string * 'a) = 
-    Format.fprintf pf "%s:%a" x pp_a y
+let pp_field (pp_a : formatter -> 'a -> unit) (pf : formatter) ((x,mut,y) : string * bool * 'a) = 
+  Format.fprintf pf "%s [%s]:%a" x (if mut then "mut" else "") pp_a y
 
 (*
 let rec pp_pattern pf p = 
@@ -57,25 +57,27 @@ let pp_binop pf b =
           else Format.fprintf pf "& %a" pp_type t
       | GenericType(s) -> pp_print_string pf s 
 
-let pp_method (pp_a : int -> formatter -> 'a -> unit ) (pf : formatter) (m : 'a method_defn) =
+let pp_method (pp_method_body : int -> formatter -> (tag option, 'a) Either.t -> unit ) (pf : formatter) (m : 'a method_defn) =
   match m.m_proto.rtype with 
   None -> 
     fprintf pf "method %s (%a) {\n%a\n}\n" 
       m.m_proto.name 
       (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) m.m_proto.params 
-      (pp_a 1) m.m_body
+      (pp_method_body 1) m.m_body
   | Some t -> 
     fprintf pf "method %s (%a):%a {\n%a\n}\n" 
       m.m_proto.name 
       (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) m.m_proto.params 
       pp_type t
-      (pp_a 1) m.m_body
+      (pp_method_body 1) m.m_body
 
-let pp_process (pp_a : int -> formatter -> 'a -> unit) (pf : formatter) (p : 'a process_defn) =
+let pp_process (pp_process_body : int -> formatter -> 'a -> unit) (pf : formatter) (p : 'a process_defn) =
   fprintf pf "process %s (-) {\n%a\n}\n" p.p_name 
-  (pp_a 1) p.p_body 
+  (pp_process_body 1) p.p_body 
 
-let pp_program (pp_a : int -> formatter -> 'a -> unit) ((pf : formatter) : formatter) (p : 'a sailModule) = 
-  List.iter (pp_method pp_a pf) p.methods;
-  List.iter (pp_process pp_a pf) p.processes
+let pp_program (pp_method_body : int -> formatter -> (tag option, 'a) Either.t -> unit) 
+(pp_process_body : int -> formatter -> 'a -> unit)
+((pf : formatter) : formatter) (p : 'a SailModule.t) = 
+  List.iter (pp_method pp_method_body pf) p.methods;
+  List.iter (pp_process pp_process_body pf) p.processes
       

@@ -3,8 +3,6 @@ open IrThir
 open Common 
 open TypesCommon
 open Result
-open Pass
-open MonadOption
 
 
 module C = MonadState.Counter
@@ -77,7 +75,7 @@ let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg =
         let right = BlockMap.map 
                       (fun {assignments; terminator} -> 
                         {assignments; 
-                          terminator = M.fmap (rename cfg2.input cfg1.output) terminator}) 
+                          terminator = MonadOption.M.fmap (rename cfg2.input cfg1.output) terminator}) 
                       (BlockMap.remove cfg2.input cfg2.blocks) in       
         BlockMap.add cfg1.output bb (disjointUnion left right)
      }
@@ -194,18 +192,28 @@ let texpr (e : Thir.expression) : AstMir.expression =
 let seqOfList (l : statement list) : statement = 
   List.fold_left (fun s l : statement -> Seq (dummy_pos, s, l)) (Skip dummy_pos) l
 
-module Pass : Body with
-              type in_body = Thir.statement and   
-              type out_body = declaration list * cfg = 
+
+(* todo: modify to use in mir *)
+module V : Env.Variable = 
+  struct 
+  type t = sailtype
+  let string_of_var v = string_of_sailtype (Some v)
+  let to_var _ (t:sailtype) = t
+end
+
+
+open Pass
+
+module Pass = MakeFunctionPass(V)(
 struct
-  type in_body = Thir.statement
+  type in_body = Thir.Pass.out_body
   type out_body = declaration list * cfg
 
 
   open Monad.MonadSyntax(CE)
   open Monad.MonadOperator(C)
 
-  let lower decl _ : (declaration list * cfg)  E.t =
+  let lower_function decl _ : out_body  E.t =
     let rec aux : Thir.statement -> (declaration list * cfg) CE.t = function
       | DeclVar(loc, b, id, Some stype, None) -> 
         
@@ -264,3 +272,4 @@ struct
       | Block (_loc, s) -> aux s
     in aux decl.body 0 |> fst
   end
+)

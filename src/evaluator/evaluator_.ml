@@ -311,11 +311,12 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
         let* (real_params,h0) = 
         foldLeftM (fun (vl,h0) e -> let* (v,h1) = eval env h0 e in return (v::vl, h1)) ([], h) el in 
         match List.find_opt (fun m -> m.m_proto.name = x) p with
+
         | None ->
             let* h' = ExternalsImplementation.extern h0 x real_params in
             return (Continue, EvalEnv.Env.emptyFrame, h')
         | Some callee -> (
-            let formal_params = List.map fst callee.m_proto.params in
+            let formal_params = List.map (fun (id,_,_) -> id) callee.m_proto.params in
             let l, h' = freshn h0 (List.length real_params) in
             let varmap =
               List.map
@@ -327,11 +328,18 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
               foldLeftM setLocation h' (List.combine l values)
             in
             let w = List.fold_left EvalEnv.Env.merge EvalEnv.Env.emptyFrame varmap in
-            let c = Domain.initCommand callee.m_body in
-            let* r, w, h = aux (Block (c, w)) EvalEnv.Env.empty h'' in
-            match r with
-            | Ret -> return (Continue, w, h)
-            | _ -> throwError MissingReturnStatement))
+            (
+            match callee.m_body with
+            | Either.Left _ -> failwith "impossible"
+            | Either.Right b -> 
+                let c = Domain.initCommand b in
+                let* r, w, h = aux (Block (c, w)) EvalEnv.Env.empty h'' in
+                match r with
+                | Ret -> return (Continue, w, h)
+                | _ -> throwError MissingReturnStatement)
+                )
+            )
+
     | Return -> 
         return (Ret, EvalEnv.Env.emptyFrame, h)
     | Emit s ->

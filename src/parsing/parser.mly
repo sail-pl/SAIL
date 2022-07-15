@@ -21,7 +21,8 @@
 (**************************************************************************)
 
 %{
-    open Common.TypesCommon
+    open Common
+    open TypesCommon
     open AstParser
 %}
 %token TYPE_BOOL TYPE_INT TYPE_FLOAT TYPE_CHAR TYPE_STRING
@@ -61,7 +62,7 @@
 
 %nonassoc ELSE
 
-%start <string -> statement sailModule> sailModule
+%start <string -> statement SailModule.t> sailModule
 
 %type <expression> expression 
 %type <sailtype> sailtype
@@ -83,13 +84,14 @@ let defn :=
 | ENUM ; name = ID ; g = generic ; fields = brace_del_sep_list(",", enum_elt) ;
     {Enum {e_pos=$loc;e_name=name; e_generics=g; e_injections=fields}}
 | proto = fun_sig ; body = block ; 
-    {Method {m_proto=proto; m_body = body}}
+    {Method [{m_proto=proto; m_body = Either.right body}]}
 | PROCESS ; name = UID ; generics=generic ; interface=delimited("(",interface,")") ; body =block ;
     {Process ({p_pos=$loc;p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
-| EXTERN ; ~ = brace_del_sep_list(";", fun_sig) ; <Ffi>
+| EXTERN ; lib=STRING? ; protos = brace_del_sep_list(";", fun_sig) ;
+    {let protos = List.map (fun p -> {m_proto=p; m_body= Either.left lib}) protos in Method protos}
 
 
-let fun_sig :=  METHOD ; name=ID ; generics=generic ; params = delimited("(",separated_list(",", id_colon(sailtype)),")") ; rtype=returnType ; 
+let fun_sig :=  METHOD ; name=ID ; generics=generic ; params = delimited("(",separated_list(",", id_colon_mut(sailtype)),")") ; rtype=returnType ; 
     {({pos=$loc;name=name; generics=generics; params=params ; rtype=rtype})}
 
 
@@ -107,8 +109,8 @@ let returnType := preceded(":", sailtype)?
 let interface :=
 | {([],[])}
 | SIGNAL ; signals = separated_nonempty_list(",",ID); {([], signals)}
-| VAR ; global = separated_nonempty_list(",",id_colon(sailtype)) ; {(global, [])}
-| VAR ; ~ = separated_nonempty_list(",", id_colon(sailtype)) ; ";" ; SIGNAL ; ~ = separated_nonempty_list(",",ID) ; <>
+| VAR ; global = separated_nonempty_list(",",id_colon_mut(sailtype)) ; {(global, [])}
+| VAR ; ~ = separated_nonempty_list(",", id_colon_mut(sailtype)) ; ";" ; SIGNAL ; ~ = separated_nonempty_list(",",ID) ; <>
 
 
 let simpl_expression := 
@@ -143,6 +145,8 @@ let expression :=
 
 
 let id_colon(X) := ~ =ID ; ":" ; ~ = X ; <>
+
+let id_colon_mut(X) := ~ = ID ; COLON ; ~ = boption(MUT) ; ~ = X ; <>
 
 
 let literal :=
