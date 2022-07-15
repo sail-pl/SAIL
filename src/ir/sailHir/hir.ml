@@ -1,6 +1,5 @@
 open SailParser
 open Common
-open Pass
 open TypesCommon
 open Monad
 open Monoid
@@ -16,11 +15,20 @@ module MonoidSeq: Monoid with type t = expression AstHir.statement = struct
   let mconcat = fun x y -> AstHir.Seq (dummy_pos, x,y) 
 end 
 
-module EnvReader : MonadReader.Read with  type id = DeclEnv.decl_ty and type elt = DeclEnv.decl option and type env = TypeEnv.t  = struct
-  type id = DeclEnv.decl_ty
-  type elt = DeclEnv.decl option
-  type env = TypeEnv.t
-  let read id = fun e -> TypeEnv.get_function e id
+
+module V : Env.Variable = struct 
+type t = unit
+let string_of_var _ = ""
+let to_var _ _ = ()
+end
+
+module HIREnv = SailModule.SailEnv(V)
+  
+module EnvReader : MonadReader.Read with  type id = HIREnv.decl_ty and type elt = HIREnv.decl option and type env = HIREnv.t  = struct
+  type id = HIREnv.decl_ty
+  type elt = HIREnv.decl option
+  type env = HIREnv.t
+  let read id = fun e -> HIREnv.get_function e id
 end
 
 module W = MonadWriter.Make (MonoidSeq)
@@ -34,9 +42,7 @@ module ECRW = MonadWriter.MakeTransformer(ECR)(MonoidSeq)
 
 let freshVar n = "_x"^ (string_of_int n)
 
- module Pass : Body with
-              type in_body = AstParser.statement and   
-              type out_body = expression AstHir.statement  =  
+module Pass = Pass.MakeFunctionPass (V)(
 struct
   type in_body = AstParser.statement
   type out_body = expression AstHir.statement
@@ -96,7 +102,7 @@ struct
 
   let buildSeq s1 s2 = AstHir.Seq (dummy_pos, s1, s2)
 
-  let lower (c:in_body declaration_type) (env:TypeEnv.t) : out_body E.t = 
+  let lower_function (c:in_body Pass.function_type) (env:HIREnv.t) : out_body E.t = 
     let open MonadSyntax(ECR) in
     let open MonadFunctions(ECRW) in 
     let open MonadOperator(E) in 
@@ -156,5 +162,7 @@ struct
     | l, AstParser.Watching(s, c) ->  let+ c = aux c in AstHir.Watching(l, s, c)
     | l, AstParser.Block c -> let+ c = aux c in AstHir.Block(l, c) 
 
-    in aux (c.body) env 0 >>| fun (b,_) -> b
+    in aux c.body env 0 >>| fun (b,_) -> b
+      
 end
+ )

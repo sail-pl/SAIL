@@ -7,21 +7,38 @@ open Monad
 
 module E = MonadError
 
+module V = (
+  struct 
+    type t = loc * bool * sailtype
+    let string_of_var (_,_,t) = string_of_sailtype (Some t)
+
+    let to_var (m:bool) (t:sailtype) = (dummy_pos),m,t
+
+  end
+)
+module THIREnv = SailModule.SailEnv(V)
 
 
-module VarState  : MonadState.StateEnv with  type id =  string and type elt = TypeEnv.variable result and type state = TypeEnv.t result  = struct
+module VarState  : MonadState.StateEnv with  type id =  string and type elt = THIREnv.variable result and type state = THIREnv.t result  = struct
   open Monad.MonadSyntax(E)
 
   type id = string
-  type elt = TypeEnv.variable result
-  type state = TypeEnv.t result
-  let get id (e:state) : elt = let* e in TypeEnv.get_var e id
-  let set id (x:elt) (e:state) : state = let* e and* x in TypeEnv.declare_var e id x
+  type elt = THIREnv.variable result
+  type state = THIREnv.t result
+  let get id (e:state) : elt = let* e in THIREnv.get_var e id
+  let set id (x:elt) (e:state) : state = let* e and*  l,_,_ as x = x in THIREnv.declare_var e id l x
+end
+
+module EnvReader : MonadReader.Read with  type id = THIREnv.decl_ty and type elt = THIREnv.decl option and type env = THIREnv.t  = struct
+  type id = THIREnv.decl_ty
+  type elt = THIREnv.decl option
+  type env = THIREnv.t
+  let read id = fun e -> THIREnv.get_function e id
 end
 
 module S = MonadState.M(VarState)
 module ES = MonadState.T(E)(VarState)
-module ER = MonadReader.T(E)(Hir.EnvReader)
+module ER = MonadReader.T(E)(EnvReader)
 
 
 open MonadSyntax(E)
@@ -72,11 +89,9 @@ let type_of_binOp (op:binOp) (operands_type:sailtype) : sailtype = match op with
   | Lt | Le | Gt | Ge | Eq | NEq | And | Or -> Bool
   | Plus | Mul | Div | Minus | Rem -> operands_type
 
-module Pass  : Body with
-              type in_body = Hir.statement and   
-              type out_body = statement  = 
+module Pass = Pass.MakeFunctionPass(V)(
 struct
-  type in_body = Hir.statement
+  type in_body = Hir.Pass.out_body
   type out_body = statement
 
    
@@ -125,7 +140,7 @@ struct
         in
         let* resolved_generics = List.fold_left2 
         (
-          fun g ca (_,a) ->
+          fun g ca (_,_,a) ->
             let* g in 
             let+ x = matchArgParam (extract_exp_loc_ty ca) a f.generics g |> ER.lift in
             snd x
@@ -148,7 +163,7 @@ struct
     | AstHir.Variable (l,id) -> 
       let* v = ES.get id in 
       let open MonadSyntax(E) in
-      (let+  (_,(_,t)) = v in (AstHir.Variable((l,t),id) : expression)) |> ES.lift
+      (let+  (_,_,t) = v in (AstHir.Variable((l,t),id) : expression)) |> ES.lift
       
     | AstHir.Deref (l,e) -> let* e = aux e in
       begin
@@ -197,7 +212,7 @@ struct
     in aux e
 
 
-  let lower (decl:in_body declaration_type) (env:TypeEnv.t) : out_body Error.result = 
+  let lower_function (decl:in_body function_type) (env:THIREnv.t) : out_body Error.result = 
     let open MonadSyntax(ES) in 
 
     let rec aux s : expression AstHir.statement ES.t = 
@@ -215,7 +230,7 @@ struct
             | (None,None) -> Result.error [l,"can't infere type with no expression"] |> ES.lift
             
           in
-          let* () = ES.set id ((l,(mut,var_type)) |> Result.ok) in 
+          let* () = ES.set id ((l,mut,var_type) |> Result.ok) in 
           match optexp with
           | None -> AstHir.DeclVar (l,mut,id,Some var_type,None) |> ES.pure
           | Some e -> let+ e in AstHir.DeclVar (l,mut,id,Some var_type,Some e)
@@ -280,7 +295,7 @@ struct
         let open MonadSyntax(E) in
         match s with 
         | Ok env -> 
-           let+ res,te' = aux c (Pass.TypeEnv.new_frame env |> Result.ok) in AstHir.Block(loc,res),te'
+           let+ res,te' = aux c (THIREnv.new_frame env |> Result.ok) in AstHir.Block(loc,res),te'
         | Error e -> Error e
         end
 
@@ -312,4 +327,5 @@ struct
     in 
     let open MonadSyntax(E) in
     let+ res = aux decl.body (Result.ok env) in fst res
-end
+  end
+)

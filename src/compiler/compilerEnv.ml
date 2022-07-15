@@ -13,12 +13,15 @@ end
 
 module DeclEnv = DeclarationsEnv (Declarations)
 
-module SailEnv = VariableEnv (
+module SailEnv = VariableDeclEnv (DeclEnv)(
   struct 
-    type t = sailtype * llvalue
-    let string_of_var (t,_) = string_of_sailtype (Some t)
+    type t = bool * sailtype
+    let string_of_var (_,t) = string_of_sailtype (Some t)
+
+    let to_var (m:bool) (t:sailtype) = m,t
+
   end
-) (DeclEnv)
+) 
 
 let declare_method (llc:llcontext) (llm:llmodule) (name:string) (m:sailor_method) (decls:DeclEnv.t) : DeclEnv.t = 
   let llvm_rt = match m.decl.ret with
@@ -34,7 +37,7 @@ let declare_method (llc:llcontext) (llm:llmodule) (name:string) (m:sailor_method
 
 let get_declarations (funs:sailor_functions ) llc llm : DeclEnv.t = 
   Logs.debug (fun m -> m "generating llvm declarations");
-  DeclEnv.empty ()
+  DeclEnv.empty
   |> FieldMap.fold (declare_method llc llm) funs
   (* todo : enums & structs *)
 

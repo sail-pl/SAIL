@@ -1,16 +1,19 @@
 open Monad
-
+open TypesCommon
 open Lexing
 module E = MenhirLib.ErrorReports
 
 
 let show_context text (p1,p2) =
-  let p1 = { p1 with pos_cnum=p1.pos_bol}
-  and p2 = { p2 with pos_cnum= String.index_from text p2.pos_cnum '\n'}  in
+  let p1 = { p1 with pos_cnum=p1.pos_bol} 
+  and p2 = match String.index_from_opt text p2.pos_cnum '\n' with
+  | Some pos_cnum ->  { p2 with pos_cnum } 
+  | None -> p2
+  in
   E.extract text (p1,p2) |> E.sanitize
 
 
-type error_type = (TypesCommon.loc * string) list
+type error_type = (loc * string) list
 
 type 'a result = ('a, error_type) Result.t
 
@@ -20,7 +23,7 @@ let print_errors (file:string) (errs:error_type) : unit =
     fun s (l,msg) ->
       if l = (dummy_pos,dummy_pos) then
         (
-        Logs.warn (fun m -> m "No location for error");
+        Logs.info (fun m -> m "No location for error");
         msg
         )
       else

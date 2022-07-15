@@ -20,7 +20,8 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Common.TypesCommon
+open Common
+open TypesCommon
 
 (* expressions are control free *)
 type expression = loc * expression_ and expression_ = 
@@ -66,23 +67,63 @@ type statement = loc * statement_ and statement_ =
 type defn =
   | Struct of struct_defn
   | Enum of enum_defn
-  | Method of statement method_defn
+  | Method of statement method_defn list
   | Process of statement process_defn
-  | Ffi of method_sig list
 
-let mk_program name l =
-  let rec aux l =
-    match l with
-      [] -> ([],[],[],[],[])
+
+let mk_program name l : statement SailModule.t =
+  let open SailModule in
+  let register_external  name ret args generics (env:DeclEnv.t)  : DeclEnv.t  = 
+    let args = List.mapi (fun i t -> (string_of_int i,false,t)) args  in
+    DeclEnv.add_declaration env name (Method (dummy_pos,{ret;args;generics}))
+  in
+
+  let rec aux = function
+    |  [] -> (DeclEnv.empty,[],[])
     | d::l ->
-      let (s,e,m,p,ext) = aux l in
+      let (e,m,p) = aux l in
         match d with
-          | Struct d -> (d::s,e,m,p,ext)
-          | Enum d -> (s,d::e,m,p,ext)
-          | Method d -> (s,e,d::m,p,ext)
-          | Process d -> (s,e,m,d::p,ext)
-          | Ffi d -> (s,e,m,p,d::ext)
+          | Struct d -> 
+            let env = DeclEnv.add_declaration e d.s_name 
+            (Struct (d.s_pos, {generics=d.s_generics;fields=d.s_fields})) in
+            (env,m,p)
+
+          | Enum d -> 
+            let env = DeclEnv.add_declaration e d.e_name 
+            (Enum (d.e_pos,{generics=d.e_generics;injections=d.e_injections})) in
+            (env,m,p)
+
+          | Method d -> 
+            let env,funs = 
+            List.fold_left (fun (e,f) d -> 
+              let env = 
+                let pos = d.m_proto.pos
+                and ret = d.m_proto.rtype 
+                and args = d.m_proto.params 
+                and generics = d.m_proto.generics in 
+                DeclEnv.add_declaration e d.m_proto.name 
+                (Method (pos,{ret;args;generics})) in
+                (env,d::f)
+              ) (e,m) d in (env,funs,p)
+          | Process d ->
+            let env = 
+              let pos = d.p_pos
+              and ret = None
+              and args = fst d.p_interface
+              and generics = d.p_generics in 
+              DeclEnv.add_declaration e d.p_name 
+              (Process (pos,{ret;args;generics}))
+            in (env,m,d::p)
   in 
-  let (s,e,m,p,ext) = aux l in 
-    {name = name; structs = s; enums =e; methods=m; processes=p; ffi=List.flatten ext}
+  let (declEnv,methods,processes) = aux l in 
+
+    (* fixme : will be replaced by sailLib/ffi *)
+    let declEnv = 
+      declEnv
+      |> register_external "print_int"  None [Int] [] 
+      |> register_external "print_newline"  None [] []
+      |> register_external "print_string"  None [String] []
+      |> register_external "printf"  None [String; GenericType "T"] ["T"] in
+
+    {name;declEnv;methods;processes}
 

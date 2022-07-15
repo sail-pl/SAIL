@@ -17,7 +17,7 @@ let print_error_position lexbuf =
 
 
 
-let fastParse filename : (string * AstParser.statement Common.TypesCommon.sailModule, string) Result.t =
+let fastParse filename : (string * AstParser.statement Common.SailModule.t, string) Result.t =
   let text, lexbuf = L.read filename in
   match Parser.sailModule read_token lexbuf with
   | v -> Result.ok (text,(v filename))
@@ -77,7 +77,7 @@ let slowParse filename text =
 
 
 
-let parse_program filename : string * (AstParser.statement Common.TypesCommon.sailModule, Common.Error.error_type) Result.t =   
+let parse_program filename : string * (AstParser.statement Common.SailModule.t, Common.Error.error_type) Result.t =   
   match fastParse filename with
   | Result.Ok (txt,sm) -> txt,Result.ok sm
   | Result.Error txt -> txt,slowParse filename txt

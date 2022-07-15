@@ -11,12 +11,12 @@ let saili (files: string list) (intermediate:bool) () =
     begin
       match Parsing.parse_program f  with
       | _,Ok(p) ->
-        let signatures =  [TypesCommon.signatureOfModule p; ExternalsInterfaces.exSig] in 
+        let signatures =  [SailModule.signatureOfModule p; ExternalsInterfaces.exSig] in 
         let p' = Translator.program_translate signatures p in
         if intermediate then (
           let file_w = f ^ ".intermediate" |> open_out in
-          let output = Format.formatter_of_out_channel file_w in
-          Format.fprintf output "%a\n" (PpCommon.pp_program Intermediate.pp_print_command) p'
+          let output = Format.formatter_of_out_channel file_w in 
+          Format.fprintf output "%a\n" (PpCommon.pp_program Intermediate.pp_print_method Intermediate.pp_print_command) p'
         );
         let c = List.find_opt (fun n -> String.equal n.p_name "Main") p'.processes in
         begin 

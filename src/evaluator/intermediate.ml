@@ -135,3 +135,9 @@ let rec pp_print_command (n : int) (pf : Format.formatter) (c : statement) : uni
   | Watching (s, c) -> Format.fprintf pf "%swatch %s \n%a" (String.make n '\t') s (pp_print_command (n +1)) c
   | Par (c1, c2) ->
       Format.fprintf pf "%a || %a" (pp_print_command (n+1)) c1 (pp_print_command (n+1))c2
+
+
+let pp_print_method (n : int) (pf : Format.formatter) (c : (string option,statement) Either.t) : unit = 
+  match Either.find_right c with
+  | Some c -> pp_print_command n pf c
+  | None -> ()

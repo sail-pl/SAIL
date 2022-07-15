@@ -48,13 +48,14 @@ let pathOfExpression ( e :Intermediate.expression) : Intermediate.path * Interme
   | _ -> 
     let x = freshVar () in (Intermediate.Variable x, [Assign (Intermediate.Variable x, e) ])
 
-let fetch_rtype (p : moduleSignature list) (id : string) : sailtype option =
+let fetch_rtype (p : SailModule.moduleSignature list) (id : string) : sailtype option =
+  let open  SailModule in
   let open MonadSyntax(MonadOption.M) in
-  let l = List.concat_map (fun m-> m.methods) p in
+  let l = List.concat_map (fun m -> m.methods) p in
   let* m = List.find_opt (fun m -> m.m_proto.name = id) l in 
   m.m_proto.rtype
 
-let removeCalls (p : moduleSignature list) (e : expression) : Intermediate.expression * Intermediate.statement list = 
+let removeCalls (p : SailModule.moduleSignature list) (e : expression) : Intermediate.expression * Intermediate.statement list = 
   let open M in
   let open MonadSyntax(M) in
   let open MonadFunctions(M) in
@@ -117,7 +118,7 @@ let removeCalls (p : moduleSignature list) (e : expression) : Intermediate.expre
       | None -> failwith ("Error in fetching return type in method : "^id)
     in aux e
 
-let mkCall (p : moduleSignature list) ((x,m,el) : string * string * Intermediate.expression list) =
+let mkCall (p : SailModule.moduleSignature list) ((x,m,el) : string * string * Intermediate.expression list) =
   match fetch_rtype p m with 
     Some t ->
      [
@@ -138,7 +139,7 @@ let rec normalize (c : Intermediate.statement) : Intermediate.statement =
     | Intermediate.Seq(Intermediate.Seq(c1, c2), c3) ->  normalize (Intermediate.Seq (c1, Seq (c2, c3)))
     | _ -> c
 
-let translate (p : moduleSignature list) (t : statement) : Intermediate.statement  = 
+let translate (p : SailModule.moduleSignature list) (t : statement) : Intermediate.statement  = 
   let rec aux t : Intermediate.statement = 
   match (snd t) with 
       | DeclVar (b,x,t,e) -> 
@@ -202,21 +203,22 @@ let translate (p : moduleSignature list) (t : statement) : Intermediate.statemen
         in aux t
 
 (* If the return type is non void, we add a parameter to hold the result *)
-let method_translator (prg :  moduleSignature list) (m : statement method_defn) : Intermediate.statement method_defn =
+let method_translator (prg :  SailModule.moduleSignature list) (m : statement method_defn) : Intermediate.statement method_defn =
   let params =       
     match m.m_proto.rtype with 
       None -> m.m_proto.params
-    | Some t -> m.m_proto.params@[(resvar, RefType(t,true))]
+    | Some t -> m.m_proto.params@[(resvar, false,RefType(t,true))]
   in
+  let open MonadSyntax(MonadEither.Make((struct type t = string option end))) in
   {
     m_proto = {m.m_proto with params};
-    m_body = translate prg m.m_body
+    m_body = let+ b = m.m_body in translate prg b
   }
 
-let process_translator (prg : moduleSignature list)  (p : statement process_defn) : Intermediate.statement process_defn =
+let process_translator (prg : SailModule.moduleSignature list)  (p : statement process_defn) : Intermediate.statement process_defn =
   {p with p_body = translate prg p.p_body}
 
-let program_translate (prg : moduleSignature list) (p : statement sailModule) : Intermediate.statement sailModule = 
+let program_translate (prg : SailModule.moduleSignature list) (p : statement SailModule.t) : Intermediate.statement SailModule.t = 
   {
     p with methods = List.map (method_translator prg) p.methods;
     processes = List.map (process_translator prg) p.processes

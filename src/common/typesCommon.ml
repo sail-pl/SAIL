@@ -23,7 +23,7 @@
 module FieldMap = Map.Make (String)
 
 type loc = Lexing.position * Lexing.position
-let dummy_pos = Lexing.dummy_pos,Lexing.dummy_pos
+let dummy_pos : loc = Lexing.dummy_pos,Lexing.dummy_pos
 
 type sailtype =
   | Bool 
@@ -97,7 +97,7 @@ type 'a process_defn =
   p_pos : loc;
   p_name : string;
   p_generics : string list;
-  p_interface : (string * sailtype) list * string list;
+  p_interface : (string * bool * sailtype) list * string list;
   p_body : 'a
 }
 
@@ -106,32 +106,31 @@ type method_sig =
   pos : loc;
   name : string; 
   generics : string list;
-  params : (string * sailtype) list;
+  params : (string * bool * sailtype) list;
   rtype : sailtype option;
 }
 
 type 'a method_defn =  
 {
   m_proto : method_sig;
-  m_body : 'a
+  m_body : (string option,'a) Either.t
+}
+type enum_proto = 
+{
+  generics : string list;
+  injections : (string * sailtype list) list;
 }
 
-type 'a sailModule =
+type struct_proto = 
 {
-  name : string;
-  structs : struct_defn list;
-  enums : enum_defn list;
-  methods : 'a method_defn list ;
-  processes : 'a process_defn list;
-  ffi : method_sig list
+  generics : string list;
+  fields : (string * sailtype) list
 }
 
-type moduleSignature = unit sailModule
-
-let signatureOfModule m =
+type function_proto = 
 {
-  m with
-  methods = List.map (fun m -> {m with m_body=()}) m.methods;
-  processes = List.map (fun p-> {p with p_body=()}) m.processes
+  ret : sailtype option;
+  args : (string * bool * sailtype) list;
+  generics : string list;
 }
 

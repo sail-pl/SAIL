@@ -1,5 +1,6 @@
 open Llvm
-open Common.TypesCommon
+open Common
+open TypesCommon
 open IrHir
 
 type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; }
@@ -112,3 +113,28 @@ let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
   | LString s -> build_global_stringptr  s ".str" llvm.b
 
 
+(* temporary pass, convert Main process into a method, throws error if not found or other processes exist *)
+
+open Monad.MonadSyntax(Common.Error.MonadError)
+
+
+  module Pass = Pass.Make( struct
+
+  type in_body = IrMir.Mir.Pass.out_body
+  type out_body  = in_body
+
+  let method_of_main_process (p:in_body process_defn list) : out_body method_defn Error.result = 
+    match List.find_opt (fun p -> p.p_name = "Main") p with
+    | Some p -> 
+      let m_proto = {pos=p.p_pos; name=p.p_name; generics = p.p_generics; params = fst p.p_interface; rtype=None} 
+      and m_body = Either.right p.p_body in
+      {m_proto; m_body} |> Result.ok
+    | None -> Result.error [dummy_pos, "no Main process found"]
+
+  let lower (m : in_body SailModule.t)  : out_body SailModule.t Error.result =
+  let+ main = method_of_main_process m.processes in
+  { m with
+    methods= main :: m.methods;
+  } 
+end
+)

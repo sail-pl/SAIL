@@ -91,13 +91,16 @@ let ppPrintMethodSig (pf : Format.formatter) (s : Common.TypesCommon.method_sig)
     fprintf pf "%s(%a) -> %a" s.name (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) s.params pp_type t
 
 let ppPrintMethod (pf : Format.formatter) (m: (declaration list * cfg) Common.TypesCommon.method_defn) : unit = 
-  fprintf pf  "fn %a{\n%a\n%a}\n"  ppPrintMethodSig m.m_proto (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) (fst m.m_body) ppPrintCfg (snd m.m_body)
+  match m.m_body with
+  | Right (decls,cfg) ->  fprintf pf  "fn %a{\n%a\n%a}\n"  ppPrintMethodSig m.m_proto (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) decls ppPrintCfg cfg
+  | Left _ -> fprintf pf "fn "
+ 
 
 let ppPrintProcess (pf : Format.formatter) (p : (declaration list * cfg) Common.TypesCommon.process_defn) : unit = 
   fprintf pf  "proc {\n%a\n%a}\n" (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) (fst p.p_body) ppPrintCfg (snd p.p_body)
 
 
-let ppPrintModule (pf : Format.formatter) (m : (declaration list * cfg) Common.TypesCommon.sailModule ) : unit = 
+let ppPrintModule (pf : Format.formatter) (m : (declaration list * cfg) Common.SailModule.t ) : unit = 
   fprintf pf "// Sail MIR Representation: %s\n%a \n%a" m.name 
   (pp_print_list ppPrintMethod) m.methods
   (pp_print_list ~pp_sep:pp_comma ppPrintProcess) m.processes

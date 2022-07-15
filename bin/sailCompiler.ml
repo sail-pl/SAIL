@@ -8,14 +8,13 @@ open IrThir
 open IrHir
 open IrMir
 open Compiler
-open CompilerCommon
-open Codegen
-open TypeChecker
+(* open CompilerCommon *)
+(* open Codegen *)
 open CompilerEnv
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
 
-let moduleToIR (name:string) (funs,exts : sailor_functions * sailor_external string_assoc) (dump_decl:bool) : llmodule  = 
+let moduleToIR (name:string) (funs) (dump_decl:bool) : llmodule  = 
   let module FieldMap = Map.Make (String) in
 
   let llc = global_context () in
@@ -25,11 +24,11 @@ let moduleToIR (name:string) (funs,exts : sailor_functions * sailor_external str
 
   if dump_decl then failwith "not done yet";
 
-  let env = SailEnv.empty globals in
+  let _env = SailEnv.empty globals in
   
-  FieldMap.iter (fun name f  -> 
-    let f = methodToIR llc llm env name f exts in
-    Llvm_analysis.assert_valid_function f
+  FieldMap.iter (fun _name _f  -> ()
+    (* let f = methodToIR llc llm env name f exts in
+    Llvm_analysis.assert_valid_function f *)
     ) funs;
   
   match Llvm_analysis.verify_module llm with
@@ -98,12 +97,8 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         enable_pretty_stacktrace ();
         install_fatal_error_handler error_handler;
 
-        let module Hir = Pass.Make(Hir.Pass) in
-        let module Thir = Pass.Make(Thir.Pass) in
-        let module Mir = Pass.Make(Mir.Pass) in
-
         let fcontent,sail_module = Parsing.parse_program f in
-        let sail_module = sail_module |> Hir.lower_module |> Thir.lower_module |> Mir.lower_module in
+        let sail_module = sail_module |> Hir.Pass.lower |> Thir.Pass.lower |> Mir.Pass.lower |> CompilerCommon.Pass.lower in
         begin
 
         match sail_module with
@@ -115,9 +110,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
 
           close_out mir_debug;
 
-
-          let funs = Parsing.parse_program f |> snd |> Hir.lower_module |> Result.get_ok |> type_check_module in (* fixme : this will be removed when mir is done*)
-          let llm = moduleToIR module_name funs dump_decl in
+          let llm = moduleToIR module_name (TypesCommon.FieldMap.empty) dump_decl in
           let tm = init_llvm llm in
 
           if not noopt then 
