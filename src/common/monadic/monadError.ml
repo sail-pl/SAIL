@@ -20,40 +20,41 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Common.TypesCommon
+open Monad
 
+module type ErrorMonad  = sig 
+  include Monad 
 
-type 'a expression = 
-  | Variable of 'a * string 
-  | Deref of 'a * 'a expression 
-  | StructRead of 'a * 'a expression * string
-  | ArrayRead of 'a * 'a expression * 'a expression  
-  | Literal of 'a * literal
-  | UnOp of 'a * unOp * 'a expression
-  | BinOp of 'a * binOp * 'a expression * 'a expression
-  | Ref of 'a * bool * 'a expression
-  | ArrayStatic of 'a * 'a expression list
-  | StructAlloc of 'a * string * 'a expression FieldMap.t
-  | EnumAlloc of 'a * string * 'a expression list 
+  type error
+  val throwError : error -> 'a t
+  val catchError : 'a t -> (error -> 'a t) -> 'a t
+end
+
+module ErrorMonadOption : ErrorMonad with type 'a t = 'a option and type error = unit = struct 
+
+  include MonadOption.M
   
+  type error = unit 
 
-type 'a statement =
-  | DeclVar of loc * bool * string * sailtype option * 'a option 
-  | DeclSignal of loc * string
-  | Skip of loc
-  | Assign of loc * 'a * 'a
-  | Seq of loc * 'a statement * 'a statement
-  | Par of loc * 'a statement * 'a statement
-  | If of loc * 'a * 'a statement * 'a statement option
-  | While of loc * 'a * 'a statement
-  | Case of loc * 'a * (string * string list * 'a statement) list
-  | Invoke of loc * string option * string * 'a list
-  | Return of loc * 'a option
-  | Run of loc * string * 'a list
-  | Emit of loc * string
-  | Await of loc * string
-  | When of loc * string * 'a statement
-  | Watching of loc * string * 'a statement
-  | Block of loc * 'a statement
+  let throwError () = None 
 
+  let catchError x f = match x with Some _ -> x | None -> f () 
   
+end
+
+
+module ErrorMonadEither = struct
+
+  module Make (T : Type) : ErrorMonad with type 'a t = (T.t, 'a) Either.t and type error = T.t = struct 
+   
+    include MonadEither.Make(T)
+    
+    type error = T.t
+
+    let throwError e = Either.Left e 
+
+    let catchError x f = 
+      match x with Either.Right _ -> x | Either.Left e -> f e 
+
+  end 
+end

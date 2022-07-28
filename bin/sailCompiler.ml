@@ -1,3 +1,4 @@
+open SailParser
 open CliCommon
 open Cmdliner
 open Llvm
@@ -5,29 +6,29 @@ open Llvm_target
 open Common
 open IrThir
 open IrHir
+open IrMir
 open Compiler
-open CompilerCommon
-open Codegen
-open TypeChecker
-open Env
+(* open CompilerCommon *)
+(* open Codegen *)
+open CompilerEnv
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
 
-let moduleToIR (name:string) (funs : sailor_functions) (dump_decl:bool) : llmodule  = 
+let moduleToIR (name:string) (funs) (dump_decl:bool) : llmodule  = 
   let module FieldMap = Map.Make (String) in
 
   let llc = global_context () in
   let llm = create_module llc (name ^ ".sl") in
 
-  let globals = Globals.get_declarations funs llc llm in
+  let globals = get_declarations funs llc llm in
 
-  if dump_decl then Globals.write_declarations globals name;
+  if dump_decl then failwith "not done yet";
 
-  let env = SailEnv.empty globals in
+  let _env = SailEnv.empty globals in
   
-  FieldMap.iter (fun name f  -> 
-    let f = methodToIR llc llm env name f in
-    Llvm_analysis.assert_valid_function f
+  FieldMap.iter (fun _name _f  -> ()
+    (* let f = methodToIR llc llm env name f exts in
+    Llvm_analysis.assert_valid_function f *)
     ) funs;
   
   match Llvm_analysis.verify_module llm with
@@ -91,49 +92,52 @@ let execute (llm:llmodule) =
 let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () = 
   let rec aux = function
   | f::r -> 
-    let file_r = open_in f in
-    let lexbuf = Lexing.from_channel file_r in
     let module_name = Filename.chop_extension (Filename.basename f) in
     begin
-      match parse_program lexbuf with
-      | Ok p ->
         enable_pretty_stacktrace ();
         install_fatal_error_handler error_handler;
 
-        let module HirPass = Pass.Make(Hir.Pass) in
-        let module ThirPass = Pass.Make(Thir.Pass) in
-        
-        let sail_module = p module_name |> HirPass.translate_module (* |> ThirPass.translate_module *) in
+        let fcontent,sail_module = Parsing.parse_program f in
+        let sail_module = sail_module |> Hir.Pass.lower |> Thir.Pass.lower |> Mir.Pass.lower |> CompilerCommon.Pass.lower in
+        begin
 
-        let funs = type_check_module sail_module in
-        let llm = moduleToIR module_name funs dump_decl in
-        let tm = init_llvm llm in
+        match sail_module with
+        | Ok m ->
+          
+          let mir_debug = module_name ^ "_mir" |> open_out in
 
-        if not noopt then 
-          begin
-            let open PassManager in
-            let pm = create () in add_passes pm;
-            let res = run_module llm pm in
-            Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
-            dispose pm
-          end
-        ;
+          Format.fprintf (Format.formatter_of_out_channel mir_debug) "%a" Pp_mir.ppPrintModule m;
 
-        if intermediate then print_module (module_name ^ ".ll") llm;
+          close_out mir_debug;
 
-        if not (intermediate || jit) then
-          begin
-            let ret = compile llm module_name tm in
-            if ret <> 0 then
-              (Printf.sprintf "clang couldn't execute properly (error %i)" ret |> failwith);
-          end;
+          let llm = moduleToIR module_name (TypesCommon.FieldMap.empty) dump_decl in
+          let tm = init_llvm llm in
 
-        if jit then execute llm else dispose_module llm;
+          if not noopt then 
+            begin
+              let open PassManager in
+              let pm = create () in add_passes pm;
+              let res = run_module llm pm in
+              Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
+              dispose pm
+            end
+          ;
 
-        aux r
-        
-      | Error e ->`Error (false, e)
-    end
+          if intermediate then print_module (module_name ^ ".ll") llm;
+
+          if not (intermediate || jit) then
+            begin
+              let ret = compile llm module_name tm in
+              if ret <> 0 then
+                (Fmt.str "clang couldn't execute properly (error %i)" ret |> failwith);
+            end;
+
+          if jit then execute llm else dispose_module llm;
+
+          aux r
+        | Error errlist -> Error.print_errors fcontent errlist; `Error(false, "compilation aborted")
+        end
+            end
   | [] -> `Ok ()
   
   in 

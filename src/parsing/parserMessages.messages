@@ -1,0 +1,126 @@
+sailModule: ENUM ID LANGLE WHILE
+##
+## Ends in an error in state: 3.
+##
+## generic -> LANGLE . loption(separated_nonempty_list(COMMA,UID)) RANGLE [ LPAREN LBRACE ]
+##
+## The known suffix of the stack is as follows:
+## LANGLE
+##
+
+expected generic type
+
+
+sailModule: METHOD ID LPAREN ID WHILE
+##
+## Ends in an error in state: 12.
+##
+## id_colon(sailtype) -> ID . COLON sailtype [ SEMICOLON RPAREN RBRACE COMMA ]
+##
+## The known suffix of the stack is as follows:
+## ID
+##
+
+expected ':'
+
+sailModule: METHOD ID LPAREN ID COLON WHILE
+##
+## Ends in an error in state: 13.
+##
+## id_colon(sailtype) -> ID COLON . sailtype [ SEMICOLON RPAREN RBRACE COMMA ]
+##
+## The known suffix of the stack is as follows:
+## ID COLON
+##
+
+expected type
+
+sailModule: PROCESS WHILE
+##
+## Ends in an error in state: 46.
+##
+## defn -> PROCESS . UID generic LPAREN interface RPAREN block [ STRUCT PROCESS METHOD EXTERN EOF ENUM ]
+##
+## The known suffix of the stack is as follows:
+## PROCESS
+##
+
+process name must begin with a capital letter
+
+
+sailModule: METHOD ID LPAREN RPAREN LBRACE VAR ID WHILE
+##
+## Ends in an error in state: 153.
+##
+## single_statement -> VAR mut ID . COLON sailtype [ SEMICOLON RBRACE PAR ELSE COMMA ]
+## single_statement -> VAR mut ID . COLON sailtype ASSIGN expression [ SEMICOLON RBRACE PAR ELSE COMMA ]
+## single_statement -> VAR mut ID . ASSIGN expression [ SEMICOLON RBRACE PAR ELSE COMMA ]
+## single_statement -> VAR mut ID . [ SEMICOLON RBRACE PAR ELSE COMMA ]
+##
+## The known suffix of the stack is as follows:
+## VAR mut ID
+##
+
+expected var type/assignment, or new statement
+
+sailModule: METHOD ID LPAREN RPAREN LBRACE ID LPAREN RPAREN WHILE
+##
+## Ends in an error in state: 176.
+##
+## expression -> ID LPAREN loption(separated_nonempty_list(COMMA,expression)) RPAREN . [ REM RANGLE PLUS OR NEQ MUL MINUS LE LANGLE GE EQ DIV ASSIGN AND ]
+## single_statement -> ID LPAREN loption(separated_nonempty_list(COMMA,expression)) RPAREN . [ SEMICOLON RBRACE PAR ELSE COMMA ]
+##
+## The known suffix of the stack is as follows:
+## ID LPAREN loption(separated_nonempty_list(COMMA,expression)) RPAREN
+##
+
+expected operator or new statement
+
+sailModule: METHOD ID LPAREN RPAREN LBRACE RETURN SEMICOLON TYPE_STRING
+##
+## Ends in an error in state: 222.
+##
+## statement_seq -> single_statement SEMICOLON . [ RBRACE PAR COMMA ]
+## statement_seq -> single_statement SEMICOLON . statement_seq [ RBRACE PAR COMMA ]
+##
+## The known suffix of the stack is as follows:
+## single_statement SEMICOLON
+##
+
+expected new statement
+
+sailModule: METHOD ID WHILE
+##
+## Ends in an error in state: 243.
+##
+## fun_sig -> METHOD ID . generic LPAREN loption(separated_nonempty_list(COMMA,id_colon(sailtype))) RPAREN returnType [ SEMICOLON RBRACE LBRACE ]
+##
+## The known suffix of the stack is as follows:
+## METHOD ID
+##
+
+invalid method prototype
+
+sailModule: METHOD ID LPAREN WHILE
+##
+## Ends in an error in state: 245.
+##
+## fun_sig -> METHOD ID generic LPAREN . loption(separated_nonempty_list(COMMA,id_colon(sailtype))) RPAREN returnType [ SEMICOLON RBRACE LBRACE ]
+##
+## The known suffix of the stack is as follows:
+## METHOD ID generic LPAREN
+##
+
+expected method arguments (missing right parenthesis ?)
+
+sailModule: EXTERN LBRACE RBRACE WHILE
+##
+## Ends in an error in state: 278.
+##
+## list(defn) -> defn . list(defn) [ EOF ]
+##
+## The known suffix of the stack is as follows:
+## defn
+##
+
+incorrect declaration type. Possibilities are method,process,enum,struct

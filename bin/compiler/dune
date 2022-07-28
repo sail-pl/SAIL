@@ -1,3 +1,0 @@
-(library
- (libraries common logs irHir parser llvm llvm.analysis llvm.executionengine llvm.scalar_opts llvm.all_backends)
- (name compiler))

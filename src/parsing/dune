@@ -1,0 +1,66 @@
+; taken from https://gitlab.inria.fr/fpottier/menhir/-/blob/master/demos/calc-syntax-errors/dune
+
+
+(library
+ (name sailParser)
+ (libraries common menhirLib)
+)
+
+(ocamllex lexer)
+
+
+; --------------------------
+; generate two versions of the parser : one for speed and one for error handling
+; --------------------------
+
+(menhir
+ (modules parser))
+
+(menhir
+ (modules unitActionsParser)
+ (flags --table --external-tokens Parser))
+
+
+
+(rule
+ (action
+  (with-stdout-to
+   unitActionsParser.mly
+   (run menhir %{dep:parser.mly} --only-preprocess-u))))
+
+
+; --------------------------
+; .messages file handling
+; --------------------------
+
+(rule
+;  (deps parserMessages.check)
+ (action
+  (with-stdout-to
+   parserMessages.ml
+   (run
+    menhir
+    %{dep:parser.mly}
+    --compile-errors
+    %{dep:parserMessages.messages}))))
+
+
+; messages completeness check
+
+(rule
+ (with-stdout-to
+  parserMessages.auto.messages
+  (run menhir %{dep:parser.mly} --list-errors)))
+
+
+
+; (rule
+;  (with-stdout-to
+;   parserMessages.check
+;   (run
+;    menhir
+;    %{dep:parser.mly}
+;    --compare-errors
+;    %{dep:parserMessages.auto.messages}
+;    --compare-errors
+;    %{dep:parserMessages.messages})))

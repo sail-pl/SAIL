@@ -8,11 +8,6 @@
   120
   $ sailor helloworld.sl --run
   Hello World
-  $ sailor min2.sl --run
-  3
-  $ sailor minArrayGeneric.sl --run
-  2
-  0.100000
   $ sailor minArray.sl --run
   2
   $ sailor min.sl --run
@@ -25,8 +20,6 @@
   55
   Hello
   $ sailor sum.sl --run
-  $ sailor testInnerGenericity2.sl --run
-  3
   $ sailor testReturnVal.sl --run
   1
   $ sailor while1.sl --run

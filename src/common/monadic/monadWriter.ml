@@ -20,40 +20,42 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Common.TypesCommon
+open Monad 
+open Monoid
 
 
-type 'a expression = 
-  | Variable of 'a * string 
-  | Deref of 'a * 'a expression 
-  | StructRead of 'a * 'a expression * string
-  | ArrayRead of 'a * 'a expression * 'a expression  
-  | Literal of 'a * literal
-  | UnOp of 'a * unOp * 'a expression
-  | BinOp of 'a * binOp * 'a expression * 'a expression
-  | Ref of 'a * bool * 'a expression
-  | ArrayStatic of 'a * 'a expression list
-  | StructAlloc of 'a * string * 'a expression FieldMap.t
-  | EnumAlloc of 'a * string * 'a expression list 
-  
+module type Writer = sig 
+  include MonadTransformer
+  type elt 
+  val write : elt -> unit t
+end
 
-type 'a statement =
-  | DeclVar of loc * bool * string * sailtype option * 'a option 
-  | DeclSignal of loc * string
-  | Skip of loc
-  | Assign of loc * 'a * 'a
-  | Seq of loc * 'a statement * 'a statement
-  | Par of loc * 'a statement * 'a statement
-  | If of loc * 'a * 'a statement * 'a statement option
-  | While of loc * 'a * 'a statement
-  | Case of loc * 'a * (string * string list * 'a statement) list
-  | Invoke of loc * string option * string * 'a list
-  | Return of loc * 'a option
-  | Run of loc * string * 'a list
-  | Emit of loc * string
-  | Await of loc * string
-  | When of loc * string * 'a statement
-  | Watching of loc * string * 'a statement
-  | Block of loc * 'a statement
+module type T = functor (M : Monad)  -> functor (Mi : Monoid) -> Writer
 
-  
+module MakeTransformer (M : Monad) (T : Monoid)  : Writer with type 'a t = ('a * T.t) M.t and type elt = T.t  and type 'a old_t = 'a M.t = struct 
+  open MonadSyntax(M)
+
+  type elt = T.t
+
+  type 'a old_t = 'a M.t
+
+  type 'a t = ('a * T.t) old_t
+
+
+  let fmap (f:'a -> 'b) (x : 'a t) : 'b t = let+ x,l = x in (f x, l)
+  let pure (x: 'a) : 'a t = M.pure (x,T.mempty)
+
+  let apply (f:('a -> 'b) t) (x: 'a t) : 'b t = 
+    let+ f,l1 = f and* v,l2 = x in f v,T.mconcat l1 l2
+
+
+  let bind (x:'a t) (f : ('a -> 'b t)) : 'b t = 
+    let* v,l1 = x in 
+    let+ v,l2 = f v in v, T.mconcat l1 l2
+
+  let lift (x:'a M.t) : 'a t = let+ x in x,T.mempty
+
+  let write (x:elt) : 'a t = M.pure ((),x)
+end
+
+module Make = MakeTransformer(MonadIdentity)

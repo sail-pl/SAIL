@@ -3,22 +3,20 @@ open Common
 open TypesCommon
 open CliCommon
 open Evaluator
+open SailParser
 
 let saili (files: string list) (intermediate:bool) () = 
   let rec aux = function
   | f::r -> 
-    let file_r = open_in f in
-    let lexbuf = Lexing.from_channel file_r in
     begin
-      match parse_program lexbuf with
-      | Ok(p) ->
-        let p = p (Filename.chop_extension (Filename.basename f)) in
-        let signatures =  [TypesCommon.signatureOfModule p; ExternalsInterfaces.exSig] in 
+      match Parsing.parse_program f  with
+      | _,Ok(p) ->
+        let signatures =  [SailModule.signatureOfModule p; ExternalsInterfaces.exSig] in 
         let p' = Translator.program_translate signatures p in
         if intermediate then (
           let file_w = f ^ ".intermediate" |> open_out in
-          let output = Format.formatter_of_out_channel file_w in
-          Format.fprintf output "%a\n" (PpCommon.pp_program Intermediate.pp_print_command) p'
+          let output = Format.formatter_of_out_channel file_w in 
+          Format.fprintf output "%a\n" (PpCommon.pp_program Intermediate.pp_print_method Intermediate.pp_print_command) p'
         );
         let c = List.find_opt (fun n -> String.equal n.p_name "Main") p'.processes in
         begin 
@@ -31,11 +29,11 @@ let saili (files: string list) (intermediate:bool) () =
         | [] -> `Ok ()
         | l ->  aux l
         end;
-      | Error(e) ->`Error (false, e)
+      | fcontent,Error(errlist) -> Common.Error.print_errors fcontent errlist; `Error (false, "evaluation aborted")
     end
   | [] -> `Ok ()
   
-in aux files
+in try aux files with | e -> `Error (false,Printexc.to_string e)
         
 
 let intermediate_arg = intermediate_arg "generate intermediate code"

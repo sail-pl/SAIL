@@ -20,40 +20,35 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
-open Common.TypesCommon
+open Monad 
 
+module T (M: Monad )   : MonadTransformer 
+  with type 'a t = 'a option M.t  and  type 'a old_t  := 'a M.t  = struct
 
-type 'a expression = 
-  | Variable of 'a * string 
-  | Deref of 'a * 'a expression 
-  | StructRead of 'a * 'a expression * string
-  | ArrayRead of 'a * 'a expression * 'a expression  
-  | Literal of 'a * literal
-  | UnOp of 'a * unOp * 'a expression
-  | BinOp of 'a * binOp * 'a expression * 'a expression
-  | Ref of 'a * bool * 'a expression
-  | ArrayStatic of 'a * 'a expression list
-  | StructAlloc of 'a * string * 'a expression FieldMap.t
-  | EnumAlloc of 'a * string * 'a expression list 
-  
+  open MonadSyntax(M)
 
-type 'a statement =
-  | DeclVar of loc * bool * string * sailtype option * 'a option 
-  | DeclSignal of loc * string
-  | Skip of loc
-  | Assign of loc * 'a * 'a
-  | Seq of loc * 'a statement * 'a statement
-  | Par of loc * 'a statement * 'a statement
-  | If of loc * 'a * 'a statement * 'a statement option
-  | While of loc * 'a * 'a statement
-  | Case of loc * 'a * (string * string list * 'a statement) list
-  | Invoke of loc * string option * string * 'a list
-  | Return of loc * 'a option
-  | Run of loc * string * 'a list
-  | Emit of loc * string
-  | Await of loc * string
-  | When of loc * string * 'a statement
-  | Watching of loc * string * 'a statement
-  | Block of loc * 'a statement
+  type 'a t = 'a option M.t
+
+  let pure x : 'a t = M.pure (Some x)
+
+  let fmap (f:'a -> 'b) (x : 'a t) : 'b t =
+    let+ x in match x with 
+    | Some v -> Some (f v) 
+    | _ -> None
+
+  let apply (f:('a -> 'b) t) (x: 'a t) : 'b t = 
+    let* f in match f with 
+    | Some f -> fmap f x
+    | None -> M.pure None
 
   
+  let bind (x:'a t) (f : ('a -> 'b t)) : 'b t = 
+    let* x in match x with 
+    | Some x -> f x 
+    | _ -> M.pure None
+
+  let lift (x:'a M.t) : 'a t = let+ x in Some x
+end
+
+
+module M = T(MonadIdentity)
