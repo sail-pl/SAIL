@@ -1,7 +1,6 @@
 open Llvm
 open Common
 open TypesCommon
-open IrHir
 
 type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; }
 
@@ -15,41 +14,9 @@ type sailor_decl =
 	args : sailor_args;
 }
 
-type sailor_method = 
-{
-	decl : sailor_decl ;
-	body: Hir.statement;
-  generics : sailor_args
-}
-
-type sailor_process = 
-{
-  args : sailor_args;
-  body: Hir.statement;
-  generics : sailor_args
-}
-
-type function_type = FExternal | FMethod | FProcess
-
-type sailor_function = 
-{
-  name : string;
-  r_type : sailtype option;
-  args : sailor_args;
-  generics : string list;
-  body : Hir.statement option;
-  ty : function_type
-}
-
-type sailor_functions = sailor_method FieldMap.t
 
 type varTypesMap = sailtype FieldMap.t List.t (* List is used for scoping *)
 
-type sailor_callables = {
-  methodMap : sailor_method FieldMap.t;
-  processMap : sailor_process FieldMap.t;
-    (* todo : structs & enum *)
-}
 
 type sailor_external = {
   call : llvalue array -> llvm_args -> llvalue * llvalue array;
@@ -111,6 +78,13 @@ let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
   | LFloat f -> const_float (double_type llvm.c) f
   | LChar c -> const_int (i8_type llvm.c) (Char.code c)
   | LString s -> build_global_stringptr  s ".str" llvm.b
+
+let sailtype_of_literal = function
+  | LBool _ -> Bool
+  | LFloat _ -> Float
+  | LInt _ -> Int
+  | LChar _ -> Char
+  | LString _ -> String
 
 
 (* temporary pass, convert Main process into a method, throws error if not found or other processes exist *)
