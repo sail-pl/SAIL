@@ -1,8 +1,10 @@
+open Common.TypesCommon
+
 type expression = IrThir.Thir.expression
 type statement = IrThir.Thir.statement
 
-type declaration = {location : Common.TypesCommon.loc; mut : bool; id : string; varType : Common.TypesCommon.sailtype}
-type assignment = {location : Common.TypesCommon.loc; target : expression; expression : expression}
+type declaration = {location : loc; mut : bool; id : string; varType : sailtype}
+type assignment = {location : loc; target : expression; expression : expression}
 
 type label = int
 

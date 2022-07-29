@@ -211,34 +211,24 @@ struct
 
 
   open Monad.MonadSyntax(CE)
-  open Monad.MonadOperator(C)
 
   let lower_function decl _ : out_body  E.t =
     let rec aux : Thir.statement -> (declaration list * cfg) CE.t = function
       | DeclVar(loc, b, id, Some stype, None) -> 
-        
-        emptyBasicBlock >>| fun bb ->
-        (
-          [{location=loc; mut=b; id=id; varType=stype}],bb
-        ) |> E.lift
+        let+ bb = emptyBasicBlock |> CE.lift in
+        [{location=loc; mut=b; id=id; varType=stype}],bb
 
       | DeclVar(loc, b, id, Some stype, Some e) -> 
-        assignBasicBlock ({location=loc; target=Variable ((loc, stype), id); expression = texpr e})
-        >>| fun bn ->
-        ( 
-          [{location=loc; mut=b; id=id; varType=stype}],bn
-          (* ++ other statements *)
-        ) |> E.lift
+        let+ bn = assignBasicBlock ({location=loc; target=Variable ((loc, stype), id); expression = texpr e}) |> CE.lift in
+        [{location=loc; mut=b; id=id; varType=stype}],bn
+        (* ++ other statements *)
 
       | DeclVar _ as s -> error [Thir.extract_statements_loc s, "Declaration should have type "] |> C.lift (* -> add generic parameter to statements *)
 
-      | Skip _ -> 
-        emptyBasicBlock >>| fun bb -> ([],  bb) |> E.lift
+      | Skip _ -> let+ bb = emptyBasicBlock |> CE.lift in ([],  bb)
+
       | Assign (loc, e1, e2) -> 
-        assignBasicBlock ({location=loc; target=texpr e1; expression = texpr e2}) >>| fun bb ->
-        (
-          [],bb
-        ) |> E.lift
+        let+ bb = assignBasicBlock ({location=loc; target=texpr e1; expression = texpr e2}) |> CE.lift in [],bb
         
       | Seq (_, s1, s2) ->
         let+ d1, cfg1 = aux s1 and* d2, cfg2 = aux s2 in
@@ -246,25 +236,26 @@ struct
 
       | If (_loc, e, s, None) -> 
         let* d, cfg = aux s in
-        buildIfThen (texpr e) cfg >>| fun ite ->
-        (d,ite) |> E.lift
+        let+ ite = buildIfThen (texpr e) cfg |> CE.lift in
+        (d,ite) 
         
       | If (_loc, e, s1, Some s2) -> 
         let* d1,cfg1 = aux s1 and* d2,cfg2 = aux s2 in
-        buildIfThenElse (texpr e) cfg1 cfg2 >>| fun ite ->
-        (d1@d2, ite) |> E.lift
+        let+ ite = buildIfThenElse (texpr e) cfg1 cfg2 |> CE.lift in
+        (d1@d2, ite) 
 
       | While (_loc, e, s) ->  
         let* d, cfg = aux s in 
-        buildLoop (texpr e) cfg >>| fun l -> 
-        (d, l) |> E.lift
+        let+ l = buildLoop (texpr e) cfg |> CE.lift in
+        (d, l)
         
-      | Invoke (_loc, _, id, el) -> buildInvoke id (List.map texpr el) >>| fun invoke ->
-        ([], invoke) |> E.lift
+      | Invoke (_loc, _, id, el) -> let+ invoke = buildInvoke id (List.map texpr el) |> CE.lift in
+        ([], invoke)
+
       | Return (_, e) ->
         let e = match e with None -> None | Some e -> Some (texpr e) in 
-        buildReturn e >>| fun ret ->
-        ([], ret) |> E.lift
+        let+ ret =  buildReturn e |> CE.lift in
+        ([], ret)
 
       | Run _ | Emit _ | Await _ | When _  | Watching _ 
       | Par _  | Case _ | DeclSignal _ as s -> error [Thir.extract_statements_loc s, "unimplemented"] |> C.lift
