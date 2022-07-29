@@ -18,10 +18,11 @@ module type DeclEnvType = sig
   val add_declaration : t -> string -> decl -> t
   val find_declaration : t -> decl_ty -> decl option
   val write_declarations : t -> string -> unit
+  val print_declarations : t -> unit
 end
 
 
-module DeclarationsEnv (D:Declarations) = struct
+module DeclarationsEnv (D:Declarations)  = struct
   type t = {
     methods : D.method_decl FieldMap.t;
     processes : D.process_decl FieldMap.t;

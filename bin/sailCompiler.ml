@@ -14,22 +14,21 @@ open CompilerEnv
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
 
-let moduleToIR (name:string) (funs) (dump_decl:bool) : llmodule  = 
+let moduleToIR (name:string) methods (dump_decl:bool) : llmodule  = 
   let module FieldMap = Map.Make (String) in
 
   let llc = global_context () in
   let llm = create_module llc (name ^ ".sl") in
 
-  let globals = get_declarations funs llc llm in
+  let funs = get_declarations methods llc llm in
 
   if dump_decl then failwith "not done yet";
 
-  let _env = SailEnv.empty globals in
+  let _env = SailEnv.empty funs in
   
-  FieldMap.iter (fun _name _f  -> ()
-    (* let f = methodToIR llc llm env name f exts in
-    Llvm_analysis.assert_valid_function f *)
-    ) funs;
+  (* FieldMap.iter (fun  (m:_ TypesCommon.method_defn)  -> 
+    methodToIR llc llm x env |> Llvm_analysis.assert_valid_function
+  ) funs; *)
   
   match Llvm_analysis.verify_module llm with
   | None -> llm
