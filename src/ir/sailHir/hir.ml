@@ -74,8 +74,8 @@ struct
       | loc, MethodCall (id, el) ->
         let open MonadSyntax(R) in 
           let* env = R.read  in 
-          match HIREnv.get_function env (Method id) with
-          | Some Method (_proto_loc,proto) -> 
+          match HIREnv.get_method env id with
+          | Some (_proto_loc,proto) -> 
             begin
             match proto.ret with 
             | Some rtype -> 

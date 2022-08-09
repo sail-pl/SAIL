@@ -76,7 +76,7 @@ let mk_program name l : statement SailModule.t =
   let open SailModule in
   let register_external  name ret args generics (env:DeclEnv.t)  : DeclEnv.t  = 
     let args = List.mapi (fun i t -> (string_of_int i,false,t)) args  in
-    DeclEnv.add_declaration env name (Method (dummy_pos,{ret;args;generics}))
+    DeclEnv.add_method env name (dummy_pos,{ret;args;generics})
   in
 
   let rec aux = function
@@ -85,13 +85,13 @@ let mk_program name l : statement SailModule.t =
       let (e,m,p) = aux l in
         match d with
           | Struct d -> 
-            let env = DeclEnv.add_declaration e d.s_name 
-            (Struct (d.s_pos, {generics=d.s_generics;fields=d.s_fields})) in
+            let env = DeclEnv.add_struct e d.s_name 
+            (d.s_pos, {generics=d.s_generics;fields=d.s_fields}) in
             (env,m,p)
 
           | Enum d -> 
-            let env = DeclEnv.add_declaration e d.e_name 
-            (Enum (d.e_pos,{generics=d.e_generics;injections=d.e_injections})) in
+            let env = DeclEnv.add_enum e d.e_name 
+            (d.e_pos,{generics=d.e_generics;injections=d.e_injections}) in
             (env,m,p)
 
           | Method d -> 
@@ -102,8 +102,8 @@ let mk_program name l : statement SailModule.t =
                 and ret = d.m_proto.rtype 
                 and args = d.m_proto.params 
                 and generics = d.m_proto.generics in 
-                DeclEnv.add_declaration e d.m_proto.name 
-                (Method (pos,{ret;args;generics})) in
+                DeclEnv.add_method e d.m_proto.name 
+                (pos,{ret;args;generics}) in
                 (env,d::f)
               ) (e,m) d in (env,funs,p)
           | Process d ->
@@ -112,8 +112,8 @@ let mk_program name l : statement SailModule.t =
               and ret = None
               and args = fst d.p_interface
               and generics = d.p_generics in 
-              DeclEnv.add_declaration e d.p_name 
-              (Process (pos,{ret;args;generics}))
+              DeclEnv.add_process e d.p_name 
+              (pos,{ret;args;generics})
             in (env,m,d::p)
   in 
   let (declEnv,methods,processes) = aux l in 
