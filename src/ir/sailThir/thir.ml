@@ -18,27 +18,15 @@ module V = (
 )
 module THIREnv = SailModule.SailEnv(V)
 
-
-module VarState  : MonadState.StateEnv with  type id =  string and type elt = THIREnv.variable result and type state = THIREnv.t result  = struct
-  open Monad.MonadSyntax(E)
-
-  type id = string
-  type elt = THIREnv.variable result
-  type state = THIREnv.t result
-  let get id (e:state) : elt = let* e in THIREnv.get_var e id
-  let set id (x:elt) (e:state) : state = let* e and*  l,_,_ as x = x in THIREnv.declare_var e id l x
+module ES = struct
+  include MonadState.T(E)(THIREnv)
+  (* todo : add get/set *)
 end
 
-module EnvReader : MonadReader.Read with  type id = THIREnv.decl_ty and type elt = THIREnv.decl option and type env = THIREnv.t  = struct
-  type id = THIREnv.decl_ty
-  type elt = THIREnv.decl option
-  type env = THIREnv.t
-  let read id = fun e -> THIREnv.get_function e id
+module ER = struct
+  include MonadReader.T(E)(THIREnv)
+  (* todo : add get/set *)
 end
-
-module S = MonadState.M(VarState)
-module ES = MonadState.T(E)(VarState)
-module ER = MonadReader.T(E)(EnvReader)
 
 
 open MonadSyntax(E)
@@ -128,8 +116,8 @@ struct
 
   let check_call (name:string) (args: expression list) loc : sailtype option ER.t =
     let open MonadSyntax(ER) in
-    let* call = ER.read (Method name) in
-    match call with
+    let* env = ER.read in
+    match THIREnv.get_function env (Method name) with
     | Some (Method (_l,f)) -> 
       begin
         let nb_args = List.length args and nb_params = List.length f.args in
@@ -161,9 +149,9 @@ struct
   let open MonadSyntax(ES) in
   let rec aux (e:Hir.expression) : expression ES.t = match e with
     | AstHir.Variable (l,id) -> 
-      let* v = ES.get id in 
+      let* v = ES.get in 
       let open MonadSyntax(E) in
-      (let+  (_,_,t) = v in (AstHir.Variable((l,t),id) : expression)) |> ES.lift
+      (let+  (_,_,t) = THIREnv.get_var v id in (AstHir.Variable((l,t),id) : expression)) |> ES.lift
       
     | AstHir.Deref (l,e) -> let* e = aux e in
       begin
@@ -230,7 +218,7 @@ struct
             | (None,None) -> Result.error [l,"can't infere type with no expression"] |> ES.lift
             
           in
-          let* () = ES.set id ((l,mut,var_type) |> Result.ok) in 
+          let* () = ES.update (fun st -> THIREnv.declare_var st id l (l,mut,var_type) ) in 
           match optexp with
           | None -> AstHir.DeclVar (l,mut,id,Some var_type,None) |> ES.pure
           | Some e -> let+ e in AstHir.DeclVar (l,mut,id,Some var_type,Some e)
@@ -271,9 +259,8 @@ struct
       | AstHir.Invoke(loc, var, id, el) -> (* todo: handle var *) fun e ->
         let open MonadSyntax(E) in
         let* el,e' = listMapM (Fun.flip lower_expression decl.generics) el e in 
-        let* e' in
         let+ _ = check_call id el loc e' in
-        AstHir.Invoke(loc, var, id,el),e' |> E.pure
+        AstHir.Invoke(loc, var, id,el),e'
 
       | AstHir.Return(l, None) as r -> 
         if decl.ret = None then r |> ES.pure else Result.error [l,"void return"] |> ES.lift
@@ -291,14 +278,9 @@ struct
             AstHir.Return(l, Some e)
           end
 
-      | AstHir.Block (loc, c) -> begin fun s ->
+      | AstHir.Block (loc, c) -> fun s ->
         let open MonadSyntax(E) in
-        match s with 
-        | Ok env -> 
-           let+ res,te' = aux c (THIREnv.new_frame env |> Result.ok) in AstHir.Block(loc,res),te'
-        | Error e -> Error e
-        end
-
+           let+ res,te' = aux c (THIREnv.new_frame s) in AstHir.Block(loc,res),te'
       | AstHir.Skip (loc) -> AstHir.Skip(loc) |> ES.pure
 
       | s when decl.bt = Pass.BMethod -> 
@@ -312,9 +294,8 @@ struct
       | AstHir.Run(loc, id, el) -> fun e ->
         let open MonadSyntax(E) in
         let* el,e = listMapM (Fun.flip lower_expression decl.generics) el e in
-        let* e in
         let+ _ = check_call id el loc e in
-        AstHir.Run(loc, id, el),e |> Result.ok
+        AstHir.Run(loc, id, el),e
 
       | AstHir.Par(loc, c1, c2) -> 
         let* c1 = aux c1 in
@@ -326,6 +307,6 @@ struct
 
     in 
     let open MonadSyntax(E) in
-    let+ res = aux decl.body (Result.ok env) in fst res
+    let+ res = aux decl.body env in fst res
   end
 )
