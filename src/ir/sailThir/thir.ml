@@ -117,8 +117,8 @@ struct
   let check_call (name:string) (args: expression list) loc : sailtype option ER.t =
     let open MonadSyntax(ER) in
     let* env = ER.read in
-    match THIREnv.get_function env (Method name) with
-    | Some (Method (_l,f)) -> 
+    match THIREnv.get_method env name with
+    | Some (_l,f) -> 
       begin
         let nb_args = List.length args and nb_params = List.length f.args in
         let* () = if nb_args <> nb_params 
@@ -143,7 +143,6 @@ struct
       end
 
     | None -> Result.error [loc,"unknown method " ^ name] |> ER.lift
-    | _ -> Result.error [loc,"problem with env"] |> ER.lift
 
   let lower_expression (e : Hir.expression) (generics : string list): expression ES.t = 
   let open MonadSyntax(ES) in

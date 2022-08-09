@@ -1,16 +1,15 @@
 open TypesCommon
 
-
-module DeclEnv = Env.DeclarationsEnv( 
-struct
+module Declarations = struct
   type process_decl = loc * function_proto
   type method_decl = loc * function_proto 
   type struct_decl = loc * struct_proto
   type enum_decl = loc * enum_proto
 end
-)
 
-module SailEnv = Env.VariableDeclEnv(DeclEnv) 
+module DeclEnv = Env.DeclarationsEnv(Declarations)
+
+module SailEnv = Env.VariableDeclEnv(Declarations) 
 
 type 'a t =
 {

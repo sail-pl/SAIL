@@ -9,26 +9,24 @@ open IrHir
 open IrMir
 open Compiler
 (* open CompilerCommon *)
-(* open Codegen *)
+open Codegen
 open CompilerEnv
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
 
-let moduleToIR (name:string) methods (dump_decl:bool) : llmodule  = 
+let moduleToIR (name:string) (m:Mir.Pass.out_body SailModule.t) (dump_decl:bool) : llmodule  = 
   let module FieldMap = Map.Make (String) in
 
   let llc = global_context () in
   let llm = create_module llc (name ^ ".sl") in
 
-  let funs = get_declarations methods llc llm in
+  let funs = get_declarations m llc llm in
 
   if dump_decl then failwith "not done yet";
 
-  let _env = SailEnv.empty funs in
-  
-  (* FieldMap.iter (fun  (m:_ TypesCommon.method_defn)  -> 
-    methodToIR llc llm x env |> Llvm_analysis.assert_valid_function
-  ) funs; *)
+  let env = SailEnv.empty funs in
+
+  DeclEnv.iter_methods (fun name m -> methodToIR llc llm m env name |> Llvm_analysis.assert_valid_function) funs;
   
   match Llvm_analysis.verify_module llm with
   | None -> llm
@@ -109,7 +107,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
 
           close_out mir_debug;
 
-          let llm = moduleToIR module_name (TypesCommon.FieldMap.empty) dump_decl in
+          let llm = moduleToIR module_name m dump_decl in
           let tm = init_llvm llm in
 
           if not noopt then 

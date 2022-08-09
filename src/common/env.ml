@@ -8,32 +8,34 @@ module type Declarations = sig
 end
 
 
-module type DeclEnvType = sig
-  type t
-  type ('a, 'b, 'c, 'd) ty = Process of 'a | Method of 'b | Struct of 'c | Enum of 'd
-  type decl
-  type decl_ty
+module type DeclEnvType = functor (D : Declarations) -> sig
+  open D
 
+  type t 
   val empty : t
-  val add_declaration : t -> string -> decl -> t
-  val find_declaration : t -> decl_ty -> decl option
-  val write_declarations : t -> string -> unit
+  val add_process : t -> string -> process_decl -> t
+  val add_method : t -> string -> method_decl -> t
+  val add_struct : t -> string -> struct_decl -> t
+  val add_enum : t -> string -> enum_decl -> t
+  val find_process : t -> string -> process_decl option
+  val find_method : t -> string -> method_decl option
+  val find_struct : t -> string -> struct_decl option
+  val find_enum : t -> string -> enum_decl option
+  val write_declarations : 'a -> 'b -> unit
   val print_declarations : t -> unit
+  val iter_methods : (string -> method_decl -> unit) -> t -> unit
 end
 
 
 module DeclarationsEnv (D:Declarations)  = struct
+  open D
+
   type t = {
-    methods : D.method_decl FieldMap.t;
-    processes : D.process_decl FieldMap.t;
-    structs : D.struct_decl FieldMap.t;
-    enums : D.enum_decl FieldMap.t;
+    methods : method_decl FieldMap.t;
+    processes : process_decl FieldMap.t;
+    structs : struct_decl FieldMap.t;
+    enums : enum_decl FieldMap.t;
   } 
-
-  type ('a, 'b, 'c, 'd) ty = Process of 'a | Method of 'b | Struct of 'c | Enum of 'd
-  type decl = (D.process_decl, D.method_decl, D.struct_decl, D.enum_decl) ty
-  type decl_ty = (string,string,string,string) ty
-
 
   let empty = {
     methods = FieldMap.empty;
@@ -42,22 +44,21 @@ module DeclarationsEnv (D:Declarations)  = struct
     enums = FieldMap.empty;
   }
 
-  let add_declaration decls id (d:decl) = match d with
-  (* todo : check name conflict *)
-  | Process p -> { decls with processes=(FieldMap.add id p decls.processes)}
-  | Method m -> { decls with methods=(FieldMap.add id m decls.methods)}
-  | Enum e -> { decls with enums=(FieldMap.add id e decls.enums)}
-  | Struct s -> { decls with structs=(FieldMap.add id s decls.structs)}
+  let add_process decls id (p:process_decl) = { decls with processes=(FieldMap.add id p decls.processes)}
+  let add_method decls id (m:method_decl) = { decls with methods=(FieldMap.add id m decls.methods)}
+  let add_struct decls id (s:struct_decl) = { decls with structs=(FieldMap.add id s decls.structs)}
+  let add_enum decls id (e:enum_decl) = { decls with enums=(FieldMap.add id e decls.enums)}
 
-  let find_declaration decls ty = 
-  let open Monad.MonadSyntax(MonadOption.M) in
-  match ty with
-  | Process id -> let+ p = FieldMap.find_opt id decls.processes in Process p
-  | Method id ->  let+ m = FieldMap.find_opt id decls.methods in Method m
-  | Struct id -> let+ s = FieldMap.find_opt id decls.structs in Struct s
-  | Enum id -> let+ e = FieldMap.find_opt id decls.enums in Enum e
+
+
+  let find_process decls id = FieldMap.find_opt id decls.processes 
+  let find_method decls id = FieldMap.find_opt id decls.methods 
+  let find_struct decls id = FieldMap.find_opt id decls.structs 
+  let find_enum decls id = FieldMap.find_opt id decls.enums 
 
   let write_declarations _decls _filename = () (* todo *) 
+
+  let iter_methods f env = FieldMap.iter f env.methods
 
 
   let print_declarations decls = 
@@ -77,8 +78,8 @@ module type Variable = sig
 end
  
 
-module VariableDeclEnv = functor (D:DeclEnvType) (V:Variable) -> struct
-  include D
+module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
+  module D = DeclarationsEnv(D)
   
   type variable = V.t
   type frame = variable FieldMap.t
@@ -116,7 +117,11 @@ module VariableDeclEnv = functor (D:DeclEnvType) (V:Variable) -> struct
     with _ -> failwith "problem with printing env (env empty?)"
   
 
-  let get_function (_,g) name = D.find_declaration g name
+  let get_process (_,g) name = D.find_process g name
+  let get_method (_,g) name = D.find_method g name
+  let get_struct (_,g) name = D.find_struct g name
+  let get_enum (_,g) name = D.find_enum g name
+
     
   let get_var e name  = 
     let rec aux env = 

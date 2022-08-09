@@ -114,7 +114,7 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:Hir.expression) (exts:sailor_exte
     let mname = mangle_method_name name args_type in 
     let _args = Array.of_list args in
     Logs.info (fun m -> m "constructing call to %s with" mname);
-    match SailEnv.get_function env (Method mname)  with 
+    match SailEnv.get_method env name  with 
     | None -> failwith "wip"
       (* Logs.info (fun m -> m "function %s not found, searching externals..." mname);
       None,external_methods name args llvm env 
@@ -297,17 +297,18 @@ let methodToIR (llc:llcontext) (llm:llmodule) ((m,proto):Declarations.method_dec
         ) env args 
 
       in Array.iteri (fun i arg -> build_store (param proto i) arg llvm.b |> ignore ) args;
+      
       match Either.find_right m.m_body with 
       | None -> failwith "wip"
-      | Some b -> statementToIR proto b llvm new_env
+      | Some b -> statementToIR proto b llvm new_env b;
 
-      begin
+      (* begin
         match block_terminator (insertion_block llvm.b) with
         (* assuming the builder is on the last block of the method *)
         | Some _ -> ()
         (* allow not to have a return for void methods*)
         | None when m.m_proto.rtype = None -> build_ret_void llvm.b |> ignore
         (* there must always be a return if return type is not void *)
-        | _ -> failwith "ERROR : method doesn't always return !"
-      end; proto
+        | _ ->  "ERROR : method " ^ name ^ " doesn't always return !" |> failwith
+      end; *) proto
     end
