@@ -1,28 +1,21 @@
 open Monad
 
 
-module type StateEnv = sig
-  type state
-  type id
-  type elt
 
-  val get : id -> state -> elt
-  val set : id -> elt -> state -> state
-end
-
-module type S = functor (M:Monad) (S: StateEnv)-> sig
+module type S = functor (M:Monad) (State: Type) -> sig
   include MonadTransformer
 
-  val get : S.id -> S.elt t
-  val set : S.id -> S.elt -> unit t
+  val get : State.t t
+  val set : State.t -> unit t
+  val update : (State.t -> State.t M.t) -> unit t
 
 
-end  with type 'a t = S.state -> ('a  * S.state) M.t  and  type 'a old_t  := 'a M.t 
+end  with type 'a t = State.t -> ('a  * State.t) M.t  and  type 'a old_t  := 'a M.t 
 
-module T : S  = functor (M:Monad) (S:StateEnv) -> struct
+module T : S  = functor (M:Monad) (State: Type) -> struct
   open MonadSyntax(M)
 
-  type 'a t = S.state -> ('a * S.state) M.t
+  type 'a t = State.t -> ('a * State.t) M.t
 
   let pure (x:'a) : 'a t = fun s -> M.pure (x,s)
 
@@ -37,9 +30,10 @@ module T : S  = functor (M:Monad) (S:StateEnv) -> struct
 
   let lift (x:'a M.t) : 'a t = fun s -> let+ x in x,s
 
-  let get id = fun s -> M.pure (S.get id s,s)
-  let set r x : unit t =  fun s -> M.pure ((),S.set r x s)
+  let get = fun s -> M.pure (s,s)
+  let set new_st : unit t =  fun _ -> M.pure ((),new_st)
 
+  let update (f : (State.t -> State.t M.t)) : unit t = fun s -> M.bind (f s) (fun x -> M.pure ((),x))
 end
 
 module M = T(MonadIdentity)
@@ -47,21 +41,14 @@ module M = T(MonadIdentity)
 
 
 module CounterTransformer  = functor (M:Monad) -> struct
-  module C = T(M)(
-    struct 
-      type state = int 
-      type id = unit
-      type elt = int 
+  include T(M)(struct type t = int end)
 
-      let set () _ n = succ n
-      let get () = fun n -> n
-    end
-  )
-  include C
+  let tick : unit t = fun n -> set (succ n) n
+  let get : int t = get
+  let fresh : int t = bind get (fun n -> bind tick (fun () ->  pure n))
 
-  let tick : unit t = fun n -> set () n n
-  let get : int C.t = get ()
-  let fresh : int C.t = bind get (fun n -> bind tick (fun () ->  pure n))
+  
+  let run (f : 'a t) = M.bind (f 0) (fun (r,_) -> M.pure r) (* generalize to all monads ?  *)
 end
 
 module Counter = CounterTransformer(MonadIdentity)

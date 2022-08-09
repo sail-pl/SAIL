@@ -24,19 +24,12 @@ end
 
 module HIREnv = SailModule.SailEnv(V)
   
-module EnvReader : MonadReader.Read with  type id = HIREnv.decl_ty and type elt = HIREnv.decl option and type env = HIREnv.t  = struct
-  type id = HIREnv.decl_ty
-  type elt = HIREnv.decl option
-  type env = HIREnv.t
-  let read id = fun e -> HIREnv.get_function e id
-end
-
 module W = MonadWriter.Make (MonoidSeq)
-module R = MonadReader.M(EnvReader)
+module R = MonadReader.M(HIREnv)
 module C = MonadState.Counter
 module E = MonadError
 module EC = MonadState.CounterTransformer(E)
-module ECR =  MonadReader.T(EC)(EnvReader)
+module ECR =  MonadReader.T(EC)(HIREnv)
 module ECRW = MonadWriter.MakeTransformer(ECR)(MonoidSeq)
 
 
@@ -80,8 +73,8 @@ struct
         let+ el = listMapM aux el in  AstHir.EnumAlloc (loc, id, el)
       | loc, MethodCall (id, el) ->
         let open MonadSyntax(R) in 
-          let* res = R.read (Method id)  in 
-          match res with
+          let* env = R.read  in 
+          match HIREnv.get_function env (Method id) with
           | Some Method (_proto_loc,proto) -> 
             begin
             match proto.ret with 
@@ -161,8 +154,7 @@ struct
     | l, AstParser.When (s, c) -> let+ c = aux c in AstHir.When(l, s, c)
     | l, AstParser.Watching(s, c) ->  let+ c = aux c in AstHir.Watching(l, s, c)
     | l, AstParser.Block c -> let+ c = aux c in AstHir.Block(l, c) 
-
-    in aux c.body env 0 >>| fun (b,_) -> b
       
-end
+    in EC.run (aux c.body env)
+  end
  )

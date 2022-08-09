@@ -1,26 +1,18 @@
 open Monad
 
-module type Read = sig
-  type env
-  type id
-  type elt
-  val read : id -> env -> elt
-end
 
-
-
-module type S = functor (M:Monad) (R: Read)-> sig
+module type S = functor (M:Monad) (Env: Type)-> sig
   include MonadTransformer
-
-  val read : R.id -> R.elt t
-
-end  with type 'a t = R.env -> 'a M.t  and  type 'a old_t  := 'a M.t 
+  val read : Env.t t
+end  with type 'a t = Env.t -> 'a M.t  and type 'a old_t := 'a M.t 
 
 
-module T : S = functor (M:Monad) (R:Read) -> struct
+module T : S = functor (M:Monad) (Env: Type) -> struct
   open MonadSyntax(M)
 
-  type 'a t = R.env -> 'a M.t
+  type env = Env.t
+
+  type 'a t = env -> 'a M.t
 
   let pure (x:'a) : 'a t = fun _ -> M.pure x
 
@@ -35,7 +27,7 @@ module T : S = functor (M:Monad) (R:Read) -> struct
 
   let lift (x:'a M.t) : 'a t = fun _ -> let+ x in x
 
-  let read (id:R.id) = fun e -> M.pure (R.read id e)
+  let read = fun (e:env) -> M.pure e
 end
 
 module M = T(MonadIdentity)
