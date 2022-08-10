@@ -60,9 +60,9 @@ let ppPrintBasicBlock (pf : Format.formatter) (lbl : label) (bb : basicBlock) : 
 let ppPrintCfg (pf : Format.formatter) (cfg : cfg) : unit = 
   let _ = Format.fprintf pf "\t//input block %d output block %d\n" cfg.input cfg.output in
   let check = ref [] in
-  let rec aux (lbl : label)  =
+  let rec aux (lbl : label) : unit =
     if List.mem lbl !check then () else 
-    let _ = check := lbl::!check in
+    let () = check := lbl::!check in
     let bb = 
       try BlockMap.find lbl cfg.blocks 
     with Not_found -> failwith "No such node"
@@ -93,11 +93,11 @@ let ppPrintMethodSig (pf : Format.formatter) (s : Common.TypesCommon.method_sig)
 let ppPrintMethod (pf : Format.formatter) (m: (declaration list * cfg) Common.TypesCommon.method_defn) : unit = 
   match m.m_body with
   | Right (decls,cfg) ->  fprintf pf  "fn %a{\n%a\n%a}\n"  ppPrintMethodSig m.m_proto (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) decls ppPrintCfg cfg
-  | Left _ -> fprintf pf "fn "
+  | Left _ -> fprintf pf "extern fn %a\n" ppPrintMethodSig m.m_proto
  
 
 let ppPrintProcess (pf : Format.formatter) (p : (declaration list * cfg) Common.TypesCommon.process_defn) : unit = 
-  fprintf pf  "proc {\n%a\n%a}\n" (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) (fst p.p_body) ppPrintCfg (snd p.p_body)
+  fprintf pf  "proc %s() {\n%a\n%a}\n" p.p_name (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) (fst p.p_body) ppPrintCfg (snd p.p_body)
 
 
 let ppPrintModule (pf : Format.formatter) (m : (declaration list * cfg) Common.SailModule.t ) : unit = 
