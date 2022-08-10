@@ -99,5 +99,3 @@ let lower (m :T.in_body SailModule.t result)  : T.out_body SailModule.t result =
 
 
 end
-
-let (|=>) = ()

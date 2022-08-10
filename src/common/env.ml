@@ -143,8 +143,10 @@ module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
 
   let get_start_env decls args =
     let env = empty decls |> new_frame in
-    List.fold_left (fun m (n,mut,t) -> 
+    List.fold_left (fun m (n,mut,t) ->
+      try 
       declare_var m n dummy_pos (V.to_var mut t) |> Result.get_ok (* there should not be any error*)
+      with Invalid_argument _ -> failwith "declare_var error"
     ) env
     args
 end

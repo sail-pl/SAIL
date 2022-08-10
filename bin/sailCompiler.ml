@@ -20,17 +20,17 @@ let moduleToIR (name:string) (m:Mir.Pass.out_body SailModule.t) (dump_decl:bool)
   let llc = global_context () in
   let llm = create_module llc (name ^ ".sl") in
 
-  let funs = get_declarations m llc llm in
+  let decls = get_declarations m llc llm in
 
   if dump_decl then failwith "not done yet";
 
-  let env = SailEnv.empty funs in
+  let env = SailEnv.empty decls in
 
-  DeclEnv.iter_methods (fun name m -> methodToIR llc llm m env name |> Llvm_analysis.assert_valid_function) funs;
-  
+  DeclEnv.iter_methods (fun name m -> methodToIR llc llm m env name |> Llvm_analysis.assert_valid_function ) decls;
+
   match Llvm_analysis.verify_module llm with
   | None -> llm
-  | Some reason -> print_endline reason; llm
+  | Some reason -> Logs.err (fun m -> m "LLVM : %s" reason); llm
 
 
 let init_llvm (llm : llmodule) : (Target.t * TargetMachine.t) =
