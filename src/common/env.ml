@@ -127,8 +127,8 @@ module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
     let rec aux env = 
       let current,env = current_frame env in
       match FieldMap.find_opt name current with 
-      | Some v -> Result.ok v
-      | None  when fst env = [] ->  Result.error [dummy_pos,Printf.sprintf "variable %s doesn't exist !" name]
+      | Some v -> Some v
+      | None  when fst env = [] -> None
       | _ -> aux env
       in aux e
 

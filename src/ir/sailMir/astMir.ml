@@ -10,7 +10,7 @@ type label = int
 
 type terminator = 
 | Goto of label
-| Invoke of {id : string; params : expression list; next:label}
+| Invoke of {id : string; target: string option; params : expression list; next:label}
 | Return of expression option
 | SwitchInt of expression * (int * label) list * label
 

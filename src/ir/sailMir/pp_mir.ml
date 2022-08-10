@@ -30,22 +30,21 @@ let ppPrintDeclaration (pf : Format.formatter) (d : declaration) : unit =
   if d.mut then
     fprintf pf "\tlet mut %s : %a" d.id pp_type d.varType 
   else fprintf pf "\tlet %s : %a" d.id pp_type d.varType
-
 let ppPrintAssignement (pf : Format.formatter) (a : assignment) : unit = 
   fprintf pf "\t\t%a = %a" ppPrintExpression a.target ppPrintExpression a.expression
 
 let ppPrintTerminator (pf : Format.formatter) (t : terminator) : unit = 
   match t with 
     | Goto lbl -> fprintf pf "\t\tgoto %d;" lbl 
-    | Invoke {id; params;next} -> fprintf pf "\t\t%s(%a) -> %d" id (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) params next
+    | Invoke {id; params;next;target} -> fprintf pf "\t\t%a%s(%a) -> %d" (Format.pp_print_option  (fun fmt id -> fprintf fmt "%s = " id )) target id (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) params next
     | Return None -> fprintf pf "\t\treturn;"
     | Return (Some e) ->  fprintf pf "\t\treturn %a;" ppPrintExpression e 
     | SwitchInt (e, cases, default) -> 
       let pp_case pf (x, y) = Format.fprintf pf "%d:%d" x y in
-        fprintf pf "\t\tswitchInt(%a) [%a, otherwise: %d]" 
-          ppPrintExpression e 
-          (Format.pp_print_list ~pp_sep:pp_comma pp_case) cases
-          default
+      fprintf pf "\t\tswitchInt(%a) [%a, otherwise: %d]" 
+        ppPrintExpression e 
+        (Format.pp_print_list ~pp_sep:pp_comma pp_case) cases
+        default
 
 let ppPrintBasicBlock (pf : Format.formatter) (lbl : label) (bb : basicBlock) : unit = 
   let pp_block pf bb = 

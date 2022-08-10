@@ -32,28 +32,6 @@ let mangle_method_name (name:string) (args: sailtype list ) : string =
   (* Logs.debug (fun m -> m "renamed %s to %s" name res); *)
   res
 
-
-let degenerifyType (t: sailtype) (generics: sailor_args) : sailtype =
-  let rec aux = function
-  | Bool -> Bool
-  | Int -> Int 
-  | Float -> Float
-  | Char -> Char
-  | String -> String
-  | ArrayType (t,s) -> ArrayType (aux t, s)
-  | CompoundType (_name, _tl)-> failwith "todo compoundtype"
-  | Box t -> Box (aux t) 
-  | RefType (t,m) -> RefType (aux t, m)
-  | GenericType t when generics = [] -> Printf.sprintf "generic type %s present but empty generics list" t |> failwith
-  | GenericType n -> 
-    begin
-      match List.assoc_opt n generics with
-      | Some t -> aux t
-      | None -> Printf.sprintf "generic type %s not present in the generics list" n |> failwith
-    end
-  in
-  aux t
-
 let getLLVMType (t : sailtype) (llc: llcontext) (_llm: llmodule) : lltype = 
   let rec aux = function
   | Bool -> i1_type llc
@@ -79,14 +57,6 @@ let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
   | LChar c -> const_int (i8_type llvm.c) (Char.code c)
   | LString s -> build_global_stringptr  s ".str" llvm.b
 
-let sailtype_of_literal = function
-  | LBool _ -> Bool
-  | LFloat _ -> Float
-  | LInt _ -> Int
-  | LChar _ -> Char
-  | LString _ -> String
-
-
 (* temporary pass, convert Main process into a method, throws error if not found or other processes exist *)
 
 open Monad.MonadSyntax(Common.Error.MonadError)
@@ -100,7 +70,7 @@ open Monad.MonadSyntax(Common.Error.MonadError)
   let method_of_main_process (p:in_body process_defn list) : out_body method_defn Error.result = 
     match List.find_opt (fun p -> p.p_name = "Main") p with
     | Some p -> 
-      let m_proto = {pos=p.p_pos; name=p.p_name; generics = p.p_generics; params = fst p.p_interface; rtype=None} 
+      let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = fst p.p_interface; rtype=None} 
       and m_body = Either.right p.p_body in
       {m_proto; m_body} |> Result.ok
     | None -> Result.error [dummy_pos, "no Main process found"]

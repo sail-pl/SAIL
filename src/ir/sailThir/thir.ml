@@ -149,8 +149,12 @@ struct
   let rec aux (e:Hir.expression) : expression ES.t = match e with
     | AstHir.Variable (l,id) -> 
       let* v = ES.get in 
-      let open MonadSyntax(E) in
-      (let+  (_,_,t) = THIREnv.get_var v id in (AstHir.Variable((l,t),id) : expression)) |> ES.lift
+      begin
+        match THIREnv.get_var v id with
+        | Some (_,_,t) -> AstHir.Variable((l,t),id) |> ES.pure
+        | None -> Result.error [l, "unknown variable"] |> ES.lift
+      end
+
       
     | AstHir.Deref (l,e) -> let* e = aux e in
       begin
