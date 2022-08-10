@@ -3,42 +3,42 @@ open IrThir
 open Common 
 open TypesCommon
 open Result
+open Monad
 
 
 module C = MonadState.Counter
 module E = Error.MonadError
 module CE = Error.MonadErrorTransformer(C)
 
-open Monad.MonadSyntax(C)
+open MonadSyntax(C)
 
 let rename (src : label) (tgt : label) (t : terminator) : terminator = 
   match t with 
     | Goto lbl when lbl = src -> Goto tgt 
-    | Invoke {id ; params ; next} -> Invoke {id ; params; next}
     | SwitchInt (st, l, deflt) -> 
       SwitchInt (st, List.map (fun (x, lbl) -> (x, if lbl = src then tgt else lbl)) l, 
         if src = deflt then tgt else deflt)
     | _ -> t
 
 let emptyBasicBlock : cfg C.t = 
-    let+ lbl = C.fresh in
-    {
-      input = lbl;
-      output = lbl;
-      blocks = BlockMap.singleton lbl {assignments = []; terminator=None}
-    }
+  let+ lbl = C.fresh in
+  {
+    input = lbl;
+    output = lbl;
+    blocks = BlockMap.singleton lbl {assignments = []; terminator=None}
+  }
 
 let singleBlock (bb : basicBlock) : cfg C.t = 
-    let+ lbl = C.fresh in    
-    {
-      input = lbl;
-      output = lbl;
-      blocks = BlockMap.singleton lbl bb
-    }
+  let+ lbl = C.fresh in    
+  {
+    input = lbl;
+    output = lbl;
+    blocks = BlockMap.singleton lbl bb
+  }
 
 let assignBasicBlock (a : assignment) : cfg C.t = 
-  let+ lbl = C.fresh in
   let bb = {assignments = [a]; terminator=None}  in 
+  let+ lbl = C.fresh in
   {
     input = lbl;
     output = lbl;
@@ -47,25 +47,26 @@ let assignBasicBlock (a : assignment) : cfg C.t =
 
 exception InvalidOutputNode
 
-let disjointUnion = BlockMap.union (fun _ _ _ -> failwith "illegal label sharing")
+let disjoint = (fun _ _ _ -> None) 
+let assert_disjoint = (fun _ _ _ -> failwith "illegal label sharing")
+
 
 let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg = 
   let left = try BlockMap.find cfg1.output cfg1.blocks 
-  with Not_found -> failwith "not found1"
+  with Not_found -> failwith "left block output not found"
   in 
-  let res = 
   match left.terminator with 
   | Some (Invoke _) -> raise InvalidOutputNode (* Handle other cases*)
   | Some _ -> 
     {
       input = cfg1.input;
       output = cfg2.output;
-      blocks = disjointUnion cfg1.blocks cfg2.blocks
+      blocks = BlockMap.union assert_disjoint cfg1.blocks cfg2.blocks
     }
   | None -> 
     let right = 
       try BlockMap.find cfg2.input cfg2.blocks 
-      with Not_found -> failwith "not found2" 
+      with Not_found -> failwith "right block input not found" 
     in let bb = {assignments = left.assignments@right.assignments; terminator = right.terminator} in
     {
       input = cfg1.input;
@@ -73,14 +74,12 @@ let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg =
       blocks =
         let left = BlockMap.remove cfg1.output cfg1.blocks in 
         let right = BlockMap.map 
-                      (fun {assignments; terminator} -> 
-                        {assignments; 
-                          terminator = MonadOption.M.fmap (rename cfg2.input cfg1.output) terminator}) 
+                      (fun bb -> 
+                        let terminator = MonadOption.M.fmap (rename cfg2.input cfg1.output) bb.terminator in
+                        {bb with terminator}) 
                       (BlockMap.remove cfg2.input cfg2.blocks) in       
-        BlockMap.add cfg1.output bb (disjointUnion left right)
+                      BlockMap.union assert_disjoint left right |> BlockMap.add cfg1.output bb 
      }
-    in 
-    res
 
 let addGoto (lbl : label) (cfg : cfg) : cfg C.t = 
   let bb = {assignments=[]; terminator=Some (Goto lbl)} in
@@ -88,84 +87,81 @@ let addGoto (lbl : label) (cfg : cfg) : cfg C.t =
   buildSeq cfg cfg'
 
 
-let buildIfThen (e : Thir.expression) (cfg : cfg) : cfg C.t =
-  let* outputLbl = C.fresh in
+let buildIfThen (e : expression) (cfg : cfg) : cfg C.t =
   let outputBlock = {assignments = []; terminator = None} in
-  let* inputLbl = C.fresh in 
-  let inputBlock = {assignments = []; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
+  let* outputLbl = C.fresh and* inputLbl = C.fresh in 
   let+ goto = addGoto outputLbl cfg in
-   {
+  let inputBlock = {assignments = []; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
+  {
     input = inputLbl;
     output = outputLbl;
-    blocks = 
-      BlockMap.union (fun _ _ _ -> None) (goto.blocks )
-      (BlockMap.add outputLbl outputBlock (BlockMap.singleton inputLbl inputBlock))
-    }
+    blocks = BlockMap.singleton inputLbl inputBlock 
+              |> BlockMap.add outputLbl outputBlock 
+              |> BlockMap.union disjoint goto.blocks
+  }
 
 
-let buildIfThenElse (e : Thir.expression) (cfgTrue : cfg) (cfgFalse : cfg) : cfg C.t = 
-  let* outputLbl = C.fresh in 
-  let outputBlock = {assignments = []; terminator = None} in
-  let* inputLbl = C.fresh in 
-  let inputBlock = {assignments = []; terminator = Some (SwitchInt (e, [(0,cfgFalse.input)], cfgTrue.input))} in
+let buildIfThenElse (e : expression) (cfgTrue : cfg) (cfgFalse : cfg) : cfg C.t = 
+  let outputBlock = {assignments = []; terminator = None}
+  and inputBlock = {assignments = []; terminator = Some (SwitchInt (e, [(0,cfgFalse.input)], cfgTrue.input))} in
+  
+  let* inputLbl = C.fresh and* outputLbl = C.fresh in 
   let+ gotoF = addGoto outputLbl cfgFalse and* gotoT = addGoto outputLbl cfgTrue in
   {
     input = inputLbl;
     output = outputLbl;
-    blocks = 
-    BlockMap.union (fun _ _ _ -> None) (gotoF.blocks)
-      ((BlockMap.union (fun _ _ _ -> None) (gotoT.blocks))
-       (BlockMap.add outputLbl outputBlock (BlockMap.singleton inputLbl inputBlock)))
+    blocks = BlockMap.singleton inputLbl inputBlock 
+              |> BlockMap.add outputLbl outputBlock 
+              |> BlockMap.union disjoint gotoT.blocks
+              |> BlockMap.union disjoint gotoF.blocks
   }
 
 
-let buildSwitch (e : Thir.expression) (blocks : (int * cfg) list) (cfg : cfg): cfg C.t = 
-  let open Monad.MonadFunctions(C) in
-  let* input = C.fresh in 
-  let* output = C.fresh in 
-  let+ gotos = listMapM (fun (_,cfg) -> addGoto output cfg) blocks in 
-  
+let buildSwitch (e : expression) (blocks : (int * cfg) list) (cfg : cfg): cfg C.t = 
   let cases = List.map (fun (value, cfg) -> (value, cfg.input)) blocks in 
-  let bb1 = {assignments = []; terminator = Some (SwitchInt (e, cases, cfg.input))} in
-  let bb2 = {assignments = []; terminator = None} in
+  let bb1 = {assignments = []; terminator = Some (SwitchInt (e, cases, cfg.input))}
+  and bb2 = {assignments = []; terminator = None} in
+
+  let open MonadFunctions(C) in
+  let* input = C.fresh and* output = C.fresh in 
+  let+ gotos = listMapM (fun (_,cfg) -> addGoto output cfg) blocks in 
   {
     input = input;
     output = output;
-    blocks = 
-      List.fold_left (fun r bb -> BlockMap.union (fun _ _ _ -> None) bb.blocks r)
-      (BlockMap.add output bb2 (BlockMap.singleton input bb1))
-      gotos
-        
+    blocks = ( BlockMap.singleton input bb1 
+                |> BlockMap.add output bb2  
+                |> List.fold_left (fun r bb -> BlockMap.union disjoint bb.blocks r)
+              ) gotos  
   }
 
-let buildLoop (e : Thir.expression) (cfg : cfg) : cfg C.t = 
-  let* headLbl = C.fresh in 
-  let* outputLbl = C.fresh in 
-  let+ goto = addGoto outputLbl cfg in
-  let headBlock = {assignments = []; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
+let buildLoop (e : expression) (cfg : cfg) : cfg C.t = 
   let outputBlock = {assignments = []; terminator = None} in
+  let* inputLbl = C.fresh and* headLbl = C.fresh and* outputLbl = C.fresh in 
+  let+ goto = addGoto inputLbl cfg in
+  let headBlock = {assignments = []; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
   {
     input = headLbl;
     output = outputLbl; (* false jumps here *)
-    blocks = 
-      BlockMap.union (fun _ _ _ -> None) goto.blocks
-      (BlockMap.add outputLbl outputBlock (BlockMap.singleton headLbl headBlock))
+    blocks = BlockMap.singleton inputLbl headBlock 
+              |> BlockMap.add headLbl headBlock 
+              |> BlockMap.add outputLbl outputBlock 
+              |> BlockMap.union disjoint goto.blocks
   }
 
-let buildInvoke (id : string) (el : Thir.expression list) : cfg C.t =
-  let* invokeLbl = C.fresh in 
-  let+ returnLbl = C.fresh in 
-  let invokeBlock = {assignments = []; terminator = Some (Invoke {id = id; params = el; next = returnLbl})} in
+let buildInvoke (id : string) (target : string option) (el : expression list) : cfg C.t =
   let returnBlock = {assignments = []; terminator = None} in 
+  let+ invokeLbl = C.fresh and* returnLbl = C.fresh in 
+  let invokeBlock = {assignments = []; terminator = Some (Invoke {id = id; target; params = el; next = returnLbl})} in
   {
     input = invokeLbl;
     output = returnLbl;
-    blocks = BlockMap.add returnLbl returnBlock (BlockMap.singleton invokeLbl invokeBlock)
+    blocks = BlockMap.singleton invokeLbl invokeBlock 
+              |> BlockMap.add returnLbl returnBlock 
   } 
 
-let buildReturn (e : Thir.expression option) : cfg C.t =
-  let+ returnLbl = C.fresh in
+let buildReturn (e : expression option) : cfg C.t =
   let returnBlock = {assignments=[]; terminator= Some (Return e)} in 
+  let+ returnLbl = C.fresh in
   {
     input = returnLbl;
     output = returnLbl;
@@ -173,8 +169,8 @@ let buildReturn (e : Thir.expression option) : cfg C.t =
   }
 
 
-let texpr (e : Thir.expression) : AstMir.expression = 
-  let rec aux e : AstMir.expression = 
+let texpr (e : Thir.expression) : expression = 
+  let rec aux e : expression = 
   match (e:Thir.expression) with 
     | Variable (lt, id) -> Variable (lt, id) 
     | Deref (lt, e) -> Deref (lt, aux e)
@@ -210,9 +206,9 @@ struct
   type out_body = declaration list * cfg
 
 
-  open Monad.MonadSyntax(CE)
+  open MonadSyntax(CE)
 
-  let lower_function decl _ : out_body  E.t =
+  let lower_function decl _env : out_body  E.t =
     let rec aux : Thir.statement -> (declaration list * cfg) CE.t = function
       | DeclVar(loc, b, id, Some stype, None) -> 
         let+ bb = emptyBasicBlock |> CE.lift in
@@ -249,7 +245,7 @@ struct
         let+ l = buildLoop (texpr e) cfg |> CE.lift in
         (d, l)
         
-      | Invoke (_loc, _, id, el) -> let+ invoke = buildInvoke id (List.map texpr el) |> CE.lift in
+      | Invoke (_loc, target, id, el) -> let+ invoke = buildInvoke id target (List.map texpr el) |> CE.lift in
         ([], invoke)
 
       | Return (_, e) ->
@@ -261,6 +257,18 @@ struct
       | Par _  | Case _ | DeclSignal _ as s -> error [Thir.extract_statements_loc s, "unimplemented"] |> C.lift
 
       | Block (_loc, s) -> aux s
-    in aux decl.body 0 |> fst
+    in 
+    
+    let open MonadSyntax(E) in
+    let* (decls,cfg) as res = aux decl.body 0 |> fst in
+      
+    (* we make sure the last block returns *)
+      let last_bb = BlockMap.find cfg.output cfg.blocks in
+      match last_bb.terminator with
+      | None when decl.ret = None -> 
+        let last_bb = {last_bb with terminator= Some (Return None)}  (* we insert void return *) in
+        let blocks = BlockMap.add cfg.output last_bb cfg.blocks in
+        ok (decls,{cfg with blocks})
+      | _ -> ok res
   end
 )

@@ -84,7 +84,7 @@ struct
               let x = freshVar n in
               let+ el,_ = listMapM aux el in
               let open MonadSyntax(W) in 
-              let* () = AstHir.DeclVar (dummy_pos, true, x, Some rtype, None) |> W.write in
+              let* () = AstHir.DeclVar (dummy_pos, false, x, Some rtype, None) |> W.write in
               let+ () = AstHir.Invoke(loc, Some x, id, el) |> W.write in
               AstHir.Variable (dummy_pos, x)
                 
@@ -136,9 +136,8 @@ struct
 
     | l, AstParser.Invoke(id, el) -> fun e -> 
         let open MonadSyntax(EC) in
-        let* (el,s) = listMapM lower_expression el e in
-        let+ n = EC.fresh in 
-        buildSeq s (AstHir.Invoke(l, Some (freshVar n), id, el))
+        let+ (el,s) = listMapM lower_expression el e in
+        buildSeq s (AstHir.Invoke(l, None, id, el))
       
     | l, AstParser.Return e -> 
         begin match e with 

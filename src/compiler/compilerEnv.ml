@@ -30,8 +30,7 @@ let declare_method (llc:llcontext) (llm:llmodule) (decls:DeclEnv.t) (m:Pass.out_
   in
   let args_type = List.map (fun (_,_,arg) -> getLLVMType arg llc llm) m.m_proto.params |> Array.of_list in
   let method_t = function_type llvm_rt args_type in
-  let name' = if String.equal "_Main_" m.m_proto.name then "main" else  m.m_proto.name in
-  let proto = declare_function name' method_t llm
+  let proto = declare_function m.m_proto.name method_t llm
   in DeclEnv.add_method decls  m.m_proto.name (m,proto)
 
 
