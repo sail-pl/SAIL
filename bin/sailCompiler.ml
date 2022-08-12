@@ -54,7 +54,11 @@ let add_passes (pm : [`Module] PassManager.t) : unit  =
   (* reassociate binary expressions *)
   Llvm_scalar_opts.add_reassociation pm;
   (* dead code elimination, basic block merging and more *)
-  Llvm_scalar_opts.add_cfg_simplification pm
+  Llvm_scalar_opts.add_cfg_simplification pm;
+  
+  Llvm_ipo.add_global_optimizer pm;
+  Llvm_ipo.add_constant_merge pm;
+  Llvm_ipo.add_function_inlining pm
 
 
 let compile (llm:llmodule) (module_name : string) (target, machine) : int =
