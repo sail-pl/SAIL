@@ -3,7 +3,6 @@
   6
   $ sailor decl1.sl --run
   3
-  $ sailor decl2.sl --run
   $ sailor factorial.sl --run
   120
   $ sailor helloworld.sl --run
