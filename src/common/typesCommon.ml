@@ -25,6 +25,8 @@ module FieldMap = Map.Make (String)
 type loc = Lexing.position * Lexing.position
 let dummy_pos : loc = Lexing.dummy_pos,Lexing.dummy_pos
 
+type 'a dict = (string * 'a) list
+
 type sailtype =
   | Bool 
   | Int 
@@ -75,13 +77,12 @@ type binOp = Plus | Mul | Div | Minus | Rem
            | Lt | Le | Gt | Ge | Eq | NEq | And | Or
 
 
-
 type struct_defn = 
 {  
   s_pos : loc;
   s_name : string;
   s_generics : string list;
-  s_fields : (string * sailtype) list;
+  s_fields : sailtype dict;
 }
 
 type enum_defn = 
@@ -125,7 +126,7 @@ type enum_proto =
 type struct_proto = 
 {
   generics : string list;
-  fields : (string * sailtype) list
+  fields : sailtype dict
 }
 
 type function_proto = 

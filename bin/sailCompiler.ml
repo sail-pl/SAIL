@@ -86,26 +86,52 @@ let execute (llm:llmodule) =
   main ();
   Llvm_executionengine.dispose ee (* implicitely disposes the module *)
 
+
+let merge_modules sm1 sm2 =
+  let open SailModule in
+  let merge_envs (e1:DeclEnv.t) (e2:DeclEnv.t) : DeclEnv.t = 
+    let merge =TypesCommon.FieldMap.union
+    in
+    {
+      methods = merge (fun _ _ _ -> failwith "declaration clash") e1.methods e2.methods;
+      processes = merge (fun _ _ _ -> failwith "declaration clash") e1.processes e2.processes;
+      structs = merge  (fun _ _ _ -> failwith "declaration clash") e1.structs e2.structs;
+      enums = merge  (fun _ _ _ -> failwith "declaration clash")  e1.enums e2.enums;
+    }
+  in
+  let open SailModule in
+  let open Monad.MonadSyntax(Error.MonadError) in
+  let+ sm1 and* sm2 in 
+  let name = sm2.name 
+  and declEnv = merge_envs sm1.declEnv sm2.declEnv
+  and methods = sm1.methods @ sm2.methods
+  and processes=sm1.processes @ sm2.processes in
+ {name; declEnv; methods; processes}
+
+
 let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () = 
+  enable_pretty_stacktrace ();
+  install_fatal_error_handler error_handler;
+
   let rec aux = function
   | f::r -> 
     let module_name = Filename.chop_extension (Filename.basename f) in
     begin
-        enable_pretty_stacktrace ();
-        install_fatal_error_handler error_handler;
-
         let fcontent,sail_module = Parsing.parse_program f in
-        let sail_module = sail_module |> Hir.Pass.lower |> Thir.Pass.lower |> Mir.Pass.lower |> CompilerCommon.Pass.lower in
+        let sail_module = 
+          merge_modules (Parsing.parse_program "print_utils.sl" |> snd) sail_module (*  temporary *)
+          |> Hir.Pass.lower 
+          |> Thir.Pass.lower 
+          |> Mir.Pass.lower 
+          |> CompilerCommon.Pass.lower 
+        in
         begin
 
         match sail_module with
         | Ok m ->
-          
-          let mir_debug = module_name ^ "_mir" |> open_out in
-
+          (* let mir_debug = module_name ^ "_mir" |> open_out in
           Format.fprintf (Format.formatter_of_out_channel mir_debug) "%a" Pp_mir.ppPrintModule m;
-
-          close_out mir_debug;
+          close_out mir_debug; *)
 
           let llm = moduleToIR module_name m dump_decl in
           let tm = init_llvm llm in
