@@ -50,7 +50,7 @@ let extract_statements_loc = function
 | AstHir.DeclVar (l,_,_,_,_) | AstHir.Seq (l,_,_) | AstHir.Assign (l,_,_)
 | AstHir.While (l,_,_) | AstHir.Case (l,_,_) -> l
 
-let degenerifyType (t: sailtype) (generics: (string * sailtype ) list) loc : sailtype E.t =
+let degenerifyType (t: sailtype) (generics: sailtype dict) loc : sailtype E.t =
   let rec aux = function
   | Bool -> E.lift Bool
   | Int -> E.lift Int 
@@ -83,8 +83,8 @@ struct
   type out_body = statement
 
    
-  let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: (string * sailtype ) list) : (sailtype * (string * sailtype ) list) E.t =
-    let rec aux (a:sailtype) (m:sailtype) (g: (string * sailtype) list) = 
+  let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: sailtype dict) : (sailtype * sailtype dict) E.t =
+    let rec aux (a:sailtype) (m:sailtype) (g: sailtype dict) = 
     match (a,m) with
     | Bool,Bool -> E.lift (Bool,g)
     | Int,Int -> E.lift (Int,g)

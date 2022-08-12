@@ -3,28 +3,6 @@ open Common
 open TypesCommon
 
 type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; }
-
-type 'a string_assoc = (string * 'a) list
-
-type sailor_args = sailtype string_assoc
-
-type sailor_decl = 
-{
-  ret : sailtype option;
-	args : sailor_args;
-}
-
-
-type varTypesMap = sailtype FieldMap.t List.t (* List is used for scoping *)
-
-
-type sailor_external = {
-  call : llvalue array -> llvm_args -> llvalue * llvalue array;
-  decl : sailor_decl;
-  generics : string list;
-}
-
-
 let mangle_method_name (name:string) (args: sailtype list ) : string =
   let back = List.fold_left (fun s t -> s ^ string_of_sailtype (Some t) ^ "_"  ) "" args in
   let front = "_" ^ name ^ "_" in
