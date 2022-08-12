@@ -120,6 +120,8 @@ struct
     match THIREnv.get_method env name with
     | Some (_l,f) -> 
       begin
+        (* if variadic, we just make sure there is at least minimum number of arguments needed *)
+        let args = if f.variadic then List.filteri (fun i _ -> i < (List.length f.args)) args else args in
         let nb_args = List.length args and nb_params = List.length f.args in
         let* () = if nb_args <> nb_params 
           then 

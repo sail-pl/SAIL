@@ -74,11 +74,6 @@ type defn =
 
 let mk_program name l : statement SailModule.t =
   let open SailModule in
-  let register_external  name ret args generics (env:DeclEnv.t)  : DeclEnv.t  = 
-    let args = List.mapi (fun i t -> (string_of_int i,false,t)) args  in
-    DeclEnv.add_method env name (dummy_pos,{ret;args;generics})
-  in
-
   let rec aux = function
     |  [] -> (DeclEnv.empty,[],[])
     | d::l ->
@@ -101,9 +96,10 @@ let mk_program name l : statement SailModule.t =
                 let pos = d.m_proto.pos
                 and ret = d.m_proto.rtype 
                 and args = d.m_proto.params 
-                and generics = d.m_proto.generics in 
+                and generics = d.m_proto.generics 
+                and variadic = d.m_proto.variadic in
                 DeclEnv.add_method e d.m_proto.name 
-                (pos,{ret;args;generics}) in
+                (pos,{ret;args;generics;variadic}) in
                 (env,d::f)
               ) (e,m) d in (env,funs,p)
           | Process d ->
@@ -111,20 +107,12 @@ let mk_program name l : statement SailModule.t =
               let pos = d.p_pos
               and ret = None
               and args = fst d.p_interface
-              and generics = d.p_generics in 
+              and generics = d.p_generics
+              and variadic = false in
               DeclEnv.add_process e d.p_name 
-              (pos,{ret;args;generics})
+              (pos,{ret;args;generics;variadic})
             in (env,m,d::p)
   in 
   let (declEnv,methods,processes) = aux l in 
-
-    (* fixme : will be replaced by sailLib/ffi *)
-    let declEnv = 
-      declEnv
-      |> register_external "print_int"  None [Int] [] 
-      |> register_external "print_newline"  None [] []
-      |> register_external "print_string"  None [String] []
-      |> register_external "printf"  None [String; GenericType "T"] ["T"] in
-
-    {name;declEnv;methods;processes}
+  {name;declEnv;methods;processes}
 

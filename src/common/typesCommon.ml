@@ -108,6 +108,7 @@ type method_sig =
   generics : string list;
   params : (string * bool * sailtype) list;
   rtype : sailtype option;
+  variadic : bool;
 }
 
 type 'a method_defn =  
@@ -132,5 +133,6 @@ type function_proto =
   ret : sailtype option;
   args : (string * bool * sailtype) list;
   generics : string list;
+  variadic : bool;
 }
 
