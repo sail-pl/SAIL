@@ -29,8 +29,8 @@ let declare_method (llc:llcontext) (llm:llmodule) (decls:DeclEnv.t) (m:Pass.out_
   | None -> void_type llc
   in
   let args_type = List.map (fun (_,_,arg) -> getLLVMType arg llc llm) m.m_proto.params |> Array.of_list in
-  let method_t = function_type llvm_rt args_type in
-  let proto = declare_function m.m_proto.name method_t llm
+  let method_t = if m.m_proto.variadic then var_arg_function_type else function_type in
+  let proto = declare_function m.m_proto.name (method_t llvm_rt args_type ) llm
   in DeclEnv.add_method decls  m.m_proto.name (m,proto)
 
 

@@ -70,7 +70,7 @@ open Monad.MonadSyntax(Common.Error.MonadError)
   let method_of_main_process (p:in_body process_defn list) : out_body method_defn Error.result = 
     match List.find_opt (fun p -> p.p_name = "Main") p with
     | Some p -> 
-      let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = fst p.p_interface; rtype=None} 
+      let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = fst p.p_interface; variadic=false; rtype=None} 
       and m_body = Either.right p.p_body in
       {m_proto; m_body} |> Result.ok
     | None -> Result.error [dummy_pos, "no Main process found"]

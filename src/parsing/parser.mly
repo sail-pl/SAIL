@@ -37,6 +37,7 @@
 %token COMMA "," COLON ":" SEMICOLON ";" DOT "."
 %token ASSIGN "="
 %token EXTERN
+%token VARARGS
 %token METHOD PROCESS STRUCT ENUM 
 %token VAR SIGNAL 
 %token IF ELSE WHILE RETURN
@@ -91,9 +92,14 @@ let defn :=
     {let protos = List.map (fun p -> {m_proto=p; m_body= Either.left lib}) protos in Method protos}
 
 
-let fun_sig :=  METHOD ; name=ID ; generics=generic ; params = delimited("(",separated_list(",", id_colon_mut(sailtype)),")") ; rtype=returnType ; 
-    {({pos=$loc;name=name; generics=generics; params=params ; rtype=rtype})}
+fun_sig : METHOD name=ID generics=generic LPAREN params=separated_list(COMMA, id_colon_mut(sailtype)) variadic=is_variadic RPAREN rtype=returnType 
+        {({pos=$loc;name; generics; params; variadic; rtype=rtype })}
+;
 
+
+is_variadic:
+| {false}
+| VARARGS {true}
 
 let enum_elt :=
 | id = UID ; {(id, [])}

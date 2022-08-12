@@ -94,6 +94,7 @@ rule read_token = parse
   | "process" { PROCESS }
   | "method" { METHOD }
   | "extern" { EXTERN }
+  | "..." { VARARGS }
   | "true" { TRUE }
   | "false" { FALSE }
   | "while" { WHILE }
