@@ -133,9 +133,9 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
 
         match sail_module with
         | Ok m ->
-          (* let mir_debug = module_name ^ "_mir" |> open_out in
+          let mir_debug = module_name ^ "_mir" |> open_out in
           Format.fprintf (Format.formatter_of_out_channel mir_debug) "%a" Pp_mir.ppPrintModule m;
-          close_out mir_debug; *)
+          close_out mir_debug;
 
           let llm = moduleToIR module_name m dump_decl in
           let tm = init_llvm llm in

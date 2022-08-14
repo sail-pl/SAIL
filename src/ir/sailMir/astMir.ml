@@ -16,7 +16,8 @@ type terminator =
 
 type basicBlock = {
   assignments : assignment list;
-  terminator : terminator option
+  terminator : terminator option;
+  location : loc;
 }
 
 module BlockMap = Map.Make(Int)

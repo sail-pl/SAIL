@@ -119,18 +119,9 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : (sailtype * 
     | Some (_,m) -> build_call m args "" llvm.b
 
 
-  let rec block_returns (bb:llbasicblock) : bool = 
-    match block_terminator bb with
-    | Some s when instr_opcode s = Opcode.Ret ->  true
-    | Some s when instr_opcode s = Opcode.Br ->  branch_returns s
-    | _ -> false 
-  and branch_returns (br:llvalue) : bool =
-    match get_branch br with
-    | Some `Conditional (_,then_bb, else_bb) ->  block_returns then_bb && block_returns else_bb
-    | Some `Unconditional bb -> block_returns bb
-    | None -> false
   
-open AstMir
+  open AstMir
+  
 let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env :SailEnv.t) : unit = 
   let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t =
     let _ = mut in (* todo manage mutable types *)
