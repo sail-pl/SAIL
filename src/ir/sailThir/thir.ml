@@ -4,6 +4,7 @@ open TypesCommon
 open IrHir
 open Error
 open Monad
+open AstHir
 
 module E = MonadError
 
@@ -36,19 +37,19 @@ type expression = (loc * sailtype) AstHir.expression
 
 type statement = expression AstHir.statement
 
-let extract_exp_loc_ty = function
-| AstHir.Variable (lt,_) | AstHir.Deref (lt,_) | AstHir.StructRead (lt,_,_)
-| AstHir.ArrayRead (lt,_,_) | AstHir.Literal (lt,_) | AstHir.UnOp (lt,_,_)
-| AstHir.BinOp (lt,_,_,_) | AstHir.Ref  (lt,_,_) | AstHir.ArrayStatic (lt,_)
-| AstHir.StructAlloc (lt,_,_) | AstHir.EnumAlloc  (lt,_,_) -> lt
+let extract_exp_loc_ty : 'a AstHir.expression -> 'a = function
+| Variable (lt,_) | Deref (lt,_) | StructRead (lt,_,_)
+| ArrayRead (lt,_,_) | Literal (lt,_) | UnOp (lt,_,_)
+| BinOp (lt,_,_,_) | Ref  (lt,_,_) | ArrayStatic (lt,_)
+| StructAlloc (lt,_,_) | EnumAlloc  (lt,_,_) -> lt
 
-let extract_statements_loc = function
-| AstHir.Watching(l, _, _) | AstHir.Emit(l, _) | AstHir.Await(l, _)
-| AstHir.When(l, _, _)  | AstHir.Run(l, _, _) | AstHir.Par(l, _, _)
-| AstHir.DeclSignal(l, _)  | AstHir.Skip (l)  | AstHir.Return (l,_)
-| AstHir.Invoke (l,_,_,_) | AstHir.Block (l, _) | AstHir.If (l,_,_,_)
-| AstHir.DeclVar (l,_,_,_,_) | AstHir.Seq (l,_,_) | AstHir.Assign (l,_,_)
-| AstHir.While (l,_,_) | AstHir.Case (l,_,_) -> l
+let extract_statements_loc : _ AstHir.statement -> loc  = function
+| Watching(l, _, _) | Emit(l, _) | Await(l, _)
+| When(l, _, _)  | Run(l, _, _) | Par(l, _, _)
+| DeclSignal(l, _)  | Skip (l)  | Return (l,_)
+| Invoke (l,_,_,_) | Block (l, _) | If (l,_,_,_)
+| DeclVar (l,_,_,_,_) | Seq (l,_,_) | Assign (l,_,_)
+| While (l,_,_) | Case (l,_,_) -> l
 
 let degenerifyType (t: sailtype) (generics: sailtype dict) loc : sailtype E.t =
   let rec aux = function
@@ -148,44 +149,45 @@ struct
 
   let lower_expression (e : Hir.expression) (generics : string list): expression ES.t = 
   let open MonadSyntax(ES) in
-  let rec aux (e:Hir.expression) : expression ES.t = match e with
-    | AstHir.Variable (l,id) -> 
+  let rec aux (e:Hir.expression) : expression ES.t = 
+    match e with
+    | Variable (l,id) -> 
       let* v = ES.get in 
       begin
         match THIREnv.get_var v id with
-        | Some (_,_,t) -> AstHir.Variable((l,t),id) |> ES.pure
+        | Some (_,_,t) -> Variable((l,t),id) |> ES.pure
         | None -> Result.error [l, "unknown variable"] |> ES.lift
       end
 
       
-    | AstHir.Deref (l,e) -> let* e = aux e in
+    | Deref (l,e) -> let* e = aux e in
       begin
         match e with
-        | AstHir.Ref _ as t -> AstHir.Deref((l,extract_exp_loc_ty t |> snd), e) |> ES.pure
+        | Ref _ as t -> Deref((l,extract_exp_loc_ty t |> snd), e) |> ES.pure
         | _ -> Result.error [l,"can't deref a non-reference!"] |> ES.lift
       end
 
-    | AstHir.ArrayRead (l,array_exp,idx) -> let* array_exp = aux array_exp and* idx = aux idx in
+    | ArrayRead (l,array_exp,idx) -> let* array_exp = aux array_exp and* idx = aux idx in
       begin 
         match extract_exp_loc_ty array_exp |> snd with
         | ArrayType (t,_) -> 
           let* _ = matchArgParam (extract_exp_loc_ty idx) Int generics [] |> ES.lift in
-          AstHir.ArrayRead((l,t),array_exp,idx) |> ES.pure
+          ArrayRead((l,t),array_exp,idx) |> ES.pure
         | _ -> Result.error [l,"not an array !"] |> ES.lift
       end
 
-    | AstHir.StructRead (l,_struct_exp,_field) -> Result.error [l,"todo: struct read"] |> ES.lift
-    | AstHir.Literal (l,li) -> let t = sailtype_of_literal li in AstHir.Literal((l,t),li) |> ES.pure
-    | AstHir.UnOp (l,op,e) -> let+ e = aux e in AstHir.UnOp ((l, extract_exp_loc_ty e |> snd),op,e)
-    | AstHir.BinOp (l,op,le,re) ->  
+    | StructRead (l,_struct_exp,_field) -> Result.error [l,"todo: struct read"] |> ES.lift
+    | Literal (l,li) -> let t = sailtype_of_literal li in Literal((l,t),li) |> ES.pure
+    | UnOp (l,op,e) -> let+ e = aux e in UnOp ((l, extract_exp_loc_ty e |> snd),op,e)
+    | BinOp (l,op,le,re) ->  
       let* le = aux le and* re = aux re in
       let lt = extract_exp_loc_ty le  and rt = extract_exp_loc_ty re |> snd in
       let+ t = matchArgParam lt rt generics [] |> ES.lift in
       let op_t = type_of_binOp op (fst t) in
-      AstHir.BinOp ((l,op_t),op,le,re)
+      BinOp ((l,op_t),op,le,re)
 
-    | AstHir.Ref  (l,mut,e) -> let+ e = aux e in AstHir.Ref((l,RefType(extract_exp_loc_ty e |> snd,mut)),mut, e)
-    | AstHir.ArrayStatic (l,el) -> 
+    | Ref  (l,mut,e) -> let+ e = aux e in Ref((l,RefType(extract_exp_loc_ty e |> snd,mut)),mut, e)
+    | ArrayStatic (l,el) -> 
       let* first_t = List.hd el |> aux  in
       let first_t = extract_exp_loc_ty first_t |> snd in
       let open MonadFunctions(ES) in
@@ -196,11 +198,11 @@ struct
       let open MonadSyntax(E) in
       let open MonadFunctions(E) in
       (let+ el = sequence el in
-      let t = ArrayType (first_t, List.length el) in AstHir.ArrayStatic((l,t),el)) |> ES.lift
+      let t = ArrayType (first_t, List.length el) in ArrayStatic((l,t),el)) |> ES.lift
 
 
-    | AstHir.StructAlloc (l,_name,_fields) -> Result.error [l, "todo: struct alloc"] |> ES.lift
-    | AstHir.EnumAlloc (l,_name,_el) -> Result.error [l, "todo: enum alloc"] |> ES.lift
+    | StructAlloc (l,_name,_fields) -> Result.error [l, "todo: struct alloc"] |> ES.lift
+    | EnumAlloc (l,_name,_el) -> Result.error [l, "todo: enum alloc"] |> ES.lift
 
     in aux e
 
@@ -208,11 +210,11 @@ struct
   let lower_function (decl:in_body function_type) (env:THIREnv.t) : out_body Error.result = 
     let open MonadSyntax(ES) in 
 
-    let rec aux s : expression AstHir.statement ES.t = 
+    let rec aux (s:in_body) : out_body ES.t = 
       let open MonadFunctions(ES) in
       let open MonadOperator(MonadOption.M) in
       match s with
-      | AstHir.DeclVar (l, mut, id, t, (optexp : Hir.expression option)) -> 
+      | DeclVar (l, mut, id, t, (optexp : Hir.expression option)) -> 
         let optexp = (optexp  >>| fun e -> lower_expression e decl.generics) in 
         begin
           let* var_type =             
@@ -225,52 +227,52 @@ struct
           in
           let* () = ES.update (fun st -> THIREnv.declare_var st id l (l,mut,var_type) ) in 
           match optexp with
-          | None -> AstHir.DeclVar (l,mut,id,Some var_type,None) |> ES.pure
-          | Some e -> let+ e in AstHir.DeclVar (l,mut,id,Some var_type,Some e)
+          | None -> DeclVar (l,mut,id,Some var_type,None) |> ES.pure
+          | Some e -> let+ e in DeclVar (l,mut,id,Some var_type,Some e)
         end
         
-      | AstHir.Assign(loc, e1, e2) -> 
+      | Assign(loc, e1, e2) -> 
         let* e1 = lower_expression e1 decl.generics
         and* e2 = lower_expression e2 decl.generics in
         let* _ = matchArgParam (extract_exp_loc_ty e1) (extract_exp_loc_ty e2 |> snd) [] [] |> ES.lift in
-        AstHir.Assign(loc, e1, e2) |> ES.pure
+        Assign(loc, e1, e2) |> ES.pure
 
-      | AstHir.Seq(loc, c1, c2) -> 
+      | Seq(loc, c1, c2) -> 
         let* c1 = aux c1 in
         let+ c2 = aux c2 in
-        AstHir.Seq(loc, c1, c2) 
+        Seq(loc, c1, c2) 
 
 
-      | AstHir.If(loc, cond_exp, then_s, else_s) -> 
+      | If(loc, cond_exp, then_s, else_s) -> 
         let* cond_exp = lower_expression cond_exp decl.generics in
         let* _ = matchArgParam (extract_exp_loc_ty cond_exp) Bool [] [] |> ES.lift in
         let* res = aux then_s in
         begin
         match else_s with
-        | None -> AstHir.If(loc, cond_exp, res, None) |> ES.pure
-        | Some s -> let+ s = aux s in AstHir.If(loc, cond_exp, res, Some s)
+        | None -> If(loc, cond_exp, res, None) |> ES.pure
+        | Some s -> let+ s = aux s in If(loc, cond_exp, res, Some s)
         end
 
-      | AstHir.While(loc,e,c) -> 
+      | While(loc,e,c) -> 
         let* e = lower_expression e decl.generics in
         let+ t = aux c in
-        AstHir.While(loc,e,t)
+        While(loc,e,t)
 
-      | AstHir.Case(loc, e, _cases) ->
+      | Case(loc, e, _cases) ->
         let+ e = lower_expression e decl.generics in
-        AstHir.Case (loc, e, [])
+        Case (loc, e, [])
 
 
-      | AstHir.Invoke(loc, var, id, el) -> (* todo: handle var *) fun e ->
+      | Invoke(loc, var, id, el) -> (* todo: handle var *) fun e ->
         let open MonadSyntax(E) in
         let* el,e' = listMapM (Fun.flip lower_expression decl.generics) el e in 
         let+ _ = check_call id el loc e' in
-        AstHir.Invoke(loc, var, id,el),e'
+        Invoke(loc, var, id,el),e'
 
-      | AstHir.Return(l, None) as r -> 
+      | Return(l, None) as r -> 
         if decl.ret = None then r |> ES.pure else Result.error [l,"void return"] |> ES.lift
 
-      | AstHir.Return(l, Some e) ->
+      | Return(l, Some e) ->
         if decl.bt <> Pass.BMethod then 
           Result.error [l, Printf.sprintf "process %s : processes can't return non-void type" decl.name] |> ES.lift
         else
@@ -280,34 +282,34 @@ struct
           | Some r ->
             let* e = lower_expression e decl.generics in
             let+ _ = matchArgParam (extract_exp_loc_ty e) r decl.generics [] |> ES.lift in
-            AstHir.Return(l, Some e)
+            Return(l, Some e)
           end
 
-      | AstHir.Block (loc, c) -> fun s ->
+      | Block (loc, c) -> fun s ->
         let open MonadSyntax(E) in
-           let+ res,te' = aux c (THIREnv.new_frame s) in AstHir.Block(loc,res),te'
-      | AstHir.Skip (loc) -> AstHir.Skip(loc) |> ES.pure
+           let+ res,te' = aux c (THIREnv.new_frame s) in Block(loc,res),te'
+      | Skip (loc) -> Skip(loc) |> ES.pure
 
       | s when decl.bt = Pass.BMethod -> 
         Result.error [extract_statements_loc s, Printf.sprintf "method %s : methods can't contain reactive statements" decl.name] |> ES.lift
 
 
-      | AstHir.Watching(loc, s, c) -> let+ res = aux c in AstHir.Watching(loc, s, res)
-      | AstHir.Emit(loc, s) -> AstHir.Emit(loc,s) |> ES.pure
-      | AstHir.Await(loc, s) -> AstHir.When(loc, s, AstHir.Skip(loc)) |> ES.pure
-      | AstHir.When(loc, s, c) -> let+ res = aux c in AstHir.When(loc, s, res)
-      | AstHir.Run(loc, id, el) -> fun e ->
+      | Watching(loc, s, c) -> let+ res = aux c in Watching(loc, s, res)
+      | Emit(loc, s) -> Emit(loc,s) |> ES.pure
+      | Await(loc, s) -> When(loc, s, Skip(loc)) |> ES.pure
+      | When(loc, s, c) -> let+ res = aux c in When(loc, s, res)
+      | Run(loc, id, el) -> fun e ->
         let open MonadSyntax(E) in
         let* el,e = listMapM (Fun.flip lower_expression decl.generics) el e in
         let+ _ = check_call id el loc e in
-        AstHir.Run(loc, id, el),e
+        Run(loc, id, el),e
 
-      | AstHir.Par(loc, c1, c2) -> 
+      | Par(loc, c1, c2) -> 
         let* c1 = aux c1 in
         let+ c2 = aux c2 in
-        AstHir.Par(loc, c1, c2)
+        Par(loc, c1, c2)
 
-      | AstHir.DeclSignal(loc, s) -> AstHir.DeclSignal(loc, s) |> ES.pure
+      | DeclSignal(loc, s) -> DeclSignal(loc, s) |> ES.pure
 
 
     in 
