@@ -109,6 +109,14 @@ module MonadFunctions (M : Monad) = struct
       | [] -> pure x 
       | h :: t -> foldLeftM f x t >>=  (Fun.flip f) h      
 
+  
+  let rec foldRightM (f : 'a -> 'b -> 'b M.t) (l : 'a list) (x : 'b) : 'b M.t = 
+    let open M in
+    let open MonadOperator(M) in
+    match l with 
+      | [] -> pure x
+      | h :: t -> f h x >>= foldRightM f t
+
   let rec sequence (l : 'a M.t list) : 'a list M.t =
     let open MonadSyntax(M) in
     match l with

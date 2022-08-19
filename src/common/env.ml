@@ -144,8 +144,9 @@ module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
   let get_start_env (decls:D.t) (args:param list) : t Error.MonadError.t =
     let open Monad.MonadFunctions(Error.MonadError) in
     let env = empty decls |> new_frame in
-    foldLeftM (fun m p ->
+    foldRightM (fun p m ->
       declare_var m p.id p.loc (V.to_var p.mut p.ty) 
-    ) env
-    args
+    ) args
+    env
+    
 end
