@@ -10,8 +10,8 @@ let pp_semi (pf : formatter) (() : unit) : unit = Format.fprintf pf ";"
 
 let pp_semicr (pf : formatter) (() : unit) : unit = Format.fprintf pf ";\n" 
 
-let pp_field (pp_a : formatter -> 'a -> unit) (pf : formatter) ((x,mut,y) : string * bool * 'a) = 
-  Format.fprintf pf "%s:%s%a" (if mut then "mut " else "") x pp_a y
+let pp_field (pp_a : formatter -> 'a -> unit) (pf : formatter) (p : param) = 
+  Format.fprintf pf "%s:%s%a" (if p.mut then "mut " else "") p.id pp_a p.ty
 (*
 let rec pp_pattern pf p = 
   match p with 

@@ -20,12 +20,19 @@ let getLLVMType (t : sailtype) (llc: llcontext) (_llm: llmodule) : lltype =
   | ArrayType (t,s) -> array_type (aux t) s
   | CompoundType (_, [t])-> aux t
   | CompoundType _-> failwith "compound type unimplemented"
-  | Box _ -> failwith "boxing unimplemented" 
-  | RefType (t,_) -> aux t |> pointer_type
+  | Box t | RefType (t,_) -> aux t |> pointer_type
   | GenericType _ -> failwith "there should be no generic type, was degenerifyType used ? " 
   in
   aux t
 
+let llvm_proto_of_method_sig (m:method_sig) llc llm = 
+  let llvm_rt = match m.rtype with
+  | Some t -> getLLVMType t llc llm
+  | None -> void_type llc
+  in
+  let args_type = List.map (fun {ty;_} -> getLLVMType ty llc llm) m.params |> Array.of_list in
+  let method_t = if m.variadic then var_arg_function_type else function_type in
+  declare_function m.name (method_t llvm_rt args_type ) llm
 
 let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
   match l with

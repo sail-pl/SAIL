@@ -135,18 +135,17 @@ module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
   let declare_var (e:t) name (l:loc) (v:variable) =
     let current,_env = current_frame e in
     match FieldMap.find_opt name current with 
-    | Some _ -> Result.error [l,Printf.sprintf "variable %s already exists !" name]
+    | Some _ -> Result.error [l,Printf.sprintf "variable %s already declared !" name]
     | None -> 
       let upd_frame = FieldMap.add name v current in
       push_frame _env upd_frame |> Result.ok
 
 
-  let get_start_env decls args =
+  let get_start_env (decls:D.t) (args:param list) : t Error.MonadError.t =
+    let open Monad.MonadFunctions(Error.MonadError) in
     let env = empty decls |> new_frame in
-    List.fold_left (fun m (n,mut,t) ->
-      try 
-      declare_var m n dummy_pos (V.to_var mut t) |> Result.get_ok (* there should not be any error*)
-      with Invalid_argument _ -> failwith "declare_var error"
+    foldLeftM (fun m p ->
+      declare_var m p.id p.loc (V.to_var p.mut p.ty) 
     ) env
     args
 end

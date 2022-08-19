@@ -92,9 +92,9 @@ let defn :=
     {let protos = List.map (fun p -> {m_proto=p; m_body= Either.left lib}) protos in Method protos}
 
 
-fun_sig : METHOD name=ID generics=generic LPAREN params=separated_list(COMMA, id_colon_mut(sailtype)) variadic=is_variadic RPAREN rtype=returnType 
-        {({pos=$loc;name; generics; params; variadic; rtype=rtype })}
-;
+fun_sig : METHOD name=ID generics=generic LPAREN params=separated_list(COMMA, mutable_var(sailtype)) variadic=is_variadic RPAREN rtype=returnType 
+        { {pos=$loc;name; generics; params; variadic; rtype=rtype } }
+
 
 
 is_variadic:
@@ -115,8 +115,8 @@ let returnType := preceded(":", sailtype)?
 let interface :=
 | {([],[])}
 | SIGNAL ; signals = separated_nonempty_list(",",ID); {([], signals)}
-| VAR ; global = separated_nonempty_list(",",id_colon_mut(sailtype)) ; {(global, [])}
-| VAR ; ~ = separated_nonempty_list(",", id_colon_mut(sailtype)) ; ";" ; SIGNAL ; ~ = separated_nonempty_list(",",ID) ; <>
+| VAR ; global = separated_nonempty_list(",",mutable_var(sailtype)) ; {(global, [])}
+| VAR ; ~ = separated_nonempty_list(",", mutable_var(sailtype)) ; ";" ; SIGNAL ; ~ = separated_nonempty_list(",",ID) ; <>
 
 
 let simpl_expression := 
@@ -140,7 +140,7 @@ let expression :=
     | ~ = delimited ("[", separated_list(",", expression), "]") ; <ArrayStatic>
     | id=ID ; l = brace_del_sep_list(",", id_colon(expression)) ;
         {
-        let m = List.fold_left (fun x (y,z) -> FieldMap.add y z x) FieldMap.empty l
+        let m = List.fold_left (fun x (y,(_,z)) -> FieldMap.add y z x) FieldMap.empty l
         in 
         StructAlloc(id, m)
         }
@@ -150,9 +150,9 @@ let expression :=
 )
 
 
-let id_colon(X) := ~ =ID ; ":" ; ~ = X ; <>
+let id_colon(X) := ~ =ID ; ":" ; ~ = located(X) ; <>
 
-let id_colon_mut(X) := ~ = ID ; COLON ; ~ = boption(MUT) ; ~ = X ; <>
+let mutable_var(X) := (loc,id) = located(ID) ; COLON ; mut = boption(MUT) ; ty =X ; { {id;mut;loc;ty} }
 
 
 let literal :=

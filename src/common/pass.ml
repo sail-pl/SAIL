@@ -70,7 +70,8 @@ let lower_method (m:T.in_body method_defn) (decls : SailModule.DeclEnv.t)  =
       bt=BMethod;
       generics=m.m_proto.generics
     } in
-    let+ b = T.lower_function decl start_env in { m with m_body=Either.right b }
+    let* e = start_env in
+    let+ b = T.lower_function decl e in { m with m_body=Either.right b }
   | Left x ->  MonadError.pure { m with m_body = Left x}
 
 
@@ -84,7 +85,8 @@ let lower_process (p: T.in_body process_defn) (decls : SailModule.DeclEnv.t)  =
       bt=BProcess;
       generics=p.p_generics
   } in
-  let+ p_body = T.lower_function decl start_env in
+  let* e = start_env in
+  let+ p_body = T.lower_function decl e in
   { p with p_body}
 
 

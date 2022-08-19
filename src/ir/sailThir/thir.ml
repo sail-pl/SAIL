@@ -130,11 +130,11 @@ struct
         in
         let* resolved_generics = List.fold_left2 
         (
-          fun g ca (_,_,a) ->
+          fun g ca {ty=a;_} ->
             let* g in 
             let+ x = matchArgParam (extract_exp_loc_ty ca) a f.generics g |> ER.lift in
             snd x
-        ) (ER.lift (Result.ok [])) args  f.args 
+        ) (ER.lift (Result.ok [])) args  f.args
         in
         (* List.iter (fun (s,r) -> Printf.fprintf stdout "generic %s resolved to %s\n" s (string_of_sailtype (Some r)) ) resolved_generics; *)
         begin

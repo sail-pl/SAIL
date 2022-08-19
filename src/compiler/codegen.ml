@@ -216,11 +216,11 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
   build_br (BlockMap.find cfg.input llvm_bbs) llvm.b |> ignore
 
 
-let toLLVMArgs (args: (string * bool * sailtype) list ) (llvm:llvm_args) : (bool * sailtype * llvalue) array = 
+let toLLVMArgs (args: param list ) (llvm:llvm_args) : (bool * sailtype * llvalue) array = 
   let llvalue_list = List.map (
-    fun (name, mut, t) -> 
+    fun {id;mut;ty=t;_} -> 
       let ty = getLLVMType t llvm.c llvm.m in 
-      mut,t,build_alloca ty name llvm.b
+      mut,t,build_alloca ty id llvm.b
   ) args in
   Array.of_list llvalue_list
 

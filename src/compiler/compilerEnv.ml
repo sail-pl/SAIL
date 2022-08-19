@@ -23,21 +23,13 @@ module SailEnv = VariableDeclEnv (Declarations)(
   end
 ) 
 
-let declare_method (llc:llcontext) (llm:llmodule) (decls:DeclEnv.t) (m:Pass.out_body method_defn)  : DeclEnv.t = 
-  let llvm_rt = match m.m_proto.rtype with
-  | Some t -> getLLVMType t llc llm
-  | None -> void_type llc
-  in
-  let args_type = List.map (fun (_,_,arg) -> getLLVMType arg llc llm) m.m_proto.params |> Array.of_list in
-  let method_t = if m.m_proto.variadic then var_arg_function_type else function_type in
-  let proto = declare_function m.m_proto.name (method_t llvm_rt args_type ) llm
-  in DeclEnv.add_method decls  m.m_proto.name (m,proto)
-
-
 let get_declarations (sm: IrMir.Mir.Pass.out_body Common.SailModule.t) llc llm : DeclEnv.t = 
   Logs.debug (fun m -> m "generating %i llvm functions" (List.length sm.methods));
   
-  List.fold_left (declare_method llc llm) DeclEnv.empty sm.methods
+  List.fold_left ( fun d m -> 
+    let proto = llvm_proto_of_method_sig m.m_proto llc llm in
+    DeclEnv.add_method d m.m_proto.name (m,proto)
+  ) DeclEnv.empty sm.methods
   (* todo : enums & structs *)
 
 

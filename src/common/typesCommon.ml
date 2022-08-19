@@ -77,12 +77,19 @@ type binOp = Plus | Mul | Div | Minus | Rem
            | Lt | Le | Gt | Ge | Eq | NEq | And | Or
 
 
+type param = {
+      id: string;
+      mut: bool;
+      loc : loc;
+      ty : sailtype;
+}
+
 type struct_defn = 
 {  
   s_pos : loc;
   s_name : string;
   s_generics : string list;
-  s_fields : sailtype dict;
+  s_fields : (string * (loc * sailtype)) list;
 }
 
 type enum_defn = 
@@ -98,7 +105,7 @@ type 'a process_defn =
   p_pos : loc;
   p_name : string;
   p_generics : string list;
-  p_interface : (string * bool * sailtype) list * string list;
+  p_interface : param list * string list;
   p_body : 'a
 }
 
@@ -107,7 +114,7 @@ type method_sig =
   pos : loc;
   name : string; 
   generics : string list;
-  params : (string * bool * sailtype) list;
+  params : param list;
   rtype : sailtype option;
   variadic : bool;
 }
@@ -126,13 +133,13 @@ type enum_proto =
 type struct_proto = 
 {
   generics : string list;
-  fields : sailtype dict
+  fields : (loc * sailtype) dict
 }
 
 type function_proto = 
 {
   ret : sailtype option;
-  args : (string * bool * sailtype) list;
+  args : param list;
   generics : string list;
   variadic : bool;
 }

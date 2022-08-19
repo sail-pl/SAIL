@@ -207,7 +207,7 @@ let method_translator (prg :  SailModule.moduleSignature list) (m : statement me
   let params =       
     match m.m_proto.rtype with 
       None -> m.m_proto.params
-    | Some t -> m.m_proto.params@[(resvar, false,RefType(t,true))]
+    | Some t -> m.m_proto.params@[{id=resvar; mut=false; ty=RefType(t,true); loc=dummy_pos}]
   in
   let open MonadSyntax(MonadEither.Make((struct type t = string option end))) in
   {

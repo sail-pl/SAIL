@@ -316,7 +316,7 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
             let* h' = ExternalsImplementation.extern h0 x real_params in
             return (Continue, EvalEnv.Env.emptyFrame, h')
         | Some callee -> (
-            let formal_params = List.map (fun (id,_,_) -> id) callee.m_proto.params in
+            let formal_params = List.map (fun {id;_} -> id) callee.m_proto.params in
             let l, h' = freshn h0 (List.length real_params) in
             let varmap =
               List.map

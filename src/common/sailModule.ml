@@ -17,6 +17,7 @@ type 'a t =
   declEnv: DeclEnv.t;
   methods : 'a method_defn list ;
   processes : 'a process_defn list;
+  (* builtins : builtins list ;  *)
 }
 
 type moduleSignature = unit t
