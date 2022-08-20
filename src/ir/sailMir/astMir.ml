@@ -14,7 +14,27 @@ type terminator =
 | Return of expression option
 | SwitchInt of expression * (int * label) list * label
 
+
+type vtype = {
+    ty:sailtype;
+    mut:bool;
+    is_init:bool;
+    is_used:bool;
+}
+
+module V : Common.Env.Variable with type t = vtype = 
+  struct 
+
+  type t = vtype
+  let string_of_var v = Printf.sprintf "{ty:%s;init:%b;used:%b}" (string_of_sailtype (Some v.ty)) v.is_init v.is_used
+
+  let to_var mut ty = {ty;mut;is_init=true;is_used=false}
+end
+
+module VE = Common.Env.VariableEnv(V)
+
 type basicBlock = {
+  env : VE.t;
   assignments : assignment list;
   terminator : terminator option;
   location : loc;

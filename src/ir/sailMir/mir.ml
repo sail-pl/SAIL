@@ -6,14 +6,29 @@ open Result
 open Monad
 
 
-module C = MonadState.Counter
 module E = Error.MonadError
-module CE = struct 
-  include Error.MonadErrorTransformer(MonadState.Counter)
-  let fresh = C.fresh |> lift
+module ES = MonadState.T(E)(VE)
+module ESC = struct 
+  include MonadState.CounterTransformer(ES)
+  let error e = error e |> ES.lift |> lift
+  let ok e = ok e |> ES.lift |> lift
+  let get_env = ES.get |> lift    
+  let update_env f = ES.update f |> lift
+  let set_env e = ES.set e |> lift
+  let update_var l f id = ES.update (fun e -> VE.update_var e l id f ) |> lift
+
 end
 
-open MonadSyntax(C)
+open MonadSyntax(ESC)
+open MonadFunctions(ESC) 
+
+
+let assign_var l (var_l,v:VE.variable) = 
+  if (not v.mut) && v.is_init then
+    error [l, "can't assign twice to immutable variable"]
+  else 
+    (var_l,{v with is_init=true}) |> E.pure
+
 
 let rename (src : label) (tgt : label) (t : terminator) : terminator = 
   match t with 
@@ -23,25 +38,26 @@ let rename (src : label) (tgt : label) (t : terminator) : terminator =
         if src = deflt then tgt else deflt)
     | _ -> t
 
-let emptyBasicBlock (location:loc) : cfg C.t = 
-  let+ lbl = C.fresh in
+let emptyBasicBlock (location:loc) : cfg ESC.t = 
+  let+ lbl = ESC.fresh and* env = ESC.get_env in
   {
     input = lbl;
     output = lbl;
-    blocks = BlockMap.singleton lbl {assignments = []; location; terminator=None}
+    blocks = BlockMap.singleton lbl {assignments = []; env; location; terminator=None}
   }
 
-let singleBlock (bb : basicBlock) : cfg C.t = 
-  let+ lbl = C.fresh in    
+let singleBlock (bb : basicBlock) : cfg ESC.t = 
+  let+ lbl = ESC.fresh in    
   {
     input = lbl;
     output = lbl;
     blocks = BlockMap.singleton lbl bb
   }
 
-let assignBasicBlock (location : loc) (a : assignment) : cfg C.t = 
-  let bb = {assignments = [a]; location; terminator=None}  in 
-  let+ lbl = C.fresh in
+let assignBasicBlock (location : loc) (a : assignment) : cfg ESC.t = 
+  let* env = ESC.get_env in
+  let bb = {assignments = [a]; env; location; terminator=None}  in 
+  let+ lbl = ESC.fresh in
   {
     input = lbl;
     output = lbl;
@@ -53,21 +69,22 @@ let disjoint = (fun _ _ _ -> None)
 let assert_disjoint = (fun _ _ _ -> failwith "illegal label sharing")
 
 
-let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg E.t = 
+let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg ESC.t = 
   let left =  BlockMap.find cfg1.output cfg1.blocks 
   and right = BlockMap.find cfg2.input cfg2.blocks 
   in 
   match left.terminator with 
-  | Some (Invoke _) -> error [left.location, "invalid output node"]
+  | Some (Invoke _) -> ESC.error [left.location, "invalid output node"]
   (* todo: handle other cases *)
   | Some _ -> 
     {
       input = cfg1.input;
       output = cfg2.output;
       blocks = BlockMap.union assert_disjoint cfg1.blocks cfg2.blocks
-    } |> ok
+    } |> ESC.ok
   | None -> 
-    let bb = {assignments = left.assignments@right.assignments; location= right.location; terminator = right.terminator} in
+    let+ env = ESC.get_env in 
+    let bb = {assignments = left.assignments@right.assignments; env; location= right.location; terminator = right.terminator} in
     {
       input = cfg1.input;
       output = if cfg2.input = cfg2.output then cfg1.output else cfg2.output;
@@ -80,20 +97,21 @@ let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg E.t =
                         {bb with terminator}) 
         in       
         BlockMap.union assert_disjoint left right |> BlockMap.add cfg1.output bb 
-     } |> ok
+     }
 
-let addGoto  (lbl : label) (cfg : cfg) : cfg CE.t = 
-  let bb = {assignments=[]; location = dummy_pos; terminator=Some (Goto lbl)} in
-  let+ cfg' = singleBlock bb in 
+let addGoto  (lbl : label) (cfg : cfg) : cfg ESC.t = 
+  let* env = ESC.get_env in 
+  let bb = {assignments=[]; env; location = dummy_pos; terminator=Some (Goto lbl)} in
+  let* cfg' = singleBlock bb in 
   buildSeq cfg cfg'
 
 
-let buildIfThen (location : loc) (e : expression) (cfg : cfg) : cfg CE.t =
-  let open MonadSyntax(CE) in
-  let outputBlock = {assignments = []; location = dummy_pos; terminator = None} in
-  let* outputLbl = CE.fresh and* inputLbl = CE.fresh in 
+let buildIfThen (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t =
+  let* env = ESC.get_env in 
+  let outputBlock = {assignments = []; env; location = dummy_pos; terminator = None} in
+  let* outputLbl = ESC.fresh and* inputLbl = ESC.fresh in 
   let+ goto = addGoto outputLbl cfg in
-  let inputBlock = {assignments = []; location; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
+  let inputBlock = {assignments = []; env; location; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
   {
     input = inputLbl;
     output = outputLbl;
@@ -103,12 +121,12 @@ let buildIfThen (location : loc) (e : expression) (cfg : cfg) : cfg CE.t =
   }
 
 
-let buildIfThenElse (location : loc) (e : expression) (cfgTrue : cfg) (cfgFalse : cfg) : cfg CE.t = 
-  let open MonadSyntax(CE) in
-  let outputBlock = {assignments = []; location = dummy_pos; terminator = None}
-  and inputBlock = {assignments = []; location; terminator = Some (SwitchInt (e, [(0,cfgFalse.input)], cfgTrue.input))} in
+let buildIfThenElse (location : loc) (e : expression) (cfgTrue : cfg) (cfgFalse : cfg) : cfg ESC.t = 
+  let* env = ESC.get_env in 
+  let outputBlock = {assignments = []; env; location = dummy_pos; terminator = None}
+  and inputBlock = {assignments = []; env; location; terminator = Some (SwitchInt (e, [(0,cfgFalse.input)], cfgTrue.input))} in
   
-  let* inputLbl = CE.fresh and* outputLbl = CE.fresh in 
+  let* inputLbl = ESC.fresh and* outputLbl = ESC.fresh in 
   let+ gotoF = addGoto outputLbl cfgFalse and* gotoT = addGoto outputLbl cfgTrue in
   {
     input = inputLbl;
@@ -120,14 +138,13 @@ let buildIfThenElse (location : loc) (e : expression) (cfgTrue : cfg) (cfgFalse 
   }
 
 
-let buildSwitch (e : expression) (blocks : (int * cfg) list) (cfg : cfg): cfg CE.t = 
-  let open MonadSyntax(CE) in
+let buildSwitch (e : expression) (blocks : (int * cfg) list) (cfg : cfg): cfg ESC.t = 
+  let* env = ESC.get_env in 
   let cases = List.map (fun (value, cfg) -> (value, cfg.input)) blocks in 
-  let bb1 = {assignments = []; location = dummy_pos; terminator = Some (SwitchInt (e, cases, cfg.input))}
-  and bb2 = {assignments = []; location = dummy_pos; terminator = None} in
+  let bb1 = {assignments = []; env; location = dummy_pos; terminator = Some (SwitchInt (e, cases, cfg.input))}
+  and bb2 = {assignments = []; env; location = dummy_pos; terminator = None} in
 
-  let open MonadFunctions(CE) in
-  let* input =  CE.fresh and* output = CE.fresh in 
+  let* input =  ESC.fresh and* output = ESC.fresh in 
   let+ gotos = listMapM (fun (_,cfg) -> addGoto output cfg) blocks in 
   {
     input = input;
@@ -138,12 +155,12 @@ let buildSwitch (e : expression) (blocks : (int * cfg) list) (cfg : cfg): cfg CE
               ) gotos  
   }
 
-let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg CE.t = 
-  let open MonadSyntax(CE) in
-  let outputBlock = {assignments = []; location; terminator = None} in
-  let* inputLbl =  CE.fresh and* headLbl = CE.fresh and* outputLbl =  CE.fresh in 
+let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t = 
+  let* env =  ESC.get_env in 
+  let outputBlock = {assignments = []; env; location; terminator = None} in
+  let* inputLbl =  ESC.fresh and* headLbl = ESC.fresh and* outputLbl =  ESC.fresh in 
   let+ goto = addGoto inputLbl cfg in
-  let headBlock = {assignments = []; location = dummy_pos; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
+  let headBlock = {assignments = []; env; location = dummy_pos; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
   {
     input = headLbl;
     output = outputLbl; (* false jumps here *)
@@ -153,10 +170,14 @@ let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg CE.t =
               |> BlockMap.union disjoint goto.blocks
   }
 
-let buildInvoke (location : loc) (id : string) (target : string option) (el : expression list) : cfg C.t =
-  let returnBlock = {assignments = []; location = dummy_pos; terminator = None} in 
-  let+ invokeLbl = C.fresh and* returnLbl = C.fresh in 
-  let invokeBlock = {assignments = []; location; terminator = Some (Invoke {id = id; target; params = el; next = returnLbl})} in
+let buildInvoke (l : loc) (id : string) (target : string option) (el : expression list) : cfg ESC.t =
+  let* env = match target with 
+  | None -> ESC.get_env 
+  | Some tid -> let* () = ESC.update_var l tid (assign_var l) in ESC.get_env 
+  in 
+  let returnBlock = {assignments = []; env; location = dummy_pos; terminator = None} in 
+  let+ invokeLbl = ESC.fresh and* returnLbl = ESC.fresh in 
+  let invokeBlock = {assignments = []; env; location=l; terminator = Some (Invoke {id = id; target; params = el; next = returnLbl})} in
   {
     input = invokeLbl;
     output = returnLbl;
@@ -164,9 +185,10 @@ let buildInvoke (location : loc) (id : string) (target : string option) (el : ex
               |> BlockMap.add returnLbl returnBlock 
   } 
 
-let buildReturn (location : loc) (e : expression option) : cfg C.t =
-  let returnBlock = {assignments=[]; location; terminator= Some (Return e)} in 
-  let+ returnLbl = C.fresh in
+let buildReturn (location : loc) (e : expression option) : cfg ESC.t =
+  let* env = ESC.get_env in 
+  let returnBlock = {assignments=[]; env; location; terminator= Some (Return e)} in 
+  let+ returnLbl = ESC.fresh in
   {
     input = returnLbl;
     output = returnLbl;
@@ -174,33 +196,39 @@ let buildReturn (location : loc) (e : expression option) : cfg C.t =
   }
 
 
-let texpr (e : Thir.expression) : expression = 
-  let rec aux e : expression = 
+let rec lexpr (e : Thir.expression) : expression ESC.t = 
+  let open IrHir.AstHir in
   match (e:Thir.expression) with 
-    | Variable (lt, id) -> Variable (lt, id) 
-    | Deref (lt, e) -> Deref (lt, aux e)
-    | StructRead (lt, e, id) -> StructRead (lt, aux e, id)
-    | ArrayRead (lt, e1, e2) -> ArrayRead (lt, aux e1, aux e2)
-    | Literal (lt, l) -> Literal (lt, l)
-    | UnOp (lt, o, e) -> UnOp (lt, o, aux e)
-    | BinOp (lt, o ,e1, e2) -> BinOp(lt, o, aux e1, aux e2)
-    | Ref (lt, b, e) -> Ref(lt, b, aux e)
-    | ArrayStatic (lt, el) -> ArrayStatic (lt, List.map aux el)
-    | StructAlloc (lt, id, m) -> StructAlloc(lt, id, FieldMap.map aux m)
-    | EnumAlloc(lt, id, el) -> EnumAlloc(lt, id, List.map aux el)
-  in aux e
+    | Variable (l,_ as lt, id) ->
+      let+ () = ESC.update_var l id (assign_var l) in Variable (lt, id)
+    | Deref (_,e) -> rexpr e 
+    | ArrayRead (lt, e1, e2) -> let+ e1' = lexpr e1 and* e2' = rexpr e2 in ArrayRead(lt,e1',e2')
+    | StructRead _ | StructAlloc _ | EnumAlloc _ | Ref _ -> 
+      let l,_ = Thir.extract_exp_loc_ty e in ESC.error [l, "todo"]
+    | _ -> failwith "problem with thir"
+and rexpr (e : Thir.expression) : expression ESC.t = 
+let open IrHir.AstHir in
+  match (e:Thir.expression) with 
+    | Variable (l,_ as lt, id) ->
+      let upd (old_l,v) = 
+        if v.is_init then (old_l,{v with is_used=true}) |> E.pure 
+        else error [l,Printf.sprintf "%s uninitialized value" id]
+      in
+      let+ () = ESC.update_var l id upd in Variable (lt, id)
+    | Literal (lt, l) -> Literal (lt, l) |> ESC.pure
+    | Deref (_,e) -> lexpr e 
+    | ArrayRead (_,ent,_) | StructRead (_,ent,_) -> 
+      (* array and struct are used if we access one of their elements *)
+      let* _ = rexpr ent in lexpr e
+    | UnOp (lt, o, e) -> let+ e' = rexpr e in UnOp (lt, o, e')
+    | BinOp (lt, o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in BinOp(lt, o, e1', e2')
+    | Ref (lt, b, e) -> let+ e' = rexpr e in Ref(lt, b, e')
+    | ArrayStatic (lt, el) -> let+ el' = listMapM rexpr el in ArrayStatic (lt, el')
+  | _ -> failwith "problem with thir"
+
 
 let seqOfList (l : statement list) : statement = 
   List.fold_left (fun s l : statement -> Seq (dummy_pos, s, l)) (Skip dummy_pos) l
-
-
-(* todo: modify to use in mir *)
-module V : Env.Variable = 
-  struct 
-  type t = sailtype
-  let string_of_var v = string_of_sailtype (Some v)
-  let to_var _ (t:sailtype) = t
-end
 
 
 let cfg_returns ({input;blocks;_} : cfg) : loc option * basicBlock BlockMap.t = 
@@ -230,62 +258,108 @@ struct
   type out_body = declaration list * cfg
 
 
-  open MonadSyntax(CE)
+  open MonadSyntax(ESC)
 
-  let lower_function decl _env : out_body  E.t =
-    let rec aux : Thir.statement -> (declaration list * cfg) CE.t = function
-      | DeclVar(loc, b, id, Some stype, None) -> 
-        let+ bb = emptyBasicBlock loc |> CE.lift in
-        [{location=loc; mut=b; id=id; varType=stype}],bb
+  let lower_function decl env : out_body  E.t =
+    let rec aux : Thir.statement -> (declaration list * cfg) ESC.t = function
+      | DeclVar(loc, mut, id, Some ty, None) -> 
+        let* () = ESC.update_env (fun e -> VE.declare_var e id (loc,{ty;mut;is_init=false;is_used=false})) in
+        let+ bb = emptyBasicBlock loc  in
+        [{location=loc; mut; id; varType=ty}],bb
 
-      | DeclVar(loc, b, id, Some stype, Some e) -> 
-        let+ bn = assignBasicBlock loc ({location=loc; target=Variable ((loc, stype), id); expression = texpr e}) |> CE.lift in
-        [{location=loc; mut=b; id=id; varType=stype}],bn
+      | DeclVar(loc, mut, id, Some ty, Some e) -> 
+        let* () = ESC.update_env (fun e -> VE.declare_var e id (loc,{ty;mut;is_init=true;is_used=false})) in
+        let* expression = rexpr e in
+        let+ bn = assignBasicBlock loc ({location=loc; target=Variable ((loc, ty), id); expression })  in
+        [{location=loc; mut; id=id; varType=ty}],bn
         (* ++ other statements *)
 
-      | DeclVar _ as s -> error [Thir.extract_statements_loc s, "Declaration should have type "] |> C.lift (* -> add generic parameter to statements *)
+      | DeclVar _ as s -> ESC.error [Thir.extract_statements_loc s, "Declaration should have type "]  (* -> add generic parameter to statements *)
 
-      | Skip loc -> let+ bb = emptyBasicBlock loc |> CE.lift in ([],  bb)
+      | Skip loc -> let+ bb = emptyBasicBlock loc in ([],  bb)
 
       | Assign (loc, e1, e2) -> 
-        let+ bb = assignBasicBlock loc ({location=loc; target=texpr e1; expression = texpr e2}) |> CE.lift in [],bb
+        let* target = lexpr e1 and* expression = rexpr e2 in
+        let+ bb = assignBasicBlock loc ({location=loc; target; expression}) in [],bb
         
       | Seq (_, s1, s2) ->
-        let* d1, cfg1 = aux s1 and* d2, cfg2 = aux s2 in
-        let open MonadOperator(E) in 
-        buildSeq cfg1 cfg2 >>| (fun bb -> (d1@d2,bb)) |> C.lift
+        (* let* env = ESC.get_env in *)
+        let* d1, cfg1 = aux s1 
+        and* d2, cfg2 = aux s2 in
+        (* let* () = ESC.set_env env in  *)
+        let+ bb = buildSeq cfg1 cfg2 in d1@d2,bb
 
       | If (loc, e, s, None) -> 
         let* d, cfg = aux s in
-        let+ ite = buildIfThen loc (texpr e) cfg in
+        let* e' = rexpr e in
+        let+ ite = buildIfThen loc e' cfg in
         (d,ite) 
         
       | If (loc, e, s1, Some s2) -> 
         let* d1,cfg1 = aux s1 and* d2,cfg2 = aux s2 in
-        let+ ite = buildIfThenElse loc (texpr e) cfg1 cfg2 in
+        let* e' = rexpr e in
+        let+ ite = buildIfThenElse loc e' cfg1 cfg2 in
         (d1@d2, ite) 
 
       | While (loc, e, s) ->  
         let* d, cfg = aux s in 
-        let+ l = buildLoop loc (texpr e) cfg in
+        let* e' = rexpr e in
+        let+ l = buildLoop loc e' cfg in
         (d, l)
         
-      | Invoke (loc, target, id, el) -> let+ invoke = buildInvoke loc id target (List.map texpr el) |> CE.lift in
+      | Invoke (loc, target, id, el) -> 
+        let* el' = listMapM rexpr el in
+        let+ invoke = buildInvoke loc id target el' in
         ([], invoke)
 
       | Return (loc, e) ->
-        let e = match e with None -> None | Some e -> Some (texpr e) in 
-        let+ ret =  buildReturn loc e |> CE.lift in
+        let* e = match e with 
+        | None -> None |> ESC.pure 
+        | Some e -> let+ e' = rexpr e in Some e' in 
+        let+ ret =  buildReturn loc e in
         ([], ret)
 
       | Run _ | Emit _ | Await _ | When _  | Watching _ 
-      | Par _  | Case _ | DeclSignal _ as s -> error [Thir.extract_statements_loc s, "unimplemented"] |> C.lift
+      | Par _  | Case _ | DeclSignal _ as s -> ESC.error [Thir.extract_statements_loc s, "unimplemented"]
 
-      | Block (_loc, s) -> aux s
+      | Block (location, s) -> 
+          let* () = ESC.update_env (fun e -> VE.new_frame e |> E.pure) in
+          let* decls,cfg = aux s in
+
+          let pop (e:VE.t) : VE.t E.t = 
+            let open MonadSyntax(E) in
+            let open MonadFunctions(E) in
+            let current,env = VE.current_frame e in
+            let+ () = mapIterM (
+              fun id (_l,v) -> if not v.is_used then
+                let () = Logs.warn (fun m -> m "unused variable %s" id) in
+                () |> E.pure
+                (* error [l, "unused variable"]  todo: add warnings *)
+              else
+                () |> E.pure
+            ) current in
+            env
+          in
+          let* () = ESC.update_env pop in
+
+          let* env = ESC.get_env in 
+
+          let bb = {assignments=[]; env; location; terminator=Some (Goto cfg.input)} in
+          let* () = ESC.set_env env in
+          let* cfg' = singleBlock bb in 
+          let cfg' = 
+          {
+            input = cfg'.input;
+            output = cfg.output;
+            blocks = BlockMap.union assert_disjoint cfg'.blocks cfg.blocks
+          } in
+          (decls,cfg') |> ESC.pure
+            
     in 
+
     Logs.debug (fun m -> m "lowering to MIR %s" decl.name);
     let open MonadSyntax(E) in
-    let* (decls,cfg) as res = aux decl.body 0 |> fst in
+    let* ((decls,cfg) as res,_),_ = aux decl.body 0 (fst env)  in
     
     let ret,unreachable_blocks = cfg_returns cfg in
     if Option.is_some ret && decl.ret <> None then error [Option.get ret, (Printf.sprintf "%s doesn't always return !" decl.name)]

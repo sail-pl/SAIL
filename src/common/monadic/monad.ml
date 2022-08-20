@@ -94,6 +94,18 @@ module MonadFunctions (M : Monad) = struct
   in  
   let* l' = aux (FieldMap.to_seq m) in 
   return (FieldMap.of_seq l')
+
+
+  let mapIterM (f : FieldMap.key -> 'a -> unit M.t) (m : 'a FieldMap.t) : unit M.t = 
+    let open MonadSyntax (M) in
+    let rec aux (l : (string * 'a) Seq.t) : unit M.t =
+      match l () with
+      | Seq.Nil -> return ()
+      | Seq.Cons ((k, a), v) ->
+          let* () = f k a in 
+          aux v
+    in  
+    aux (FieldMap.to_seq m) 
   
   let rec listMapM (f : 'a -> 'b M.t) (l : 'a list) : ('b list) M.t = 
     let open M in

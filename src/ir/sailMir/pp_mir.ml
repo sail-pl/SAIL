@@ -46,14 +46,24 @@ let ppPrintTerminator (pf : Format.formatter) (t : terminator) : unit =
         (Format.pp_print_list ~pp_sep:pp_comma pp_case) cases
         default
 
+let ppPrintFrame (pf : Format.formatter) (f : VE.frame) =
+  let print_var (pf : Format.formatter) (id,(_,{is_init;is_used;_}):string * VE.variable) =
+  Format.fprintf pf "%s<init:%b|used:%b>" id is_init is_used
+  in
+  Format.fprintf pf "\t\t\t[%a]" (Format.pp_print_list ~pp_sep:pp_comma print_var) (TypesCommon.FieldMap.bindings f)
+
 let ppPrintBasicBlock (pf : Format.formatter) (lbl : label) (bb : basicBlock) : unit = 
+  let pp_env pf bb = 
+    Format.fprintf pf "%a\n" (Format.pp_print_list ~pp_sep:pp_force_newline ppPrintFrame) bb.env in
+
   let pp_block pf bb = 
     match bb.terminator with 
       None ->
         Format.fprintf pf "%a\n" (Format.pp_print_list ~pp_sep:pp_semicr ppPrintAssignement) bb.assignments 
       |Some t ->
       Format.fprintf pf "%a\n%a" (Format.pp_print_list ~pp_sep:pp_semicr ppPrintAssignement) bb.assignments  ppPrintTerminator t 
-    in Format.fprintf pf "\tbb%d{\n%a\n\t}\n" lbl pp_block bb 
+  in 
+  Format.fprintf pf "\tbb%d{\n\t\tenv [\n%a\n\t\t]\n%a\n\t}\n" lbl pp_env bb pp_block bb 
 
 (* termination *)
 let ppPrintCfg (pf : Format.formatter) (cfg : cfg) : unit = 

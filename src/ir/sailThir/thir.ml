@@ -10,10 +10,10 @@ module E = MonadError
 
 module V = (
   struct 
-    type t = loc * bool * sailtype
-    let string_of_var (_,_,t) = string_of_sailtype (Some t)
+    type t = bool * sailtype
+    let string_of_var (_,t) = string_of_sailtype (Some t)
 
-    let to_var (m:bool) (t:sailtype) = (dummy_pos),m,t
+    let to_var (m:bool) (t:sailtype) = m,t
 
   end
 )
@@ -147,7 +147,7 @@ struct
 
     | None -> Result.error [loc,"unknown method " ^ name] |> ER.lift
 
-  let lower_expression (e : Hir.expression) (generics : string list): expression ES.t = 
+  let rec lower_lexp (e : Hir.expression) (generics : string list): expression ES.t = 
   let open MonadSyntax(ES) in
   let rec aux (e:Hir.expression) : expression ES.t = 
     match e with
@@ -155,19 +155,16 @@ struct
       let* v = ES.get in 
       begin
         match THIREnv.get_var v id with
-        | Some (_,_,t) -> Variable((l,t),id) |> ES.pure
+        | Some (_,(_,t)) -> Variable((l,t),id) |> ES.pure
         | None -> Result.error [l, "unknown variable"] |> ES.lift
       end
-
-      
-    | Deref (l,e) -> let* e = aux e in
+    | Deref (l,e) -> let* e = lower_rexp e generics in
       begin
         match e with
         | Ref _ as t -> Deref((l,extract_exp_loc_ty t |> snd), e) |> ES.pure
         | _ -> Result.error [l,"can't deref a non-reference!"] |> ES.lift
       end
-
-    | ArrayRead (l,array_exp,idx) -> let* array_exp = aux array_exp and* idx = aux idx in
+    | ArrayRead (l,array_exp,idx) -> let* array_exp = aux array_exp and* idx = lower_rexp idx generics in
       begin 
         match extract_exp_loc_ty array_exp |> snd with
         | ArrayType (t,_) -> 
@@ -175,36 +172,50 @@ struct
           ArrayRead((l,t),array_exp,idx) |> ES.pure
         | _ -> Result.error [l,"not an array !"] |> ES.lift
       end
-
-    | StructRead (l,_struct_exp,_field) -> Result.error [l,"todo: struct read"] |> ES.lift
-    | Literal (l,li) -> let t = sailtype_of_literal li in Literal((l,t),li) |> ES.pure
-    | UnOp (l,op,e) -> let+ e = aux e in UnOp ((l, extract_exp_loc_ty e |> snd),op,e)
-    | BinOp (l,op,le,re) ->  
-      let* le = aux le and* re = aux re in
-      let lt = extract_exp_loc_ty le  and rt = extract_exp_loc_ty re |> snd in
-      let+ t = matchArgParam lt rt generics [] |> ES.lift in
-      let op_t = type_of_binOp op (fst t) in
-      BinOp ((l,op_t),op,le,re)
-
-    | Ref  (l,mut,e) -> let+ e = aux e in Ref((l,RefType(extract_exp_loc_ty e |> snd,mut)),mut, e)
-    | ArrayStatic (l,el) -> 
-      let* first_t = List.hd el |> aux  in
-      let first_t = extract_exp_loc_ty first_t |> snd in
-      let open MonadFunctions(ES) in
-      let* el = listMapM (
-        fun e -> let+ t = aux e in
-        if extract_exp_loc_ty t |> snd = first_t then t |> E.lift else Result.error [l,"mixed type array"] 
-      ) el in 
-      let open MonadSyntax(E) in
-      let open MonadFunctions(E) in
-      (let+ el = sequence el in
-      let t = ArrayType (first_t, List.length el) in ArrayStatic((l,t),el)) |> ES.lift
-
-
-    | StructAlloc (l,_name,_fields) -> Result.error [l, "todo: struct alloc"] |> ES.lift
-    | EnumAlloc (l,_name,_el) -> Result.error [l, "todo: enum alloc"] |> ES.lift
+    | StructRead (l,_,_) | StructAlloc (l,_,_) | EnumAlloc (l,_,_) -> Result.error [l, "todo"] |> ES.lift
+    | _ -> let l = extract_exp_loc_ty e in Result.error [l, "not a lvalue !"] |> ES.lift
 
     in aux e
+  and lower_rexp (e : Hir.expression) (generics : string list): expression ES.t =
+  let open MonadSyntax(ES) in
+  let rec aux (e:Hir.expression) : expression ES.t = match e with
+  | Variable (l,id) -> 
+    let* v = ES.get in 
+    begin
+      match THIREnv.get_var v id with
+      | Some (_,(_,t)) -> Variable((l,t),id) |> ES.pure
+      | None -> Result.error [l, "unknown variable"] |> ES.lift
+    end
+  | Literal (l,li) -> let t = sailtype_of_literal li in Literal((l,t),li) |> ES.pure
+  | UnOp (l,op,e) -> let+ e = aux e in UnOp ((l, extract_exp_loc_ty e |> snd),op,e)
+  | BinOp (l,op,le,re) ->  
+    let* le = aux le and* re = aux re in
+    let lt = extract_exp_loc_ty le  and rt = extract_exp_loc_ty re |> snd in
+    let+ t = matchArgParam lt rt generics [] |> ES.lift in
+    let op_t = type_of_binOp op (fst t) in
+    BinOp ((l,op_t),op,le,re)
+
+  | Ref  (l,mut,e) -> let+ e = lower_lexp e generics in Ref((l,RefType(extract_exp_loc_ty e |> snd,mut)),mut, e)
+  | ArrayStatic (l,el) -> 
+    let* first_t = List.hd el |> aux  in
+    let first_t = extract_exp_loc_ty first_t |> snd in
+    let open MonadFunctions(ES) in
+    let* el = listMapM (
+      fun e -> let+ t = aux e in
+      if extract_exp_loc_ty t |> snd = first_t then t |> E.lift else Result.error [l,"mixed type array"] 
+    ) el in 
+    let open MonadSyntax(E) in
+    let open MonadFunctions(E) in
+    (let+ el = sequence el in
+    let t = ArrayType (first_t, List.length el) in ArrayStatic((l,t),el)) |> ES.lift
+  | ArrayRead _ -> lower_lexp e generics (* todo : some checking *)
+  | Deref _ -> lower_lexp e generics (* todo : some checking *)
+  | StructAlloc _ 
+  | EnumAlloc _ -> let l = extract_exp_loc_ty e in Result.error [l, "not a rvalue !"] |> ES.lift
+  | StructRead _ ->  let l = extract_exp_loc_ty e in Result.error [l, "todo struct read"] |> ES.lift
+
+
+  in aux e
 
 
   let lower_function (decl:in_body function_type) (env:THIREnv.t) : out_body Error.result = 
@@ -215,7 +226,7 @@ struct
       let open MonadOperator(MonadOption.M) in
       match s with
       | DeclVar (l, mut, id, t, (optexp : Hir.expression option)) -> 
-        let optexp = (optexp  >>| fun e -> lower_expression e decl.generics) in 
+        let optexp = (optexp  >>| fun e -> lower_rexp e decl.generics) in 
         begin
           let* var_type =             
             match (t,optexp) with
@@ -225,15 +236,15 @@ struct
             | (None,None) -> Result.error [l,"can't infere type with no expression"] |> ES.lift
             
           in
-          let* () = ES.update (fun st -> THIREnv.declare_var st id l (l,mut,var_type) ) in 
+          let* () = ES.update (fun st -> THIREnv.declare_var st id (l,(mut,var_type)) ) in 
           match optexp with
           | None -> DeclVar (l,mut,id,Some var_type,None) |> ES.pure
           | Some e -> let+ e in DeclVar (l,mut,id,Some var_type,Some e)
         end
         
       | Assign(loc, e1, e2) -> 
-        let* e1 = lower_expression e1 decl.generics
-        and* e2 = lower_expression e2 decl.generics in
+        let* e1 = lower_lexp e1 decl.generics
+        and* e2 = lower_rexp e2 decl.generics in
         let* _ = matchArgParam (extract_exp_loc_ty e1) (extract_exp_loc_ty e2 |> snd) [] [] |> ES.lift in
         Assign(loc, e1, e2) |> ES.pure
 
@@ -244,7 +255,7 @@ struct
 
 
       | If(loc, cond_exp, then_s, else_s) -> 
-        let* cond_exp = lower_expression cond_exp decl.generics in
+        let* cond_exp = lower_rexp cond_exp decl.generics in
         let* _ = matchArgParam (extract_exp_loc_ty cond_exp) Bool [] [] |> ES.lift in
         let* res = aux then_s in
         begin
@@ -254,18 +265,18 @@ struct
         end
 
       | While(loc,e,c) -> 
-        let* e = lower_expression e decl.generics in
+        let* e = lower_rexp e decl.generics in
         let+ t = aux c in
         While(loc,e,t)
 
       | Case(loc, e, _cases) ->
-        let+ e = lower_expression e decl.generics in
+        let+ e = lower_rexp e decl.generics in
         Case (loc, e, [])
 
 
       | Invoke(loc, var, id, el) -> (* todo: handle var *) fun e ->
         let open MonadSyntax(E) in
-        let* el,e' = listMapM (Fun.flip lower_expression decl.generics) el e in 
+        let* el,e' = listMapM (Fun.flip lower_rexp decl.generics) el e in 
         let+ _ = check_call id el loc e' in
         Invoke(loc, var, id,el),e'
 
@@ -280,14 +291,16 @@ struct
           match decl.ret with 
           | None -> Result.error [l,"non-void return"] |> ES.lift
           | Some r ->
-            let* e = lower_expression e decl.generics in
+            let* e = lower_rexp e decl.generics in
             let+ _ = matchArgParam (extract_exp_loc_ty e) r decl.generics [] |> ES.lift in
             Return(l, Some e)
           end
 
       | Block (loc, c) -> fun s ->
-        let open MonadSyntax(E) in
-           let+ res,te' = aux c (THIREnv.new_frame s) in Block(loc,res),te'
+          let open MonadSyntax(E) in
+          let+ res,te' = aux c (THIREnv.new_frame s) in 
+          Block(loc,res),(THIREnv.pop_frame te')
+
       | Skip (loc) -> Skip(loc) |> ES.pure
 
       | s when decl.bt = Pass.BMethod -> 
@@ -300,7 +313,7 @@ struct
       | When(loc, s, c) -> let+ res = aux c in When(loc, s, res)
       | Run(loc, id, el) -> fun e ->
         let open MonadSyntax(E) in
-        let* el,e = listMapM (Fun.flip lower_expression decl.generics) el e in
+        let* el,e = listMapM (Fun.flip lower_rexp decl.generics) el e in
         let+ _ = check_call id el loc e in
         Run(loc, id, el),e
 

@@ -1,4 +1,7 @@
 open TypesCommon
+module E = Error.MonadError
+open Monad.MonadSyntax(E)
+
 
 module type Declarations = sig
   type process_decl
@@ -77,76 +80,94 @@ module type Variable = sig
   val to_var : bool -> sailtype -> t 
 end
  
-
-module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
-  module D = DeclarationsEnv(D)
-  
-  type variable = V.t
+module VariableEnv (V : Variable) = struct
+  type variable = loc * V.t
   type frame = variable FieldMap.t
-  type t = frame list * D.t
+  type t = frame list
+  let empty : t = [FieldMap.empty]
+  let push_frame env s = s :: env
 
-  let empty g : t = 
-    let c = FieldMap.empty in [c],g
-
-  let push_frame (env,g) s = 
-    s :: env, g
-
-  let pop_frame (env,g) = 
-    List.tl env, g
+  let pop_frame env = List.tl env
 
   let new_frame e =
     let c = FieldMap.empty in
     push_frame e c
 
-  let current_frame = function [],_ -> failwith "environnement is empty !" | (h::t),g ->  h,(t,g)
+  let current_frame = function [] -> failwith "environnement is empty !" | (h::t) ->  h,t
 
-  
   let print_env (e:t) =
     let rec aux (env:t) : string = 
       let c,env = current_frame env in
       let p =
         FieldMap.fold 
-          (fun n v -> let s = Printf.sprintf "(%s:%s) " n (V.string_of_var v) in fun n  ->  s ^ n) c "]"
+          (fun n (_,v) -> let s = Printf.sprintf "(%s:%s) " n (V.string_of_var v) in fun n  ->  s ^ n) c "]"
       in let c = "\t[ " ^ p  in
       match env with
-      | [],_ -> c ^ "\n"
+      | [] -> c ^ "\n"
       | _ -> c ^ "\n"  ^ aux env
     in 
     try
     Printf.sprintf "env : \n{\n %s }" (aux e)
     with _ -> failwith "problem with printing env (env empty?)"
+
+    let get_var e name  = 
+    let rec aux env = 
+      let current,env = current_frame env in
+      match FieldMap.find_opt name current with 
+      | Some v -> Some v
+      | None  when env = [] -> None
+      | _ -> aux env
+      in aux e
+
+  let declare_var (e:t) name (l,_ as v:variable) =
+    let current,env = current_frame e in
+    match FieldMap.find_opt name current with 
+    | Some _ -> Result.error [l,Printf.sprintf "variable %s already declared !" name]
+    | None -> 
+      let upd_frame = FieldMap.add name v current in
+      push_frame env upd_frame |> Result.ok
+
+    let init_env (args:param list) : t E.t =
+      let open Monad.MonadFunctions(Error.MonadError) in
+      let env = empty |> new_frame in
+      foldRightM (fun p m ->
+        declare_var m p.id (p.loc,(V.to_var p.mut p.ty))
+      ) args
+      env
+
+    let update_var (e:t) l (f:variable -> variable E.t ) name : t E.t =
+      let rec aux env  = 
+        let current,env = current_frame env in
+        match FieldMap.find_opt name current with 
+        | Some v -> let+ v' = f v in FieldMap.add name v' current :: env
+        | None  when env = [] -> Result.error [l,Printf.sprintf "variable %s not found" name]
+        | _ -> let+ e = aux env in current :: e
+        in aux e 
   
+
+end
+
+module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
+  module D = DeclarationsEnv(D)
+  module VE = VariableEnv(V)
+
+  type t = VE.t * D.t
 
   let get_process (_,g) name = D.find_process g name
   let get_method (_,g) name = D.find_method g name
   let get_struct (_,g) name = D.find_struct g name
   let get_enum (_,g) name = D.find_enum g name
 
-    
-  let get_var e name  = 
-    let rec aux env = 
-      let current,env = current_frame env in
-      match FieldMap.find_opt name current with 
-      | Some v -> Some v
-      | None  when fst env = [] -> None
-      | _ -> aux env
-      in aux e
+  let get_var (env,_) id = VE.get_var env id
+  let declare_var (env,g) id v = let+ env = VE.declare_var env id v in env,g
+  let new_frame (env,g) = VE.new_frame env,g
+  let pop_frame (env,g) = VE.pop_frame env,g
+  let get_env (env,_) = env
 
-  let declare_var (e:t) name (l:loc) (v:variable) =
-    let current,_env = current_frame e in
-    match FieldMap.find_opt name current with 
-    | Some _ -> Result.error [l,Printf.sprintf "variable %s already declared !" name]
-    | None -> 
-      let upd_frame = FieldMap.add name v current in
-      push_frame _env upd_frame |> Result.ok
+  let empty g : t = VE.empty,g
 
 
-  let get_start_env (decls:D.t) (args:param list) : t Error.MonadError.t =
-    let open Monad.MonadFunctions(Error.MonadError) in
-    let env = empty decls |> new_frame in
-    foldRightM (fun p m ->
-      declare_var m p.id p.loc (V.to_var p.mut p.ty) 
-    ) args
-    env
-    
+  let get_start_env (decls:D.t) (args:param list) : t E.t =
+    let+ venv = VE.init_env args in
+    venv,decls
 end

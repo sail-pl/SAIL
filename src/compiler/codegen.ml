@@ -46,7 +46,7 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
 
 let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : (sailtype * llvalue) = 
   match x with
-  | Variable (_, x) ->  let _,t,v = SailEnv.get_var env x |> Option.get in t,v
+  | Variable (_, x) ->  let _,t,v = SailEnv.get_var env x |> Option.get |> snd in t,v
   | Deref (_, x) -> eval_r env llvm x
   | ArrayRead (_, array_exp, index_exp) -> 
     let array_t,array_val = eval_l env llvm array_exp in
@@ -61,11 +61,7 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : (sailty
   | StructRead _ -> failwith "struct assign unimplemented"
   | StructAlloc (_, _, _) -> failwith "struct allocation unimplemented"
   | EnumAlloc (_, _, _) -> failwith "enum allocation unimplemented"
-  | ArrayStatic _ -> failwith "array alloc is not a lvalue"
-  | Literal _ ->  failwith "literal is not a lvalue"
-  | UnOp _ -> failwith "unary operator is not a lvalue"
-  | BinOp _ -> failwith "binary operator is not a lvalue"
-  | Ref _ -> failwith "reference read is not a lvalue"
+  | _  -> failwith "problem with thir"
 
 and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : (sailtype * llvalue) = 
   match x with
@@ -83,10 +79,8 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : (sailtype * 
     | RefType (t,_) -> t,(build_load v "" llvm.b)
     | _ -> failwith "type system is broken"
     end
-  
   | Ref (_, _,e) -> eval_l env llvm e
   | Deref (_, e) -> 
-
     begin
       match eval_l env llvm e with
       | RefType (t,_),l -> t,build_load l "" llvm.b
@@ -105,22 +99,19 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : (sailtype * 
     set_global_constant true array;
     (ArrayType (List.hd array_types, List.length elements)),build_load array "" llvm.b
     end
-  | StructAlloc _ -> failwith "struct alloc is not a rvalue"
-  | EnumAlloc _   -> failwith "enum alloc is not a rvalue"
-  
-  and construct_call (name:string) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
-    let args_type,args = List.map (fun arg -> eval_r env llvm arg) args |> List.split
-    in
-    let mname = mangle_method_name name args_type in 
-    let args = Array.of_list args in
-    Logs.info (fun m -> m "constructing call to %s" mname);
-    match SailEnv.get_method env name  with 
-    | None ->  Printf.sprintf "method %s not found" name |> failwith
-    | Some (_,m) -> build_call m args "" llvm.b
-
+  | _ -> failwith "problem with thir"
+and construct_call (name:string) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
+  let args_type,args = List.map (fun arg -> eval_r env llvm arg) args |> List.split
+  in
+  let mname = mangle_method_name name args_type in 
+  let args = Array.of_list args in
+  Logs.info (fun m -> m "constructing call to %s" mname);
+  match SailEnv.get_method env name  with 
+  | None ->  Printf.sprintf "method %s not found" name |> failwith
+  | Some (_,m) -> build_call m args "" llvm.b
 
   
-  open AstMir
+open AstMir
   
 let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env :SailEnv.t) : unit = 
   let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t =
@@ -137,7 +128,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
         ty,build_alloca t' name entry_b
     in
     (* Logs.debug (fun m -> m "declared %s with type %s " name (string_of_sailtype (Some t))) ; *)
-    SailEnv.declare_var env name dummy_pos (mut,t,v) |> Result.get_ok
+    SailEnv.declare_var env name  (dummy_pos,(mut,t,v)) |> Result.get_ok
 
   and assign_var (target:expression) (exp:expression) (env:SailEnv.t) = 
     let lvalue = eval_l env llvm target |> snd
@@ -173,7 +164,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
           let c = construct_call f.id f.params env llvm  in
           begin
             match f.target with
-            | Some id -> build_store c (let _,_,v = SailEnv.get_var env id |> Option.get in v) llvm.b |> ignore
+            | Some id -> build_store c (let _,_,v = SailEnv.get_var env id |> Option.get |> snd in v) llvm.b |> ignore
             | None -> ()
           end;
           let llvm_bbs = aux f.next llvm_bbs env in
@@ -199,7 +190,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
 
     | Some _ -> llvm_bbs (* already treated, nothing to do *)
   in
-  let env = List.fold_left (fun e decl -> declare_var decl.mut decl.id decl.varType None e) env decls
+  let env = List.fold_left (fun e (d:declaration) -> declare_var d.mut d.id d.varType None e) env decls
   in
   let init_bb = insertion_block llvm.b
   and llvm_bbs = aux cfg.input BlockMap.empty env in
@@ -233,7 +224,7 @@ let methodToIR (llc:llcontext) (llm:llmodule) ((m,proto):Declarations.method_dec
 
     let new_env,args = Array.fold_left_map (
       fun env (m,t,v) -> 
-        let new_env = SailEnv.declare_var env (value_name v) dummy_pos (m,t,v) |> Result.get_ok in 
+        let new_env = SailEnv.declare_var env (value_name v) (dummy_pos,(m,t,v)) |> Result.get_ok in 
         (new_env, v)
       ) env args 
 
