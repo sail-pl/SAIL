@@ -1,6 +1,6 @@
 
 method f(x : int) : int{
-    return 1;
+    return x;
 }
 process Main(){
     print_int(f(1));

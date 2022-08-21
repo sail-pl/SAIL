@@ -245,7 +245,7 @@ struct
       | Assign(loc, e1, e2) -> 
         let* e1 = lower_lexp e1 decl.generics
         and* e2 = lower_rexp e2 decl.generics in
-        let* _ = matchArgParam (extract_exp_loc_ty e1) (extract_exp_loc_ty e2 |> snd) [] [] |> ES.lift in
+        let* _ = matchArgParam (extract_exp_loc_ty e2) (extract_exp_loc_ty e1 |> snd) [] [] |> ES.lift in
         Assign(loc, e1, e2) |> ES.pure
 
       | Seq(loc, c1, c2) -> 
@@ -296,10 +296,11 @@ struct
             Return(l, Some e)
           end
 
-      | Block (loc, c) -> fun s ->
-          let open MonadSyntax(E) in
-          let+ res,te' = aux c (THIREnv.new_frame s) in 
-          Block(loc,res),(THIREnv.pop_frame te')
+      | Block (loc, c) ->
+          let* () = ES.update (fun e -> THIREnv.new_frame e |> E.pure) in
+          let* res = aux c in 
+          let+ () =  ES.update (fun e -> THIREnv.pop_frame e |> E.pure) in
+          Block(loc,res)
 
       | Skip (loc) -> Skip(loc) |> ES.pure
 

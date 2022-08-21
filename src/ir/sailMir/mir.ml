@@ -196,6 +196,34 @@ let buildReturn (location : loc) (e : expression option) : cfg ESC.t =
   }
 
 
+let buildBlock (location : loc) (decls,cfg : mir_function) : mir_function ESC.t = 
+  let pop (e:VE.t) : VE.t E.t = 
+    let open MonadSyntax(E) in
+    let open MonadFunctions(E) in
+    let current,env = VE.current_frame e in
+    let+ () = mapIterM (
+      fun id (_l,v) -> if not v.is_used then
+        let () = Logs.warn (fun m -> m "unused variable %s" id) in
+        () |> E.pure
+        (* error [l, "unused variable"]  todo: add warnings *)
+      else
+        () |> E.pure
+    ) current in
+    env
+  in
+  let open MonadSyntax(ESC) in 
+  let* () = ESC.update_env pop and* env = ESC.get_env in 
+  let bb = {assignments=[]; env; location; terminator=Some (Goto cfg.input)} in
+  let* () = ESC.set_env env in
+  let+ cfg' = singleBlock bb in 
+  let cfg' = 
+  {
+    input = cfg'.input;
+    output = cfg.output;
+    blocks = BlockMap.union assert_disjoint cfg'.blocks cfg.blocks
+  } in
+  decls,cfg'
+
 let rec lexpr (e : Thir.expression) : expression ESC.t = 
   let open IrHir.AstHir in
   match (e:Thir.expression) with 
@@ -207,7 +235,7 @@ let rec lexpr (e : Thir.expression) : expression ESC.t =
       let l,_ = Thir.extract_exp_loc_ty e in ESC.error [l, "todo"]
     | _ -> failwith "problem with thir"
 and rexpr (e : Thir.expression) : expression ESC.t = 
-let open IrHir.AstHir in
+  let open IrHir.AstHir in
   match (e:Thir.expression) with 
     | Variable (l,_ as lt, id) ->
       let upd (old_l,v) = 
@@ -224,7 +252,7 @@ let open IrHir.AstHir in
     | BinOp (lt, o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in BinOp(lt, o, e1', e2')
     | Ref (lt, b, e) -> let+ e' = rexpr e in Ref(lt, b, e')
     | ArrayStatic (lt, el) -> let+ el' = listMapM rexpr el in ArrayStatic (lt, el')
-  | _ -> failwith "problem with thir"
+    | _ -> failwith "problem with thir"
 
 
 let seqOfList (l : statement list) : statement = 
@@ -248,7 +276,7 @@ let cfg_returns ({input;blocks;_} : cfg) : loc option * basicBlock BlockMap.t =
   end
   in
   aux input blocks
-  
+
 
 open Pass
 
@@ -257,11 +285,52 @@ struct
   type in_body = Thir.Pass.out_body
   type out_body = declaration list * cfg
 
-
-  open MonadSyntax(ESC)
+  open MonadFunctions(E)
+  open MonadSyntax(E) 
 
   let lower_function decl env : out_body  E.t =
-    let rec aux : Thir.statement -> (declaration list * cfg) ESC.t = function
+
+
+    let unused_params env : unit E.t = 
+      mapIterM (
+        fun id (_l,v) -> if not v.is_used then
+          let () = Logs.warn (fun m -> m "unused parameter \"%s\" in function \"%s\"" id decl.name) in
+          () |> E.pure
+          (* error [l, "unused parameter"]  todo: add warnings *)
+        else
+          () |> E.pure
+      ) @@ fst @@ VE.current_frame env 
+
+    in
+
+    let check_function (_,cfg : out_body) : unit E.t = 
+      let ret,unreachable_blocks = cfg_returns cfg in
+      if Option.is_some ret && decl.ret <> None then error [Option.get ret, (Printf.sprintf "%s doesn't always return !" decl.name)]
+      else
+        let () = BlockMap.iter (fun lbl {location=_;_} ->  Logs.debug (fun m -> m "unreachable block %i" lbl)) unreachable_blocks in
+        try 
+          let _,bb = BlockMap.filter (fun _ {location;_} -> location <> dummy_pos) unreachable_blocks |> BlockMap.choose in
+          let _loc = match List.nth_opt bb.assignments 0 with
+          | Some v -> v.location
+          | None ->  bb.location   in
+          error [bb.location, "unreachable code"] 
+        with Not_found -> ok ()
+    in
+    let check_returns (decls,cfg as res : out_body) : out_body E.t = 
+          (* we make sure the last block returns for void methods *)
+    let last_bb = BlockMap.find cfg.output cfg.blocks in
+    match last_bb.terminator with
+    | None when decl.ret = None -> 
+      let last_bb = {last_bb with terminator= Some (Return None)} in (* we insert void return *) 
+      let blocks = BlockMap.add cfg.output last_bb cfg.blocks in
+      ok (decls,{cfg with blocks})
+    | _ -> ok res
+    in
+
+    let rec aux (s : Thir.statement) : out_body ESC.t = 
+      let open MonadSyntax(ESC) in 
+      let open MonadFunctions(ESC) in 
+      match s with
       | DeclVar(loc, mut, id, Some ty, None) -> 
         let* () = ESC.update_env (fun e -> VE.declare_var e id (loc,{ty;mut;is_init=false;is_used=false})) in
         let+ bb = emptyBasicBlock loc  in
@@ -279,7 +348,7 @@ struct
       | Skip loc -> let+ bb = emptyBasicBlock loc in ([],  bb)
 
       | Assign (loc, e1, e2) -> 
-        let* target = lexpr e1 and* expression = rexpr e2 in
+        let* expression = rexpr e2 and* target = lexpr e1 in
         let+ bb = assignBasicBlock loc ({location=loc; target; expression}) in [],bb
         
       | Seq (_, s1, s2) ->
@@ -322,65 +391,17 @@ struct
       | Run _ | Emit _ | Await _ | When _  | Watching _ 
       | Par _  | Case _ | DeclSignal _ as s -> ESC.error [Thir.extract_statements_loc s, "unimplemented"]
 
-      | Block (location, s) -> 
-          let* () = ESC.update_env (fun e -> VE.new_frame e |> E.pure) in
-          let* decls,cfg = aux s in
-
-          let pop (e:VE.t) : VE.t E.t = 
-            let open MonadSyntax(E) in
-            let open MonadFunctions(E) in
-            let current,env = VE.current_frame e in
-            let+ () = mapIterM (
-              fun id (_l,v) -> if not v.is_used then
-                let () = Logs.warn (fun m -> m "unused variable %s" id) in
-                () |> E.pure
-                (* error [l, "unused variable"]  todo: add warnings *)
-              else
-                () |> E.pure
-            ) current in
-            env
-          in
-          let* () = ESC.update_env pop in
-
-          let* env = ESC.get_env in 
-
-          let bb = {assignments=[]; env; location; terminator=Some (Goto cfg.input)} in
-          let* () = ESC.set_env env in
-          let* cfg' = singleBlock bb in 
-          let cfg' = 
-          {
-            input = cfg'.input;
-            output = cfg.output;
-            blocks = BlockMap.union assert_disjoint cfg'.blocks cfg.blocks
-          } in
-          (decls,cfg') |> ESC.pure
-            
+      | Block (l, s) -> 
+        let* () = ESC.update_env (fun e -> VE.new_frame e |> E.pure) in
+        let* res = aux s in
+        buildBlock l res
     in 
-
     Logs.debug (fun m -> m "lowering to MIR %s" decl.name);
-    let open MonadSyntax(E) in
-    let* ((decls,cfg) as res,_),_ = aux decl.body 0 (fst env)  in
-    
-    let ret,unreachable_blocks = cfg_returns cfg in
-    if Option.is_some ret && decl.ret <> None then error [Option.get ret, (Printf.sprintf "%s doesn't always return !" decl.name)]
-    else
-      let () = BlockMap.iter (fun lbl {location=_;_} ->  Logs.debug (fun m -> m "unreachable block %i" lbl)) unreachable_blocks in
-      let* () =
-      try 
-        let _,bb = BlockMap.filter (fun _ {location;_} -> location <> dummy_pos) unreachable_blocks |> BlockMap.choose in
-        let _loc = match List.nth_opt bb.assignments 0 with
-        | Some v -> v.location
-        | None ->  bb.location   in
-        error [bb.location, "unreachable code"] 
-      with Not_found -> ok ()
-      in
-    (* we make sure the last block returns for void methods *)
-      let last_bb = BlockMap.find cfg.output cfg.blocks in
-      match last_bb.terminator with
-      | None when decl.ret = None -> 
-        let last_bb = {last_bb with terminator= Some (Return None)}  (* we insert void return *) in
-        let blocks = BlockMap.add cfg.output last_bb cfg.blocks in
-        ok (decls,{cfg with blocks})
-      | _ -> ok res
+
+    let* (res,_),env = aux decl.body 0 (fst env) in
+    (* some checks *)
+    let* () = unused_params env in
+    let* () = check_function res in
+    check_returns res
   end
 )

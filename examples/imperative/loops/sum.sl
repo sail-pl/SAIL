@@ -1,7 +1,7 @@
 method sumTo(n : int) : int{
     var mut res : int = 0;
     var mut cpt : int = 0;
-    while (cpt < 10){
+    while (cpt < n){
         res = res + cpt;
         cpt = cpt+1
     }

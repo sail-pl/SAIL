@@ -51,3 +51,5 @@ type cfg = {
   output : label;
   blocks : basicBlock BlockMap.t
 }
+
+type mir_function = declaration list * cfg
