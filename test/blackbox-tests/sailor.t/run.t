@@ -19,6 +19,7 @@
   55
   Hello
   $ sailor sum.sl --run
+  45
   $ sailor testReturnVal.sl --run
   1
   $ sailor while1.sl --run

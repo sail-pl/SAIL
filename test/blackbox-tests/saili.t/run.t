@@ -44,6 +44,7 @@
   $ saili parallel1.sl
   $ saili point.sl
   $ saili sum.sl
+  45
   $ saili testBox.sl
   3
   $ saili testFieldAssign.sl
