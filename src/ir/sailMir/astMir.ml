@@ -18,17 +18,15 @@ type terminator =
 type vtype = {
     ty:sailtype;
     mut:bool;
-    is_init:bool;
-    is_used:bool;
 }
 
 module V : Common.Env.Variable with type t = vtype = 
   struct 
 
   type t = vtype
-  let string_of_var v = Printf.sprintf "{ty:%s;init:%b;used:%b}" (string_of_sailtype (Some v.ty)) v.is_init v.is_used
+  let string_of_var v = Printf.sprintf "{ty:%s}" (string_of_sailtype (Some v.ty))
 
-  let to_var mut ty = {ty;mut;is_init=true;is_used=false}
+  let to_var mut ty = {ty;mut}
 end
 
 module VE = Common.Env.VariableEnv(V)

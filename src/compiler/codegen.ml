@@ -5,15 +5,17 @@ open Llvm
 open IrMir
 
 
-let unary (op:unOp) (t,v) : llvalue = 
-  match t,op with
-  | Float,Neg ->const_fneg v
-  | Int,Neg -> const_neg v
-  | _,Not  -> const_not v
-  | _ -> Printf.sprintf "bad unary operand type : '%s'. Only double and int are supported" (string_of_sailtype (Some t)) |> failwith
+let unary (op:unOp) (t,v) : llbuilder -> llvalue = 
+  let f = 
+    match t,op with
+    | Float,Neg -> build_fneg
+    | Int,Neg -> build_neg
+    | _,Not  -> build_not
+    | _ -> Printf.sprintf "bad unary operand type : '%s'. Only double and int are supported" (string_of_sailtype (Some t)) |> failwith
+  in f v ""
 
 
-let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llvalue) = 
+let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : llbuilder -> llvalue = 
     let operators = [
       (Int, 
         [
@@ -44,9 +46,9 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : (llbuilder -> llv
     | None ->  Printf.sprintf "bad binary operand type : '%s'. Only doubles and ints are supported" (string_of_sailtype (Some t)) |> failwith
 
 
-let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : (sailtype * llvalue) = 
+let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : sailtype * llvalue = 
   match x with
-  | Variable (_, x) ->  let _,t,v = SailEnv.get_var env x |> Option.get |> snd in t,v
+  | Variable ((_,t), x) -> let _,v = SailEnv.get_var env x |> Option.get |> snd in t,v
   | Deref (_, x) -> eval_r env llvm x
   | ArrayRead (_, array_exp, index_exp) -> 
     let array_t,array_val = eval_l env llvm array_exp in
@@ -63,11 +65,11 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : (sailty
   | EnumAlloc (_, _, _) -> failwith "enum allocation unimplemented"
   | _  -> failwith "problem with thir"
 
-and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : (sailtype * llvalue) = 
+and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : sailtype * llvalue = 
   match x with
   | Variable _ ->  let t,v = eval_l env llvm x in t,build_load v "" llvm.b
-  | Literal (_, l) ->  sailtype_of_literal l,getLLVMLiteral l llvm
-  | UnOp (_, op,e) -> let t,l = eval_r env llvm e in t,unary op (t,l)
+  | Literal ((_,t), l) ->  t,getLLVMLiteral l llvm
+  | UnOp (_, op,e) -> let t,l = eval_r env llvm e in t,unary op (t,l) llvm.b
   | BinOp (_, op,e1, e2) -> 
       let t,l1 = eval_r env llvm e1
       and _,l2 = eval_r env llvm e2
@@ -117,7 +119,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
   let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t =
     let _ = mut in (* todo manage mutable types *)
     let entry_b = entry_block proto |> instr_begin |> builder_at llvm.c in
-    let t,v =  
+    let _,v =  
       match exp with
       | Some e -> 
           let t,v = eval_r env llvm e in
@@ -128,7 +130,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
         ty,build_alloca t' name entry_b
     in
     (* Logs.debug (fun m -> m "declared %s with type %s " name (string_of_sailtype (Some t))) ; *)
-    SailEnv.declare_var env name  (dummy_pos,(mut,t,v)) |> Result.get_ok
+    SailEnv.declare_var env name  (dummy_pos,(mut,v)) |> Result.get_ok
 
   and assign_var (target:expression) (exp:expression) (env:SailEnv.t) = 
     let lvalue = eval_l env llvm target |> snd
@@ -164,7 +166,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
           let c = construct_call f.id f.params env llvm  in
           begin
             match f.target with
-            | Some id -> build_store c (let _,_,v = SailEnv.get_var env id |> Option.get |> snd in v) llvm.b |> ignore
+            | Some id -> build_store c (let _,v = SailEnv.get_var env id |> Option.get |> snd in v) llvm.b |> ignore
             | None -> ()
           end;
           let llvm_bbs = aux f.next llvm_bbs env in
@@ -223,8 +225,8 @@ let methodToIR (llc:llcontext) (llm:llmodule) ((m,proto):Declarations.method_dec
     let args = toLLVMArgs m.m_proto.params llvm in
 
     let new_env,args = Array.fold_left_map (
-      fun env (m,t,v) -> 
-        let new_env = SailEnv.declare_var env (value_name v) (dummy_pos,(m,t,v)) |> Result.get_ok in 
+      fun env (m,_,v) -> 
+        let new_env = SailEnv.declare_var env (value_name v) (dummy_pos,(m,v)) |> Result.get_ok in 
         (new_env, v)
       ) env args 
 

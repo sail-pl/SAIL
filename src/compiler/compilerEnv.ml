@@ -15,10 +15,10 @@ module DeclEnv = DeclarationsEnv (Declarations)
 
 module SailEnv = VariableDeclEnv (Declarations)(
   struct 
-    type t = bool * sailtype * llvalue
-    let string_of_var (_,t,_) = string_of_sailtype (Some t)
+    type t = bool * llvalue
+    let string_of_var _ = ""
 
-    let to_var (m:bool) (t:sailtype) = m,t,(() |> global_context |> i32_type |> const_null) (*fixme : make specialized var env for passes to not have this ugly thing *)
+    let to_var (mut:bool) _ = mut,global_context () |> i1_type |> const_null (*fixme : make specialized var env for passes to not have this ugly thing *)
 
   end
 ) 

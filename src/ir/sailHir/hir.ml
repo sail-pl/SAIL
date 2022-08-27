@@ -153,6 +153,8 @@ struct
     | l, Watching(s, c) ->  let+ c = aux c in Watching(l, s, c)
     | l, Block c -> let+ c = aux c in Block(l, c) 
       
-    in EC.run (aux c.body env)
+    in
+    Logs.debug (fun m -> m "lowering to HIR %s" c.name); 
+    EC.run (aux c.body env)
   end
  )

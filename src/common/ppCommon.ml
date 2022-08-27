@@ -19,7 +19,7 @@ let rec pp_pattern pf p =
     | PCons (c, pl) -> Format.fprintf pf "%s(%a)" c (Format.pp_print_list ~pp_sep:pp_comma pp_pattern) pl
 *)    
 let pp_unop pf u =
-  let u = match u with Neg -> "-" | Not -> "~" in
+  let u = match u with Neg -> "-" | Not -> "!" in
   Format.pp_print_string pf  u 
 
 let pp_binop pf b = 

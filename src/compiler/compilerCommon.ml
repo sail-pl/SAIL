@@ -62,8 +62,6 @@ open Monad.MonadSyntax(Common.Error.MonadError)
 
   let lower (m : in_body SailModule.t)  : out_body SailModule.t Error.result =
   let+ main = method_of_main_process m.processes in
-  { m with
-    methods= main :: m.methods;
-  } 
+  { m with  methods = main :: m.methods } 
 end
 )

@@ -47,8 +47,8 @@ let ppPrintTerminator (pf : Format.formatter) (t : terminator) : unit =
         default
 
 let ppPrintFrame (pf : Format.formatter) (f : VE.frame) =
-  let print_var (pf : Format.formatter) (id,(_,{is_init;is_used;_}):string * VE.variable) =
-  Format.fprintf pf "%s<init:%b|used:%b>" id is_init is_used
+  let print_var (pf : Format.formatter) (id,(_,{ty;_}):string * VE.variable) =
+  Format.fprintf pf "%s:%a" id pp_type ty
   in
   Format.fprintf pf "\t\t\t[%a]" (Format.pp_print_list ~pp_sep:pp_comma print_var) (TypesCommon.FieldMap.bindings f)
 
