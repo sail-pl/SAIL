@@ -26,6 +26,10 @@ let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit
       Format.fprintf pf "[%s(%a)]" id
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
 
+let ppPrintPredecessors (pf : Format.formatter) (preds : LabelSet.t ) : unit = 
+  if LabelSet.is_empty preds then fprintf pf "// no precedessors"
+  else fprintf pf "// predecessors : %a" (pp_print_seq ~pp_sep:pp_comma pp_print_int) (LabelSet.to_seq preds)
+
 let ppPrintDeclaration (pf : Format.formatter) (d : declaration) : unit = 
   if d.mut then
     fprintf pf "\tlet mut %s : %a" d.id pp_type d.varType 
@@ -48,13 +52,16 @@ let ppPrintTerminator (pf : Format.formatter) (t : terminator) : unit =
 
 let ppPrintFrame (pf : Format.formatter) (f : VE.frame) =
   let print_var (pf : Format.formatter) (id,(_,{ty;_}):string * VE.variable) =
-  Format.fprintf pf "%s:%a" id pp_type ty
+  Format.fprintf pf "(%s:%a)" id pp_type ty
   in
-  Format.fprintf pf "\t\t\t[%a]" (Format.pp_print_list ~pp_sep:pp_comma print_var) (TypesCommon.FieldMap.bindings f)
+  Format.fprintf pf "[%a]" (Format.pp_print_list ~pp_sep:pp_comma print_var) (TypesCommon.FieldMap.bindings f)
 
 let ppPrintBasicBlock (pf : Format.formatter) (lbl : label) (bb : basicBlock) : unit = 
   let pp_env pf bb = 
-    Format.fprintf pf "%a\n" (Format.pp_print_list ~pp_sep:pp_force_newline ppPrintFrame) bb.env in
+    Format.fprintf pf "%a" (Format.pp_print_list ~pp_sep:pp_force_newline ppPrintFrame) bb.env in
+
+  let pp_preds pf bb = 
+    Format.fprintf pf "%a\n" ppPrintPredecessors bb.predecessors in
 
   let pp_block pf bb = 
     match bb.terminator with 
@@ -63,7 +70,7 @@ let ppPrintBasicBlock (pf : Format.formatter) (lbl : label) (bb : basicBlock) : 
       |Some t ->
       Format.fprintf pf "%a\n%a" (Format.pp_print_list ~pp_sep:pp_semicr ppPrintAssignement) bb.assignments  ppPrintTerminator t 
   in 
-  Format.fprintf pf "\tbb%d{\n\t\tenv [\n%a\n\t\t]\n%a\n\t}\n" lbl pp_env bb pp_block bb 
+  Format.fprintf pf "\tbb%d%a\t{\n\t\tenv [%a]%a\n\n\t}\n" lbl pp_preds bb pp_env bb pp_block bb 
 
 (* termination *)
 let ppPrintCfg (pf : Format.formatter) (cfg : cfg) : unit = 

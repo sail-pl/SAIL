@@ -77,7 +77,7 @@ module type Variable = sig
   type t
   val string_of_var : t -> string
 
-  val to_var : bool -> sailtype -> t 
+  val to_var : string -> bool -> sailtype -> t 
 end
  
 module VariableEnv (V : Variable) = struct
@@ -131,7 +131,8 @@ module VariableEnv (V : Variable) = struct
       let open Monad.MonadFunctions(Error.MonadError) in
       let env = empty |> new_frame in
       foldRightM (fun p m ->
-        declare_var m p.id (p.loc,(V.to_var p.mut p.ty))
+        let v = V.to_var p.id p.mut p.ty  in 
+        declare_var m p.id (p.loc,v)
       ) args
       env
 

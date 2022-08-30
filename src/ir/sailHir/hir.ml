@@ -19,7 +19,7 @@ end
 module V : Env.Variable = struct 
 type t = unit
 let string_of_var _ = ""
-let to_var _ _ = ()
+let to_var _ _ _ = ()
 end
 
 module HIREnv = SailModule.SailEnv(V)
@@ -32,8 +32,6 @@ module EC = MonadState.CounterTransformer(E)
 module ECR =  MonadReader.T(EC)(HIREnv)
 module ECRW = MonadWriter.MakeTransformer(ECR)(MonoidSeq)
 
-
-let freshVar n = "_x"^ (string_of_int n)
 
 module Pass = Pass.MakeFunctionPass (V)(
 struct
@@ -81,7 +79,7 @@ struct
             | Some rtype -> 
               let open MonadSyntax(ECR) in 
               let* n = EC.fresh |> R.pure in 
-              let x = freshVar n in
+              let x = "__f" ^ string_of_int n in
               let+ el,_ = listMapM aux el in
               let open MonadSyntax(W) in 
               let* () = DeclVar (dummy_pos, false, x, Some rtype, None) |> W.write in

@@ -35,8 +35,8 @@ let pp_binop pf b =
     | LBool (b) -> Format.fprintf pf "%b" b
     | LInt (i) -> pp_print_int pf i
     | LFloat (f) -> Format.fprintf pf "%f" f
-    | LChar (c) -> Format.fprintf pf "\'%c\'" c
-    | LString s -> Format.fprintf pf "\"%s\"" s 
+    | LChar (c) -> Format.fprintf pf "\'%s\'" (Char.escaped c)
+    | LString s -> Format.fprintf pf "\"%s\"" (String.escaped s)
   
   
 

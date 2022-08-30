@@ -18,7 +18,7 @@ module SailEnv = VariableDeclEnv (Declarations)(
     type t = bool * llvalue
     let string_of_var _ = ""
 
-    let to_var (mut:bool) _ = mut,global_context () |> i1_type |> const_null (*fixme : make specialized var env for passes to not have this ugly thing *)
+    let to_var _ (mut:bool) _ = mut,global_context () |> i1_type |> const_null (*fixme : make specialized var env for passes to not have this ugly thing *)
 
   end
 ) 

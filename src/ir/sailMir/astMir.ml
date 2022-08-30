@@ -7,6 +7,7 @@ type declaration = {location : loc; mut : bool; id : string; varType : sailtype}
 type assignment = {location : loc; target : expression; expression : expression}
 
 type label = int
+module LabelSet = Set.Make(Int)
 
 type terminator = 
 | Goto of label
@@ -18,6 +19,7 @@ type terminator =
 type vtype = {
     ty:sailtype;
     mut:bool;
+    name:string;
 }
 
 module V : Common.Env.Variable with type t = vtype = 
@@ -26,7 +28,7 @@ module V : Common.Env.Variable with type t = vtype =
   type t = vtype
   let string_of_var v = Printf.sprintf "{ty:%s}" (string_of_sailtype (Some v.ty))
 
-  let to_var mut ty = {ty;mut}
+  let to_var name mut ty = {ty;mut;name}
 end
 
 module VE = Common.Env.VariableEnv(V)
@@ -34,6 +36,7 @@ module VE = Common.Env.VariableEnv(V)
 type basicBlock = {
   env : VE.t;
   assignments : assignment list;
+  predecessors : LabelSet.t;
   terminator : terminator option;
   location : loc;
 }
