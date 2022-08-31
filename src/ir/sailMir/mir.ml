@@ -75,6 +75,7 @@ let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg ESC.t =
   in 
   match left.terminator with 
   | Some (Invoke _) -> ESC.error [left.location, "invalid output node"]
+  | Some Return _ -> cfg1 |> ESC.ok (* if the left block returns, it can't go to the right one *)
   (* todo: handle other cases *)
   | Some _ -> Logs.debug (fun m -> m "MIR : found left terminator with Some");
     {
@@ -173,7 +174,7 @@ let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t =
   let* env =  ESC.get_env in 
   let* inputLbl = ESC.fresh and* headLbl = ESC.fresh  and* outputLbl =  ESC.fresh in 
   let inputBlock = {assignments = []; predecessors = LabelSet.empty; env; location; terminator = Some (Goto headLbl)}
-  and headBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl;cfg.output] ; env; location = dummy_pos; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))}
+  and headBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl] ; env; location = dummy_pos; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))}
   and outputBlock = {assignments = []; predecessors = LabelSet.of_list [headLbl]; env; location; terminator = None} in
   let+ goto =  addGoto headLbl cfg >>| addPredecessors[headLbl] in
   {
@@ -261,7 +262,7 @@ let seqOfList (l : statement list) : statement =
   List.fold_left (fun s l : statement -> Seq (dummy_pos, s, l)) (Skip dummy_pos) l
 
 
-let reverse_traversal ({output;blocks;_} : cfg) :  basicBlock BlockMap.t = 
+let reverse_traversal (lbl:int) (blocks : basicBlock BlockMap.t) :  basicBlock BlockMap.t = 
   let rec aux lbl blocks = 
     let blocks' = BlockMap.remove lbl blocks in
     if blocks' != blocks then
@@ -271,7 +272,7 @@ let reverse_traversal ({output;blocks;_} : cfg) :  basicBlock BlockMap.t =
       | Some bb -> 
           LabelSet.fold (fun lbl b -> aux lbl b) bb.predecessors blocks' 
     in
-    aux output blocks
+    aux lbl blocks
     
 
 let cfg_returns ({input;blocks;_} : cfg) : loc option * basicBlock BlockMap.t = 
@@ -381,8 +382,8 @@ struct
         (d1@d2, ite) 
 
       | While (loc, e, s) ->  
-        let* d, cfg = aux s in 
         let* e' = rexpr e in
+        let* d, cfg = aux s in 
         let+ l = buildLoop loc e' cfg in
         (d, l)
         
@@ -414,7 +415,14 @@ struct
 
     (* some analysis passes *)
     let* () = check_function res in
-    reverse_traversal @@ snd res |> ignore;
-    check_returns res
+    let+ _,cfg as res = check_returns res in
+
+    BlockMap.iter (
+      fun l bb -> match bb.terminator with 
+      | Some (Return _) -> Logs.debug (fun m -> m "found leaf at %i" l); reverse_traversal l cfg.blocks |> ignore 
+      | _ -> ()
+    ) cfg.blocks;
+    res
+
   end
 )
