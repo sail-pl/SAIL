@@ -52,6 +52,7 @@ type statement = loc * statement_ and statement_ =
   | Par of statement * statement
   | If of expression * statement * statement option
   | While of expression * statement
+  | Break of unit
   | Case of expression * (pattern * statement) list
   | Invoke of  string * expression list
   | Return of expression option

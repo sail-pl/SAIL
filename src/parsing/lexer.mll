@@ -98,6 +98,7 @@ rule read_token = parse
   | "true" { TRUE }
   | "false" { FALSE }
   | "while" { WHILE }
+  | "break" { BREAK }
   | "if" { IF }
   | "else" { ELSE }
   | "return" { RETURN }

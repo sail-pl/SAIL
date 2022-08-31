@@ -46,6 +46,7 @@ type 'a statement =
   | Par of loc * 'a statement * 'a statement
   | If of loc * 'a * 'a statement * 'a statement option
   | While of loc * 'a * 'a statement
+  | Break of loc
   | Case of loc * 'a * (string * string list * 'a statement) list
   | Invoke of loc * string option * string * 'a list
   | Return of loc * 'a option

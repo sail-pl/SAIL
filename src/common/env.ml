@@ -161,6 +161,8 @@ module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
 
   let get_var (env,_) id = VE.get_var env id
   let declare_var (env,g) id v = let+ env = VE.declare_var env id v in env,g
+
+  let update_var (env,g) l v id= let+ env = VE.update_var env l v id in env,g
   let new_frame (env,g) = VE.new_frame env,g
   let pop_frame (env,g) = VE.pop_frame env,g
   let get_env (env,_) = env

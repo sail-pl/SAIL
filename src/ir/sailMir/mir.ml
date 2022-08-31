@@ -174,9 +174,16 @@ let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t =
   let* env =  ESC.get_env in 
   let* inputLbl = ESC.fresh and* headLbl = ESC.fresh  and* outputLbl =  ESC.fresh in 
   let inputBlock = {assignments = []; predecessors = LabelSet.empty; env; location; terminator = Some (Goto headLbl)}
-  and headBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl] ; env; location = dummy_pos; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))}
-  and outputBlock = {assignments = []; predecessors = LabelSet.of_list [headLbl]; env; location; terminator = None} in
-  let+ goto =  addGoto headLbl cfg >>| addPredecessors[headLbl] in
+  and headBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl] ; env; location = dummy_pos; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
+
+  let bm1,bm2 = BlockMap.partition (fun _ {terminator;_} -> terminator = Some Break) cfg.blocks in
+  let preds,bm1 = BlockMap.fold (fun l bb (lbls,bbs) -> l::lbls,BlockMap.add l {bb with terminator = Some (Goto outputLbl)} bbs ) bm1 ([],BlockMap.empty) in 
+
+  let outputBlock = {assignments = []; predecessors = LabelSet.of_list (headLbl::preds); env; location; terminator = None} in
+  let cfg =  {cfg with blocks=BlockMap.union assert_disjoint bm1 bm2} in 
+
+
+  let+ goto =  addGoto headLbl cfg >>| addPredecessors [headLbl] in
   {
     input = inputLbl;
     output = outputLbl; (* false jumps here *)
@@ -286,6 +293,7 @@ let rec aux lbl blocks =
       begin
       match bb.terminator with
       | None -> Some bb.location, blocks'
+      | Some Break -> failwith "break not here"
       | Some Return _ -> None, blocks'
       | Some (Invoke {next;_}) -> aux next blocks'
       | Some (Goto lbl) -> aux lbl blocks'
@@ -354,7 +362,7 @@ struct
         [{location=loc; mut; id=id; varType=ty}],bn
         (* ++ other statements *)
 
-      | DeclVar _ as s -> ESC.error [Thir.extract_statements_loc s, "Declaration should have type "]  (* -> add generic parameter to statements *)
+      | DeclVar _ -> failwith "hir broken : variable declaration should have a type"
 
       | Skip loc -> let+ bb = emptyBasicBlock loc in ([],  bb)
 
@@ -386,6 +394,12 @@ struct
         let* d, cfg = aux s in 
         let+ l = buildLoop loc e' cfg in
         (d, l)
+
+      | Break(loc) -> 
+        let* env = ESC.get_env in 
+        let bb = {location=loc; env; assignments=[]; predecessors=LabelSet.empty;terminator=Some Break} in
+        let+ cfg = singleBlock bb in
+        ([],cfg)
         
       | Invoke (loc, target, id, el) -> 
         let* el' = listMapM rexpr el in

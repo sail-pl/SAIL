@@ -34,63 +34,52 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : llbuilder -> llva
           (Eq, build_fcmp Fcmp.Oeq) ; (NEq, build_fcmp Fcmp.One) ;
           (Lt, build_fcmp Fcmp.Olt) ; (Gt, build_fcmp Fcmp.Ogt) ; 
           (Le, build_fcmp Fcmp.Ole) ; (Ge, build_fcmp Fcmp.Oge) ;
-          (And, build_and) ; (Or, build_or) ;
         ]
       )
     ] in
-
+    let string_of_binop = function Minus -> "minus" | Plus -> "plus" | Rem -> "rem" | Eq -> "equal" 
+    | And -> "and" | Or -> "or" | Le -> "le" | Lt -> "lt" | Ge -> "ge" | Gt -> "gt" | Mul -> "mul"
+    | NEq -> "neq" | Div -> "div"
+    in
+    let t = if t = Bool then Int else t in (* thir will have checked for correctness *)
     let l = List.assoc_opt t operators in
     let open Common.Monad.MonadOperator(Common.MonadOption.M) in
-    match l >>| List.assoc op with
-    | Some oper -> oper l1 l2 ""
-    | None ->  Printf.sprintf "bad binary operand type : '%s'. Only doubles and ints are supported" (string_of_sailtype (Some t)) |> failwith
+    match l >>| List.assoc_opt op with
+    | Some Some oper -> oper l1 l2 ""
+    | Some None | None -> Printf.sprintf "codegen: bad usage of binop '%s' with type %s" (string_of_binop op) (string_of_sailtype @@ Some t) |> failwith
 
+let get_type e = IrThir.Thir.extract_exp_loc_ty e |>snd
 
-let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : sailtype * llvalue = 
+let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : llvalue = 
   match x with
-  | Variable ((_,t), x) -> let _,v = SailEnv.get_var env x |> Option.get |> snd in t,v
+  | Variable (_, x) -> let _,v = SailEnv.get_var env x |> Option.get |> snd in v
   | Deref (_, x) -> eval_r env llvm x
   | ArrayRead (_, array_exp, index_exp) -> 
-    let array_t,array_val = eval_l env llvm array_exp in
-    let t =
-    match array_t with
-    | ArrayType (t,_s) -> t
-    | t ->  Printf.sprintf "typechecker is broken : 'array' type for %s is %s" (value_name array_val) (string_of_sailtype (Some t)) |> failwith
-    in
-    let _,index = eval_r env llvm index_exp in
+    let array_val = eval_l env llvm array_exp in
+    let index = eval_r env llvm index_exp in
     let llvm_array = build_in_bounds_gep array_val [|(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
-    RefType (t,true),llvm_array
+    llvm_array
   | StructRead _ -> failwith "struct assign unimplemented"
   | StructAlloc (_, _, _) -> failwith "struct allocation unimplemented"
   | EnumAlloc (_, _, _) -> failwith "enum allocation unimplemented"
   | _  -> failwith "problem with thir"
 
-and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : sailtype * llvalue = 
+and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue = 
   match x with
-  | Variable _ ->  let t,v = eval_l env llvm x in t,build_load v "" llvm.b
-  | Literal ((_,t), l) ->  t,getLLVMLiteral l llvm
-  | UnOp (_, op,e) -> let t,l = eval_r env llvm e in t,unary op (t,l) llvm.b
-  | BinOp (_, op,e1, e2) -> 
-      let t,l1 = eval_r env llvm e1
-      and _,l2 = eval_r env llvm e2
-      in t,binary op t l1 l2 llvm.b
+  | Variable _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
+  | Literal (_, l) ->  getLLVMLiteral l llvm
+  | UnOp ((_,t), op,e) -> let l = eval_r env llvm e in unary op (t,l) llvm.b
+  | BinOp ((_,t), op,e1, e2) -> 
+      let l1 = eval_r env llvm e1
+      and l2 = eval_r env llvm e2
+      in binary op t l1 l2 llvm.b
   | StructRead (_, _, _) -> failwith "struct read undefined"
-  | ArrayRead _ -> let v_t,v = eval_l env llvm x in
-    begin
-    match v_t with
-    | RefType (t,_) -> t,(build_load v "" llvm.b)
-    | _ -> failwith "type system is broken"
-    end
+  | ArrayRead _ -> let v = eval_l env llvm x in build_load v "" llvm.b    
   | Ref (_, _,e) -> eval_l env llvm e
-  | Deref (_, e) -> 
-    begin
-      match eval_l env llvm e with
-      | RefType (t,_),l -> t,build_load l "" llvm.b
-      | _ -> failwith "type system is broken"
-      end
+  | Deref (_, e) -> let v = eval_l env llvm e in build_load v "" llvm.b
   | ArrayStatic (_, elements) -> 
     begin
-    let array_types,array_values = List.map (fun e -> eval_r env llvm e) elements |> List.split in
+    let array_values = List.map (eval_r env llvm) elements in
     let ty = List.hd array_values |> type_of in
     let array_values = Array.of_list array_values in
     let array_type = array_type ty (List.length elements) in 
@@ -99,11 +88,11 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : sailtype * l
     set_linkage Linkage.Private array;
     set_unnamed_addr true array;
     set_global_constant true array;
-    (ArrayType (List.hd array_types, List.length elements)),build_load array "" llvm.b
+    build_load array "" llvm.b
     end
   | _ -> failwith "problem with thir"
 and construct_call (name:string) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
-  let args_type,args = List.map (fun arg -> eval_r env llvm arg) args |> List.split
+  let args_type,args = List.map (fun arg -> get_type arg,eval_r env llvm arg) args |> List.split
   in
   let mname = mangle_method_name name args_type in 
   let args = Array.of_list args in
@@ -119,22 +108,22 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
   let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t =
     let _ = mut in (* todo manage mutable types *)
     let entry_b = entry_block proto |> instr_begin |> builder_at llvm.c in
-    let _,v =  
+    let v =  
       match exp with
       | Some e -> 
-          let t,v = eval_r env llvm e in
+          let t = get_type e 
+          and v = eval_r env llvm e in
           let x = build_alloca (getLLVMType t llvm.c llvm.m) name entry_b in 
-          build_store v x llvm.b |> ignore; t,x  
+          build_store v x llvm.b |> ignore; x  
       | None ->
         let t' = getLLVMType ty llvm.c llvm.m in
-        ty,build_alloca t' name entry_b
+        build_alloca t' name entry_b
     in
-    (* Logs.debug (fun m -> m "declared %s with type %s " name (string_of_sailtype (Some t))) ; *)
     SailEnv.declare_var env name  (dummy_pos,(mut,v)) |> Result.get_ok
 
   and assign_var (target:expression) (exp:expression) (env:SailEnv.t) = 
-    let lvalue = eval_l env llvm target |> snd
-    and rvalue = eval_r env llvm exp |> snd in
+    let lvalue = eval_l env llvm target 
+    and rvalue = eval_r env llvm exp in
     build_store rvalue lvalue llvm.b |> ignore
     in
 
@@ -151,7 +140,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
         match bb.terminator with
         | Some (Return e) ->  
             let ret = match e with
-              | Some r ->  let v = eval_r env llvm r |> snd in build_ret v
+              | Some r ->  let v = eval_r env llvm r in build_ret v
               | None ->  build_ret_void
             in ret llvm.b |> ignore; llvm_bbs
 
@@ -174,7 +163,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
           build_br (BlockMap.find f.next llvm_bbs) llvm.b |> ignore;
           llvm_bbs
         | Some (SwitchInt (e,cases,default)) -> 
-            let sw_val = eval_r env llvm e |> snd in
+            let sw_val = eval_r env llvm e in
             let sw_val = build_intcast sw_val (i32_type llvm.c) "" llvm.b (* for condition, expression val will be bool *)
             and llvm_bbs = aux default llvm_bbs env in
             position_at_end llvm_bb llvm.b;
@@ -188,6 +177,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
             ) llvm_bbs cases
 
         | None -> failwith "no terminator : mir is broken" (* can't happen *)
+        | Some Break -> failwith "no break should be there"
       end
 
     | Some _ -> llvm_bbs (* already treated, nothing to do *)

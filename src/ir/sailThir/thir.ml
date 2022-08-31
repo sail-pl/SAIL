@@ -43,7 +43,7 @@ let extract_statements_loc : _ AstHir.statement -> loc  = function
 | DeclSignal(l, _)  | Skip (l)  | Return (l,_)
 | Invoke (l,_,_,_) | Block (l, _) | If (l,_,_,_)
 | DeclVar (l,_,_,_,_) | Seq (l,_,_) | Assign (l,_,_)
-| While (l,_,_) | Case (l,_,_) -> l
+| While (l,_,_) | Break (l) | Case (l,_,_) -> l
 
 
 let degenerifyType (t: sailtype) (generics: sailtype dict) loc : sailtype ES.t =
@@ -68,77 +68,87 @@ let degenerifyType (t: sailtype) (generics: sailtype dict) loc : sailtype ES.t =
   in
   aux t
 
-(*todo : generalize*)
-let type_of_binOp (op:binOp) (operands_type:sailtype) : sailtype = match op with
-  | Lt | Le | Gt | Ge | Eq | NEq | And | Or -> Bool
-  | Plus | Mul | Div | Minus | Rem -> operands_type
+  
+let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: sailtype dict) : (sailtype * sailtype dict) E.t =
+  let open MonadSyntax(E) in
+  let rec aux (a:sailtype) (m:sailtype) (g: sailtype dict) = 
+  match (a,m) with
+  | Bool,Bool -> E.pure (Bool,g)
+  | Int,Int -> E.pure (Int,g)
+  | Float,Float -> E.pure (Float,g)
+  | Char,Char -> E.pure (Char,g)
+  | String,String -> E.pure (String,g)
+  | ArrayType (at,s),ArrayType (mt,s') -> 
+    if s = s' then
+      let+ t,g = aux at mt g in ArrayType (t,s),g
+    else
+      Result.error [l,Printf.sprintf "array length mismatch : wants %i but %i provided" s' s]
+  | CompoundType _, CompoundType _ -> Result.error [l, "todocompoundtype"]
+  | Box _at, Box _mt -> Result.error [l,"todobox"]
+  | RefType (at,am), RefType (mt,mm) -> if am <> mm then Result.error [l, "different mutability"] else aux at mt g
+  | at,GenericType gt ->
+    begin
+      if List.mem gt generics then
+        match List.assoc_opt gt g with
+        | None -> E.pure (at,(gt,at)::g)
+        | Some t -> if t = at then E.pure (at,g) else Result.error [l,"generic type mismatch"]
+      else
+        Result.error [l,Printf.sprintf "generic type %s not declared" gt]
+    end
+  | _ -> Result.error [l,Printf.sprintf "wants %s but %s provided" 
+          (string_of_sailtype (Some m_param))
+          (string_of_sailtype (Some arg))]
+  in aux arg m_param resolved_generics  
+
+
+let check_binop op l r : sailtype E.t = 
+  let open MonadSyntax(E) in
+  match op with
+  | Lt | Le | Gt | Ge | Eq | NEq ->
+    let+ _ = matchArgParam r (snd l) [] [] in Bool
+  | And | Or -> 
+    let+ _ = matchArgParam l Bool [] [] 
+    and* _ = matchArgParam r Bool [] [] in Bool
+  | Plus | Mul | Div | Minus | Rem -> 
+    let+ _ = matchArgParam r (snd l) [] [] in snd l
+
+
+let check_call (name:string) (args: expression list) loc : sailtype option ES.t =
+  let* env = ES.get in
+  match THIREnv.get_method env name with
+  | Some (_l,f) -> 
+    begin
+      (* if variadic, we just make sure there is at least minimum number of arguments needed *)
+      let args = if f.variadic then List.filteri (fun i _ -> i < (List.length f.args)) args else args in
+      let nb_args = List.length args and nb_params = List.length f.args in
+      let* () = if nb_args <> nb_params 
+        then 
+          ES.error [loc, Printf.sprintf "unexpected number of arguments passed to %s : expected %i but got %i" name nb_params nb_args] 
+        else ES.pure ()
+      in
+      let* resolved_generics = List.fold_left2 
+      (
+        fun g ca {ty=a;_} ->
+          let* g in 
+          let+ x = matchArgParam (extract_exp_loc_ty ca) a f.generics g |> ES.lift in
+          snd x
+      ) (ES.lift (Result.ok [])) args f.args
+      in
+      (* List.iter (fun (s,r) -> Printf.fprintf stdout "generic %s resolved to %s\n" s (string_of_sailtype (Some r)) ) resolved_generics; *)
+      begin
+        match f.ret with
+        | Some r ->  let+ r = degenerifyType r resolved_generics loc in Some r
+        | None -> None |> ES.pure
+      end
+    end
+
+  | None -> ES.error [loc,"unknown method " ^ name] 
+
 
 module Pass = Pass.MakeFunctionPass(V)(
 struct
   type in_body = Hir.Pass.out_body
   type out_body = statement
-   
-  let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: sailtype dict) : (sailtype * sailtype dict) ES.t =
-    let rec aux (a:sailtype) (m:sailtype) (g: sailtype dict) = 
-    match (a,m) with
-    | Bool,Bool -> ES.pure (Bool,g)
-    | Int,Int -> ES.pure (Int,g)
-    | Float,Float -> ES.pure (Float,g)
-    | Char,Char -> ES.pure (Char,g)
-    | String,String -> ES.pure (String,g)
-    | ArrayType (at,s),ArrayType (mt,s') -> 
-      if s = s' then
-        let+ t,g = aux at mt g in ArrayType (t,s),g
-      else
-        ES.error [l,Printf.sprintf "array length mismatch : wants %i but %i provided" s' s]
-    | CompoundType _, CompoundType _ -> ES.error [l, "todocompoundtype"]
-    | Box _at, Box _mt -> ES.error [l,"todobox"]
-    | RefType (at,am), RefType (mt,mm) -> if am <> mm then ES.error [l, "different mutability"] else aux at mt g
-    | at,GenericType gt ->
-     begin
-        if List.mem gt generics then
-          match List.assoc_opt gt g with
-          | None -> ES.pure (at,(gt,at)::g)
-          | Some t -> if t = at then ES.pure (at,g) else ES.error [l,"generic type mismatch"]
-        else
-          ES.error [l,Printf.sprintf "generic type %s not declared" gt]
-      end
-    | _ -> ES.error [l,Printf.sprintf "wants %s but %s provided" 
-           (string_of_sailtype (Some m_param))
-           (string_of_sailtype (Some arg))]
-    in aux arg m_param resolved_generics  
-
-  
-  let check_call (name:string) (args: expression list) loc : sailtype option ES.t =
-    let* env = ES.get in
-    match THIREnv.get_method env name with
-    | Some (_l,f) -> 
-      begin
-        (* if variadic, we just make sure there is at least minimum number of arguments needed *)
-        let args = if f.variadic then List.filteri (fun i _ -> i < (List.length f.args)) args else args in
-        let nb_args = List.length args and nb_params = List.length f.args in
-        let* () = if nb_args <> nb_params 
-          then 
-            ES.error [loc, Printf.sprintf "unexpected number of arguments passed to %s : expected %i but got %i" name nb_params nb_args] 
-          else ES.pure ()
-        in
-        let* resolved_generics = List.fold_left2 
-        (
-          fun g ca {ty=a;_} ->
-            let* g in 
-            let+ x = matchArgParam (extract_exp_loc_ty ca) a f.generics g in
-            snd x
-        ) (ES.lift (Result.ok [])) args f.args
-        in
-        (* List.iter (fun (s,r) -> Printf.fprintf stdout "generic %s resolved to %s\n" s (string_of_sailtype (Some r)) ) resolved_generics; *)
-        begin
-          match f.ret with
-          | Some r ->  let+ r = degenerifyType r resolved_generics loc in Some r
-          | None -> None |> ES.pure
-        end
-      end
-
-    | None -> ES.error [loc,"unknown method " ^ name] 
 
   let rec lower_lexp (generics : string list) (e : Hir.expression) : expression ES.t = 
   let rec aux (e:Hir.expression) : expression ES.t = 
@@ -160,7 +170,7 @@ struct
       begin 
         match extract_exp_loc_ty array_exp |> snd with
         | ArrayType (t,size) -> 
-          let* _ = matchArgParam (extract_exp_loc_ty idx) Int generics [] in
+          let* _ = matchArgParam (extract_exp_loc_ty idx) Int generics [] |> ES.lift in
           let* () = 
           begin 
             (* can do a simple oob check if the type is an int literal *)
@@ -188,12 +198,11 @@ struct
     end
   | Literal (l,li) -> let t = sailtype_of_literal li in Literal((l,t),li) |> ES.pure
   | UnOp (l,op,e) -> let+ e = aux e in UnOp ((l, extract_exp_loc_ty e |> snd),op,e)
-  | BinOp (l,op,le,re) ->  
+  | BinOp (l,op,le,re) ->
     let* le = aux le and* re = aux re in
-    let lt = extract_exp_loc_ty le  and rt = extract_exp_loc_ty re |> snd in
-    let+ t = matchArgParam lt rt generics [] in
-    let op_t = type_of_binOp op (fst t) in
-    BinOp ((l,op_t),op,le,re)
+    let lt = extract_exp_loc_ty le  and rt = extract_exp_loc_ty re in
+    let+ t = check_binop op lt rt |> ES.lift in 
+    BinOp ((l,t),op,le,re)
 
   | Ref  (l,mut,e) -> let+ e = lower_lexp generics e in Ref((l,RefType(extract_exp_loc_ty e |> snd,mut)),mut, e)
   | ArrayStatic (l,el) -> 
@@ -202,7 +211,7 @@ struct
     let* el = listMapM (
       fun e -> let+ e = aux e in
       let lt = extract_exp_loc_ty e in
-      let+ _ = matchArgParam lt first_t [] [] in e
+      let+ _ = matchArgParam lt first_t [] [] |> ES.lift in e
     ) el in 
     let+ el = sequence el in
     let t = ArrayType (first_t, List.length el) in ArrayStatic((l,t),el)
@@ -225,7 +234,7 @@ struct
         begin
           let* var_type =             
             match (t,optexp) with
-            | (Some t,Some e) -> let* e in let tv = extract_exp_loc_ty e in let+ a = matchArgParam tv t decl.generics [] in fst a
+            | (Some t,Some e) -> let* e in let tv = extract_exp_loc_ty e in let+ a = matchArgParam tv t decl.generics [] |> ES.lift in fst a
             | (Some t, None) -> ES.pure t
             | (None,Some t) -> let+ t in extract_exp_loc_ty t |> snd
             | (None,None) -> ES.error[l,"can't infere type with no expression"]
@@ -240,7 +249,7 @@ struct
       | Assign(loc, e1, e2) -> 
         let* e1 = lower_lexp decl.generics e1
         and* e2 = lower_rexp decl.generics e2 in
-        let* _ = matchArgParam (extract_exp_loc_ty e2) (extract_exp_loc_ty e1 |> snd) [] [] in
+        let* _ = matchArgParam (extract_exp_loc_ty e2) (extract_exp_loc_ty e1 |> snd) [] [] |> ES.lift in
         Assign(loc, e1, e2) |> ES.pure
 
       | Seq(loc, c1, c2) -> 
@@ -251,7 +260,7 @@ struct
 
       | If(loc, cond_exp, then_s, else_s) -> 
         let* cond_exp = lower_rexp decl.generics cond_exp in
-        let* _ = matchArgParam (extract_exp_loc_ty cond_exp) Bool [] []  in
+        let* _ = matchArgParam (extract_exp_loc_ty cond_exp) Bool [] [] |> ES.lift in
         let* res = aux then_s in
         begin
         match else_s with
@@ -263,6 +272,8 @@ struct
         let* e = lower_rexp decl.generics e in
         let+ t = aux c in
         While(loc,e,t)
+
+      | Break(l) -> Break(l) |> ES.pure
 
       | Case(loc, e, _cases) ->
         let+ e = lower_rexp decl.generics e  in
@@ -286,7 +297,7 @@ struct
           | None -> ES.error [l,"non-void return"]
           | Some r ->
             let* e = lower_rexp decl.generics e in
-            let+ _ = matchArgParam (extract_exp_loc_ty e) r decl.generics [] in
+            let+ _ = matchArgParam (extract_exp_loc_ty e) r decl.generics [] |> ES.lift in
             Return(l, Some e)
           end
 

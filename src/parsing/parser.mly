@@ -40,7 +40,7 @@
 %token VARARGS
 %token METHOD PROCESS STRUCT ENUM 
 %token VAR SIGNAL 
-%token IF ELSE WHILE RETURN
+%token IF ELSE WHILE RETURN BREAK
 %token AWAIT EMIT WATCHING WHEN PAR "||"
 %token TRUE FALSE 
 %token PLUS "+" MINUS "-" MUL "*" DIV "/" REM "%"
@@ -207,6 +207,7 @@ let single_statement :=
     | AWAIT ; ~ = ID ; <Await>
     | WATCHING ; ~ = ID ; ~ = single_statement ; <Watching>
     | WHEN ; ~ = ID ; ~ = single_statement ;  <When>
+    | BREAK ; <Break>
     )
 | block
 

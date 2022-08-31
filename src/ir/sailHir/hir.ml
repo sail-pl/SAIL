@@ -16,21 +16,29 @@ module MonoidSeq: Monoid with type t = statement = struct
 end 
 
 
-module V : Env.Variable = struct 
+module V = struct 
 type t = unit
 let string_of_var _ = ""
 let to_var _ _ _ = ()
 end
 
 module HIREnv = SailModule.SailEnv(V)
-  
-module W = MonadWriter.Make (MonoidSeq)
-module R = MonadReader.M(HIREnv)
-module C = MonadState.Counter
 module E = MonadError
 module EC = MonadState.CounterTransformer(E)
-module ECR =  MonadReader.T(EC)(HIREnv)
-module ECRW = MonadWriter.MakeTransformer(ECR)(MonoidSeq)
+module ECS =  struct 
+  include MonadState.T(EC)(HIREnv)
+  let fresh = EC.fresh |> lift
+  let run e = let e = EC.run e in E.bind e (fun e -> fst e |> E.pure)
+  let find_var id = bind get (fun e -> HIREnv.get_var e id |> pure)
+  let error e = Result.error e |> EC.lift |> lift 
+end
+
+module ECSW = struct
+  include MonadWriter.MakeTransformer(ECS)(MonoidSeq)
+  let get_method id = ECS.bind ECS.get (fun e -> HIREnv.get_method e id |> ECS.pure) |> lift
+  let error e = Result.error e |> EC.lift |> ECS.lift |> lift 
+  let fresh = EC.fresh |> ECS.lift |> lift
+end
 
 
 module Pass = Pass.MakeFunctionPass (V)(
@@ -39,11 +47,11 @@ struct
   type out_body = statement
       
 
-  let lower_expression (e : AstParser.expression) : expression ECRW.t = 
-    let open MonadSyntax(ECRW) in
-    let open MonadFunctions(ECRW) in 
+  let lower_expression (e : AstParser.expression) : expression ECSW.t = 
+    let open MonadSyntax(ECSW) in
+    let open MonadFunctions(ECSW) in 
 
-    let rec aux (e : AstParser.expression) : expression ECRW.t  = 
+    let rec aux (e : AstParser.expression) : expression ECSW.t  = 
     match e with 
       | loc, Variable id  -> return (Variable(loc, id))
       | loc, Deref e -> 
@@ -70,43 +78,41 @@ struct
       | loc, EnumAlloc (id, el) ->
         let+ el = listMapM aux el in  EnumAlloc (loc, id, el)
       | loc, MethodCall (id, el) ->
-        let open MonadSyntax(R) in 
-          let* env = R.read  in 
-          match HIREnv.get_method env id with
+          let* m = ECSW.get_method id in 
+          match m with
           | Some (_proto_loc,proto) -> 
             begin
             match proto.ret with 
             | Some rtype -> 
-              let open MonadSyntax(ECR) in 
-              let* n = EC.fresh |> R.pure in 
+              let* n = ECSW.fresh in 
               let x = "__f" ^ string_of_int n in
-              let+ el,_ = listMapM aux el in
-              let open MonadSyntax(W) in 
-              let* () = DeclVar (dummy_pos, false, x, Some rtype, None) |> W.write in
-              let+ () = Invoke(loc, Some x, id, el) |> W.write in
+              let* el = listMapM aux el in
+              let* () = DeclVar (dummy_pos, false, x, Some rtype, None) |> ECSW.write in
+              let+ () = Invoke(loc, Some x, id, el) |> ECSW.write in
               Variable (dummy_pos, x)
                 
-            | None ->  Result.error [loc,"error methods in expressions should return a value"] |> EC.lift |> ECR.lift
+            | None -> ECSW.error [loc,"error methods in expressions should return a value"]
             end
-          | _ -> Result.error [loc, "call to undefined method"] |> EC.lift |> ECR.lift
+          | _ ->  ECSW.error [loc, "call to undefined method"] 
       in aux e
 
   let buildSeq s1 s2 = Seq (dummy_pos, s1, s2)
 
   let lower_function (c:in_body Pass.function_type) (env:HIREnv.t) : out_body E.t = 
-    let open MonadSyntax(ECR) in
-    let open MonadFunctions(ECRW) in 
-    let open MonadOperator(E) in 
-  let rec aux  : in_body -> out_body ECR.t   = function
+    let open MonadSyntax(ECS) in
+    let open MonadFunctions(ECSW) in 
+    let open MonadOperator(ECS) in 
+
+  let rec aux  : in_body -> out_body ECS.t   = function
     | l, DeclVar (mut, id, t, e ) -> 
       begin match e with 
         | Some e -> let+ (e, s) = lower_expression e in 
           buildSeq s (DeclVar (l, mut,id, t, Some e))
-        | None -> DeclVar (l, mut,id, t, None) |> ECR.pure
+        | None -> DeclVar (l, mut,id, t, None) |> ECS.pure
       end 
 
-    | l, DeclSignal s -> DeclSignal (l,s) |> ECR.pure
-    | l, Skip -> Skip(l) |> ECR.pure
+    | l, DeclSignal s -> DeclSignal (l,s) |> ECS.pure
+    | l, Skip -> Skip(l) |> ECS.pure
     | l, Assign(e1, e2) ->  
         let* e1,s1 = lower_expression e1 in
         let+ e2,s2 = lower_expression e2 in
@@ -124,35 +130,36 @@ struct
         Seq (dummy_pos, s, If(l, e, c1, None))
         
     | l, While(e, c) -> 
-      let+ (e, s) = lower_expression e and* c = aux c in
-      buildSeq s (While(l, e,c))
+      let+ e,s = lower_expression e and* c = aux c in
+      buildSeq s (While(l, e,c)) 
 
+    | l, Break () -> Break(l) |> ECS.pure
  (*   | Case(loc, e, cases) -> Case (loc, e, List.map (fun (p,c) -> (p, aux c)) cases) *)
     | l, Case(e, _cases) ->  let+ e,s = lower_expression e in
         buildSeq s (Case (l, e, []))
 
-    | l, Invoke(id, el) -> fun e -> 
-        let open MonadSyntax(EC) in
-        let+ (el,s) = listMapM lower_expression el e in
+    | l, Invoke(id, el) ->
+        let open MonadSyntax(ECS) in
+        let+ (el,s) = listMapM lower_expression el in
         buildSeq s (Invoke(l, None, id, el))
       
     | l, Return e -> 
         begin match e with 
-        | None -> Return(l, None) |> ECR.pure 
+        | None -> Return(l, None) |> ECS.pure 
         | Some e -> let+ e,s = lower_expression e in
           buildSeq s (Return(l, Some e))
       end
 
     | l, Run(id, el) -> let+ el,s = listMapM lower_expression el in buildSeq s (Run(l, id, el))
     | l, Loop c -> let+ c = aux c in While(l, Literal(dummy_pos, LBool true) , c) 
-    | l, Emit s -> Emit(l,s) |> ECR.pure
-    | l, Await s -> When(l, s, Skip(dummy_pos)) |> ECR.pure
+    | l, Emit s -> Emit(l,s) |> ECS.pure
+    | l, Await s -> When(l, s, Skip(dummy_pos)) |> ECS.pure
     | l, When (s, c) -> let+ c = aux c in When(l, s, c)
     | l, Watching(s, c) ->  let+ c = aux c in Watching(l, s, c)
     | l, Block c -> let+ c = aux c in Block(l, c) 
       
     in
     Logs.debug (fun m -> m "lowering to HIR %s" c.name); 
-    EC.run (aux c.body env)
+    ECS.run (aux c.body env)
   end
  )

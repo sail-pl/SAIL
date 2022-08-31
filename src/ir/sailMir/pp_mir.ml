@@ -49,6 +49,7 @@ let ppPrintTerminator (pf : Format.formatter) (t : terminator) : unit =
         ppPrintExpression e 
         (Format.pp_print_list ~pp_sep:pp_comma pp_case) cases
         default
+    | Break -> failwith "can't happen"
 
 let ppPrintFrame (pf : Format.formatter) (f : VE.frame) =
   let print_var (pf : Format.formatter) (id,(_,{ty;_}):string * VE.variable) =
@@ -90,9 +91,10 @@ let ppPrintCfg (pf : Format.formatter) (cfg : cfg) : unit =
         | Goto lbl -> aux lbl
         | Invoke i -> aux i.next
         | Return _ -> ()
-       | SwitchInt (_, cases, default) -> 
+        | SwitchInt (_, cases, default) -> 
           let _ = List.iter aux (List.map snd cases) in 
           aux default
+        | Break -> failwith "can't happen"
   in 
     aux cfg.input;
     List.iter (fun (lbl, bb) -> if not (List.mem lbl !check) then 

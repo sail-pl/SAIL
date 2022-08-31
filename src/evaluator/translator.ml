@@ -200,6 +200,7 @@ let translate (p : SailModule.moduleSignature list) (t : statement) : Intermedia
       | Await s -> Intermediate.When(s, Skip)
       | Par (c1, c2) -> Intermediate.Par (aux c1, aux c2)
       | Block c -> Intermediate.Block(aux c)
+      | Break _ -> raise (NotSupportedInCoreSail "break")
         in aux t
 
 (* If the return type is non void, we add a parameter to hold the result *)
