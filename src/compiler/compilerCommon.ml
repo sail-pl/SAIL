@@ -44,23 +44,24 @@ let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
 
 (* temporary pass, convert Main process into a method, throws error if not found or other processes exist *)
 
-open Monad.MonadSyntax(Common.Error.MonadError)
+module E = Common.Error
+open Monad.MonadSyntax(E.Logger)
 
 
   module Pass = Pass.Make( struct
-
+  let name = "Main Process to Method"
   type in_body = IrMir.Mir.Pass.out_body
   type out_body  = in_body
 
-  let method_of_main_process (p:in_body process_defn list) : out_body method_defn Error.result = 
+  let method_of_main_process (p:in_body process_defn list) : out_body method_defn E.Logger.t = 
     match List.find_opt (fun p -> p.p_name = "Main") p with
     | Some p -> 
       let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = fst p.p_interface; variadic=false; rtype=None} 
       and m_body = Either.right p.p_body in
-      {m_proto; m_body} |> Result.ok
-    | None -> Result.error [dummy_pos, "no Main process found"]
+      E.Logger.pure {m_proto; m_body}
+    | None -> let+ () = E.Logger.throw @@ E.make dummy_pos "no Main process found" in {m_body=Either.Left None; m_proto={pos=dummy_pos; name=""; generics = []; params = []; variadic=false; rtype=None}}
 
-  let lower (m : in_body SailModule.t)  : out_body SailModule.t Error.result =
+  let lower (m : in_body SailModule.t)  : out_body SailModule.t E.Logger.t =
   let+ main = method_of_main_process m.processes in
   { m with  methods = main :: m.methods } 
 end

@@ -3,7 +3,6 @@ open Common
 open TypesCommon
 open Monad
 open Monoid
-open Error
 open AstHir
 
 type expression = loc AstHir.expression
@@ -23,29 +22,44 @@ let to_var _ _ _ = ()
 end
 
 module HIREnv = SailModule.SailEnv(V)
-module E = MonadError
+module E = Error.Logger
 module EC = MonadState.CounterTransformer(E)
 module ECS =  struct 
   include MonadState.T(EC)(HIREnv)
   let fresh = EC.fresh |> lift
   let run e = let e = EC.run e in E.bind e (fun e -> fst e |> E.pure)
   let find_var id = bind get (fun e -> HIREnv.get_var e id |> pure)
-  let error e = Result.error e |> EC.lift |> lift 
+  let throw e = E.throw e |> EC.lift |> lift 
+  let log e = E.log e |> EC.lift |> lift 
+  let log_if b e = E.log_if b e |> EC.lift |> lift 
+  let throw_if b e = E.throw_if b e |> EC.lift |> lift 
+
+  let get_method id = bind get (fun e -> HIREnv.get_method e id |> pure) 
+  let get_process id = bind get (fun e -> HIREnv.get_process e id |> pure) 
 end
 
 module ECSW = struct
   include MonadWriter.MakeTransformer(ECS)(MonoidSeq)
   let get_method id = ECS.bind ECS.get (fun e -> HIREnv.get_method e id |> ECS.pure) |> lift
-  let error e = Result.error e |> EC.lift |> ECS.lift |> lift 
   let fresh = EC.fresh |> ECS.lift |> lift
+  let throw e = E.throw e |> EC.lift |> ECS.lift |> lift 
+  let log e = E.log e |> EC.lift |> ECS.lift |> lift 
+  let get_env = ECS.get |> lift
 end
 
 
 module Pass = Pass.MakeFunctionPass (V)(
 struct
+  let name = "HIR"
+
   type in_body = AstParser.statement
   type out_body = statement
       
+
+  let get_hint id env = 
+    match List.nth_opt (HIREnv.get_closest env id) 0 with
+    | None ->  ""
+    | Some id ->  Printf.sprintf "Did you mean %s ?" id
 
   let lower_expression (e : AstParser.expression) : expression ECSW.t = 
     let open MonadSyntax(ECSW) in
@@ -53,7 +67,7 @@ struct
 
     let rec aux (e : AstParser.expression) : expression ECSW.t  = 
     match e with 
-      | loc, Variable id  -> return (Variable(loc, id))
+      | loc, Variable id  -> return (Variable (loc, id))
       | loc, Deref e -> 
         let+ e = aux e in Deref (loc, e)
       | loc, StructRead (e, id) ->
@@ -91,9 +105,9 @@ struct
               let+ () = Invoke(loc, Some x, id, el) |> ECSW.write in
               Variable (dummy_pos, x)
                 
-            | None -> ECSW.error [loc,"error methods in expressions should return a value"]
+            | None -> ECSW.throw (Error.make loc "methods in expressions should return a value")
             end
-          | _ ->  ECSW.error [loc, "call to undefined method"] 
+          | _ -> let* env = ECSW.get_env in let hint = get_hint id env in ECSW.throw (Error.make loc (Printf.sprintf "unknown method %s"  id) ~hint)
       in aux e
 
   let buildSeq s1 s2 = Seq (dummy_pos, s1, s2)
@@ -102,64 +116,74 @@ struct
     let open MonadSyntax(ECS) in
     let open MonadFunctions(ECSW) in 
     let open MonadOperator(ECS) in 
-
+    
   let rec aux  : in_body -> out_body ECS.t   = function
     | l, DeclVar (mut, id, t, e ) -> 
       begin match e with 
         | Some e -> let+ (e, s) = lower_expression e in 
           buildSeq s (DeclVar (l, mut,id, t, Some e))
-        | None -> DeclVar (l, mut,id, t, None) |> ECS.pure
+        | None -> return (DeclVar (l, mut,id, t, None))
       end 
-
-    | l, DeclSignal s -> DeclSignal (l,s) |> ECS.pure
-    | l, Skip -> Skip(l) |> ECS.pure
+    | l, Skip -> return (Skip l)
     | l, Assign(e1, e2) ->  
         let* e1,s1 = lower_expression e1 in
         let+ e2,s2 = lower_expression e2 in
         Seq (dummy_pos, s1, Seq (dummy_pos, s2, Assign(l, e1, e2)))
     
 
-    | l, Seq(c1, c2) -> let+ c1 = aux c1 and* c2 = aux c2 in Seq(l, c1, c2) 
-    | l, Par(c1, c2) ->  let+ c1 = aux c1 and* c2 = aux c2 in Par(l, c1,c2)
-    | l, If(e, c1, Some c2) -> 
+    | l, Seq (c1, c2) -> let+ c1 = aux c1 and* c2 = aux c2 in Seq(l, c1, c2) 
+    | l, If (e, c1, Some c2) -> 
       let+ e,s = lower_expression e and* c1 = aux c1 and* c2 = aux c2 in 
       Seq (dummy_pos, s, If(l, e, c1, Some (c2)))
 
-    | l, If( e, c1, None) -> 
+    | l, If ( e, c1, None) -> 
         let+ (e, s) = lower_expression e and* c1 = aux c1 in 
         Seq (dummy_pos, s, If(l, e, c1, None))
         
-    | l, While(e, c) -> 
+    | l, While (e, c) -> 
       let+ e,s = lower_expression e and* c = aux c in
-      buildSeq s (While(l, e,c)) 
+      buildSeq s (While (l, e,c)) 
+    | l, Loop c -> let+ c = aux c in While (l, Literal (dummy_pos, LBool true) , c) 
 
-    | l, Break () -> Break(l) |> ECS.pure
+    | l, Break () -> return (Break l)
  (*   | Case(loc, e, cases) -> Case (loc, e, List.map (fun (p,c) -> (p, aux c)) cases) *)
-    | l, Case(e, _cases) ->  let+ e,s = lower_expression e in
+    | l, Case (e, _cases) ->  let+ e,s = lower_expression e in
         buildSeq s (Case (l, e, []))
 
-    | l, Invoke(id, el) ->
-        let open MonadSyntax(ECS) in
-        let+ (el,s) = listMapM lower_expression el in
-        buildSeq s (Invoke(l, None, id, el))
-      
+    | l, Invoke (id, el) ->
+        let* m = ECS.get_method id and* env = ECS.get in
+        let* () = ECS.log_if (Option.is_none m) (let hint = get_hint id env in (Error.make l (Printf.sprintf "unknown method %s"  id) ~hint))
+        in
+        let+ el,s = listMapM lower_expression el in
+        buildSeq s (Invoke (l, None, id, el))
+
     | l, Return e -> 
         begin match e with 
-        | None -> Return(l, None) |> ECS.pure 
+        | None -> return (Return (l, None))
         | Some e -> let+ e,s = lower_expression e in
-          buildSeq s (Return(l, Some e))
-      end
+          buildSeq s (Return (l, Some e))
+        end
+    | l, Block c -> let+ c = aux c in Block (l, c) 
+    
+    | l, Run (id, el) -> 
+      let* () = ECS.log_if (id = c.name) (Error.make l @@ Printf.sprintf "a process cannot call itself (yet)") in 
+      let* m = ECS.get_process id and* env = ECS.get in
+      let* () = ECS.log_if (Option.is_none m) (let hint = get_hint id env in (Error.make l (Printf.sprintf "unknown process %s"  id) ~hint)) in
+      let* () =  ECS.log_if (c.bt = BMethod) (Error.make l @@ Printf.sprintf "%s is a process but methods cannot call processes" id) in
+      let+ el,s = listMapM lower_expression el in buildSeq s (Run(l, id, el))
 
-    | l, Run(id, el) -> let+ el,s = listMapM lower_expression el in buildSeq s (Run(l, id, el))
-    | l, Loop c -> let+ c = aux c in While(l, Literal(dummy_pos, LBool true) , c) 
-    | l, Emit s -> Emit(l,s) |> ECS.pure
-    | l, Await s -> When(l, s, Skip(dummy_pos)) |> ECS.pure
-    | l, When (s, c) -> let+ c = aux c in When(l, s, c)
-    | l, Watching(s, c) ->  let+ c = aux c in Watching(l, s, c)
-    | l, Block c -> let+ c = aux c in Block(l, c) 
-      
+    | l,_ when c.bt = Pass.BMethod -> 
+      let+ () = ECS.log (Error.make l @@ Printf.sprintf "method %s : methods can't contain reactive statements" c.name) 
+      in Skip(dummy_pos)
+
+    | l, DeclSignal s -> return (DeclSignal (l,s))
+    | l, Emit s -> return (Emit (l,s))
+    | l, Await s -> return (When (l, s, Skip dummy_pos))
+    | l, When (s, c) -> let+ c = aux c in When (l, s, c)
+    | l, Watching (s, c) ->  let+ c = aux c in Watching (l, s, c)
+    | l, Par (c1, c2) ->  let+ c1 = aux c1 and* c2 = aux c2 in Par(l, c1,c2)
+
     in
-    Logs.debug (fun m -> m "lowering to HIR %s" c.name); 
-    ECS.run (aux c.body env)
+    ECS.run (aux c.body env) |> E.recover (Skip (dummy_pos))
   end
  )

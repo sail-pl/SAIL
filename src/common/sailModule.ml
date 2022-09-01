@@ -28,3 +28,11 @@ let signatureOfModule m =
   methods = List.map (fun m -> {m with m_body=Either.right ()}) m.methods;
   processes = List.map (fun p-> {p with p_body=()}) m.processes
 }
+
+let emptyModule = 
+  {
+    name = String.empty;
+    declEnv = DeclEnv.empty;
+    methods = [];
+    processes = []
+  }

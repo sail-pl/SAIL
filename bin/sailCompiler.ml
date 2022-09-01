@@ -104,7 +104,7 @@ let merge_modules sm1 sm2 =
     }
   in
   let open SailModule in
-  let open Monad.MonadSyntax(Error.MonadError) in
+  let open Monad.MonadSyntax(Error.Logger) in
   let+ sm1 and* sm2 in 
   let name = sm2.name 
   and declEnv = merge_envs sm1.declEnv sm2.declEnv
@@ -132,7 +132,10 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         begin
 
         match sail_module with
-        | Ok m ->
+        | Ok m,errors ->
+
+          Error.print_errors fcontent errors;
+
           let mir_debug = module_name ^ "_mir" |> open_out in
           Format.fprintf (Format.formatter_of_out_channel mir_debug) "%a" Pp_mir.ppPrintModule m;
           close_out mir_debug;
@@ -162,7 +165,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
           if jit then execute llm else dispose_module llm;
 
           aux r
-        | Error errlist -> Error.print_errors fcontent errlist; `Error(false, "compilation aborted")
+        | Error e, errlist -> Error.print_errors fcontent @@ e::errlist; `Error(false, "compilation aborted")
         end
             end
   | [] -> `Ok ()

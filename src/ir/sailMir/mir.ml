@@ -2,16 +2,15 @@ open AstMir
 open IrThir
 open Common 
 open TypesCommon
-open Result
 open Monad
 
 
-module E = Error.MonadError
+module E = Error.Logger
 module ES = MonadState.T(E)(VE)
 module ESC = struct 
   include MonadState.CounterTransformer(ES)
-  let error e = error e |> ES.lift |> lift
-  let ok e = ok e |> ES.lift |> lift
+  let error e = E.throw e |> ES.lift |> lift
+  let ok e = E.pure e |> ES.lift |> lift
   let get_env = ES.get |> lift    
   let update_env f = ES.update f |> lift
   let set_env e = ES.set e |> lift
@@ -74,10 +73,8 @@ let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg ESC.t =
   and right = BlockMap.find cfg2.input cfg2.blocks 
   in 
   match left.terminator with 
-  | Some (Invoke _) -> ESC.error [left.location, "invalid output node"]
-  | Some Return _ -> cfg1 |> ESC.ok (* if the left block returns, it can't go to the right one *)
-  (* todo: handle other cases *)
-  | Some _ -> Logs.debug (fun m -> m "MIR : found left terminator with Some");
+  | Some (Invoke _) -> let+ () = ESC.error @@ Error.make left.location "invalid output node" in cfg1
+  | Some _ ->
     {
       input = cfg1.input;
       output = cfg2.output;
@@ -124,7 +121,7 @@ let buildIfThen (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t =
   let* goto = addGoto outputLbl cfg >>| addPredecessors [inputLbl] in
   let+ env = ESC.get_env in 
   let inputBlock = {assignments = []; predecessors = LabelSet.empty ; env; location; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
-  let outputBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl;cfg.input] ; env; location = dummy_pos; terminator = None} in
+  let outputBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl;cfg.input] ; env; location; terminator = None} in
   {
     input = inputLbl;
     output = outputLbl;
@@ -141,7 +138,7 @@ let buildIfThenElse (location : loc) (e : expression) (cfgTrue : cfg) (cfgFalse 
   
   let+ env = ESC.get_env in 
   let inputBlock = {assignments = [];  predecessors = LabelSet.empty ; env; location; terminator = Some (SwitchInt (e, [(0,cfgFalse.input)], cfgTrue.input))}
-  and outputBlock = {assignments = []; env; predecessors = LabelSet.of_list [cfgTrue.output;cfgFalse.output] ; location = dummy_pos; terminator = None} in
+  and outputBlock = {assignments = []; env; predecessors = LabelSet.of_list [cfgTrue.output;cfgFalse.output] ; location; terminator = None} in
 
   {
     input = inputLbl;
@@ -174,7 +171,7 @@ let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t =
   let* env =  ESC.get_env in 
   let* inputLbl = ESC.fresh and* headLbl = ESC.fresh  and* outputLbl =  ESC.fresh in 
   let inputBlock = {assignments = []; predecessors = LabelSet.empty; env; location; terminator = Some (Goto headLbl)}
-  and headBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl] ; env; location = dummy_pos; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
+  and headBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl] ; env; location; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
 
   let bm1,bm2 = BlockMap.partition (fun _ {terminator;_} -> terminator = Some Break) cfg.blocks in
   let preds,bm1 = BlockMap.fold (fun l bb (lbls,bbs) -> l::lbls,BlockMap.add l {bb with terminator = Some (Goto outputLbl)} bbs ) bm1 ([],BlockMap.empty) in 
@@ -246,7 +243,7 @@ let rec lexpr (e : Thir.expression) : expression ESC.t =
     | Deref (_,e) -> rexpr e 
     | ArrayRead (lt, e1, e2) -> let+ e1' = lexpr e1 and* e2' = rexpr e2 in ArrayRead(lt,e1',e2')
     | StructRead _ | StructAlloc _ | EnumAlloc _ | Ref _ -> 
-      let l,_ = Thir.extract_exp_loc_ty e in ESC.error [l, "todo"]
+      let l,_ as lt = Thir.extract_exp_loc_ty e in let+ () = ESC.error @@ Error.make l "todo" in Variable(lt,"")
     | _ -> failwith "problem with thir"
 and rexpr (e : Thir.expression) : expression ESC.t = 
   let open IrHir.AstHir in
@@ -257,7 +254,7 @@ and rexpr (e : Thir.expression) : expression ESC.t =
     | Literal (lt, l) -> Literal (lt, l) |> ESC.pure
     | Deref (_,e) -> lexpr e 
     | ArrayRead (lt,array_exp,idx) -> let+ arr = rexpr array_exp and* idx' = rexpr idx in ArrayRead(lt,arr,idx')
-    | StructRead ((l,_),_,_) -> ESC.error [l, "todo"]
+    | StructRead ((l,_ as lt),_,_) -> let+ () = ESC.error @@ Error.make l "todo" in Variable(lt,"")
     | UnOp (lt, o, e) -> let+ e' = rexpr e in UnOp (lt, o, e')
     | BinOp (lt, o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in BinOp(lt, o, e1', e2')
     | Ref (lt, b, e) -> let+ e' = rexpr e in Ref(lt, b, e')
@@ -282,31 +279,37 @@ let reverse_traversal (lbl:int) (blocks : basicBlock BlockMap.t) :  basicBlock B
     aux lbl blocks
     
 
-let cfg_returns ({input;blocks;_} : cfg) : loc option * basicBlock BlockMap.t = 
-let rec aux lbl blocks = 
-  let blocks' = BlockMap.remove lbl blocks in
-  if blocks' != blocks then
-    Logs.debug (fun m -> m "checking bb %i" lbl);
-    match BlockMap.find_opt lbl blocks with
-    | None -> None, blocks'
-    | Some bb -> 
-      begin
-      match bb.terminator with
-      | None -> Some bb.location, blocks'
-      | Some Break -> failwith "break not here"
-      | Some Return _ -> None, blocks'
-      | Some (Invoke {next;_}) -> aux next blocks'
-      | Some (Goto lbl) -> aux lbl blocks'
-      | Some (SwitchInt (_,cases,default)) -> 
-        List.fold_left (fun (_,b) (_,lbl) -> aux lbl b) (aux default blocks') cases
-    end
-in
+let cfg_returns ({input;blocks;_} : cfg) : (loc option * basicBlock BlockMap.t) E.t = 
+  let open MonadFunctions(E) in 
+  let open MonadSyntax(E) in 
+  let rec aux lbl blocks = 
+    let blocks' = BlockMap.remove lbl blocks in
+    if blocks' != blocks then
+      Logs.debug (fun m -> m "checking bb %i" lbl);
+      match BlockMap.find_opt lbl blocks with
+      | None -> (None, blocks') |> E.pure
+      | Some bb -> 
+        begin
+        match bb.terminator with
+        | None -> (Some bb.location, blocks') |> E.pure
+        | Some Break -> let* () = E.log @@ Error.make bb.location "there should be no break at this point" in aux input blocks'
+        | Some Return _ -> (None, blocks') |> E.pure
+        | Some (Invoke {next;_}) -> aux next blocks'
+        | Some (Goto lbl) -> aux lbl blocks'
+        | Some (SwitchInt (_,cases,default)) -> 
+
+          let* x = aux default blocks' in 
+          foldLeftM (fun (_,b) (_,lbl) -> aux lbl b) x cases
+      end
+  in
 aux input blocks
 
 open Pass
 
 module Pass = MakeFunctionPass(V)(
 struct
+  let name = "MIR"
+  
   type in_body = Thir.Pass.out_body
   type out_body = mir_function
 
@@ -314,9 +317,10 @@ struct
   open MonadSyntax(E) 
 
   let lower_function decl env : out_body  E.t =
-    let check_function (_,cfg : out_body) : unit E.t = 
-      let ret,unreachable_blocks = cfg_returns cfg in
-      if Option.is_some ret && decl.ret <> None then error [Option.get ret, (Printf.sprintf "%s doesn't always return !" decl.name)]
+    let _check_function (_,cfg : out_body) : unit E.t = 
+      let* ret,unreachable_blocks = cfg_returns cfg in
+      if Option.is_some ret && decl.ret <> None then 
+        E.log @@ Error.make (Option.get ret) @@ Printf.sprintf "%s doesn't always return !" decl.name
       else
         let () = BlockMap.iter (fun lbl {location=_;_} ->  Logs.debug (fun m -> m "unreachable block %i" lbl)) unreachable_blocks in
         try 
@@ -324,18 +328,21 @@ struct
           let _loc = match List.nth_opt bb.assignments 0 with
           | Some v -> v.location
           | None ->  bb.location   in
-          error [bb.location, "unreachable code"] 
-        with Not_found -> ok ()
+          E.log @@ Error.make bb.location "unreachable code"
+        with Not_found -> E.pure ()
     in
     let check_returns (decls,cfg as res : out_body) : out_body E.t = 
       (* we make sure the last block returns for void methods *)
       let last_bb = BlockMap.find cfg.output cfg.blocks in
-      match last_bb.terminator with
-      | None when decl.ret = None -> 
+      match last_bb.terminator,decl.ret with
+      | None,None -> 
         let last_bb = {last_bb with terminator= Some (Return None)} in (* we insert void return *) 
         let blocks = BlockMap.add cfg.output last_bb cfg.blocks in
-        ok (decls,{cfg with blocks})
-      | _ -> ok res
+        (decls,{cfg with blocks}) |> E.pure
+      | None,Some _  when  LabelSet.is_empty last_bb.predecessors -> E.throw @@ Error.make decl.pos 
+        @@ Printf.sprintf "no return statement but must return %s" 
+        @@ string_of_sailtype decl.ret
+      | _ -> res |> E.pure
     in
 
     let rec aux (s : Thir.statement) : out_body ESC.t = 
@@ -414,7 +421,9 @@ struct
         ([], ret)
 
       | Run _ | Emit _ | Await _ | When _  | Watching _ 
-      | Par _  | Case _ | DeclSignal _ as s -> ESC.error [Thir.extract_statements_loc s, "unimplemented"]
+      | Par _  | Case _ | DeclSignal _ as s -> 
+        let l = Thir.extract_statements_loc s in
+        let* () = ESC.error @@ Error.make l "unimplemented" in let+ bb = emptyBasicBlock l in ([],  bb)
 
       | Block (_l, s) -> 
         let* env = ESC.get_env in
@@ -425,10 +434,10 @@ struct
     in 
     Logs.debug (fun m -> m "lowering to MIR %s" decl.name);
 
-    let* (res,_),_env = aux decl.body 0 (fst env) in
-
+    let* (res,_),_env = aux decl.body 0 (fst env) in 
+    
     (* some analysis passes *)
-    let* () = check_function res in
+    (* let* () = check_function res in *)
     let+ _,cfg as res = check_returns res in
 
     BlockMap.iter (
@@ -437,6 +446,5 @@ struct
       | _ -> ()
     ) cfg.blocks;
     res
-
   end
 )

@@ -1,5 +1,5 @@
 open TypesCommon
-module E = Error.MonadError
+module E = Error.Logger
 open Monad.MonadSyntax(E)
 
 
@@ -24,6 +24,9 @@ module type DeclEnvType = functor (D : Declarations) -> sig
   val find_method : t -> string -> method_decl option
   val find_struct : t -> string -> struct_decl option
   val find_enum : t -> string -> enum_decl option
+
+  val find_closest: string -> t -> string list
+
   val write_declarations : 'a -> 'b -> unit
   val print_declarations : t -> unit
   val iter_methods : (string -> method_decl -> unit) -> t -> unit
@@ -70,6 +73,14 @@ module DeclarationsEnv (D:Declarations)  = struct
     FieldMap.iter (fun n _ -> Printf.fprintf stdout "struct %s\n" n) decls.structs;
     FieldMap.iter (fun n _ -> Printf.fprintf stdout "enum %s\n" n) decls.enums
 
+  let find_closest name decls : string list =
+    if String.length name > 3 then
+      let check = (fun n  _  l -> if Error.levenshtein_distance n name < 3 then n::l else l) in
+      FieldMap.fold check decls.methods []
+      |> fun l -> FieldMap.fold check decls.processes l
+      |> fun l -> FieldMap.fold check decls.structs l
+      |> fun l -> FieldMap.fold check decls.enums l
+    else []
 end
 
 
@@ -119,16 +130,17 @@ module VariableEnv (V : Variable) = struct
       | _ -> aux env
       in aux e
 
-  let declare_var (e:t) name (l,_ as v:variable) =
+  let declare_var (e:t) name (l,_ as v:variable) : frame list E.t =
     let current,env = current_frame e in
     match FieldMap.find_opt name current with 
-    | Some _ -> Result.error [l,Printf.sprintf "variable %s already declared !" name]
     | None -> 
       let upd_frame = FieldMap.add name v current in
-      push_frame env upd_frame |> Result.ok
+      push_frame env upd_frame |> E.pure
+    | Some _ -> let+ () = E.throw @@ Error.make l @@ Printf.sprintf "variable %s already declared !" name in e
+
 
     let init_env (args:param list) : t E.t =
-      let open Monad.MonadFunctions(Error.MonadError) in
+      let open Monad.MonadFunctions(Error.Logger) in
       let env = empty |> new_frame in
       foldRightM (fun p m ->
         let v = V.to_var p.id p.mut p.ty  in 
@@ -141,7 +153,7 @@ module VariableEnv (V : Variable) = struct
         let current,env = current_frame env in
         match FieldMap.find_opt name current with 
         | Some v -> let+ v' = f v in FieldMap.add name v' current :: env
-        | None  when env = [] -> Result.error [l,Printf.sprintf "variable %s not found" name]
+        | None  when env = [] -> let+ () = E.throw @@ Error.make l @@ Printf.sprintf "variable %s not found" name in e
         | _ -> let+ e = aux env in current :: e
         in aux e 
   
@@ -159,6 +171,7 @@ module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
   let get_struct (_,g) name = D.find_struct g name
   let get_enum (_,g) name = D.find_enum g name
 
+  let get_closest (_,g) name = D.find_closest name g
   let get_var (env,_) id = VE.get_var env id
   let declare_var (env,g) id v = let+ env = VE.declare_var env id v in env,g
 

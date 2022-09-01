@@ -1,72 +1,141 @@
-open Monad
-open TypesCommon
 open Lexing
-module E = MenhirLib.ErrorReports
-
+open Monad
 
 let show_context text (p1,p2) =
+  let open MenhirLib.ErrorReports in
   let p1 = { p1 with pos_cnum=p1.pos_bol} 
   and p2 = match String.index_from_opt text p2.pos_cnum '\n' with
   | Some pos_cnum ->  { p2 with pos_cnum } 
   | None -> p2
   in
-  E.extract text (p1,p2) |> E.sanitize
+  extract text (p1,p2) |> sanitize
 
 
-type error_type = (loc * string) list
+  type error = 
+  {
+    where : TypesCommon.loc;
+    what :   string;
+    why : (TypesCommon.loc option * string) option;
+    hint : string option;
+    label : string option;
+  } 
+  type errors = error list
+  type 'a result = ('a, errors) Result.t
 
-type 'a result = ('a, error_type) Result.t
+  let make ?(why=None) ?(hint="") ?(label="") where what : error = 
+    let option_of_string = function "" -> None | s -> Some s in 
+    let label = option_of_string label 
+    and hint = option_of_string hint in
+   {where;what;why;label;hint}
+  
+   let print_errors (file:string) (errs:errors) : unit =  
+    if errs <> [] then
+    let s fmt = List.iter (
+      fun {where;what;hint;_} ->
+        if where = (dummy_pos,dummy_pos) then
+          Fmt.pf fmt "%s" what
+        else
+          let location = MenhirLib.LexerUtil.range where in
+          let indication = show_context file where in 
+          let start = String.make ((fst where).pos_cnum - (fst where).pos_bol )' ' in
+          let ending = String.make ((snd where).pos_cnum - (fst where).pos_cnum )'^' in
+          Fmt.pf fmt "@[<v>%s@ %s@ %s%s %s@,@]@ @ " location indication start ending what;
+          Format.pp_print_option  (fun fmt -> Fmt.pf fmt "@[<v>Hint : %s @ @]@ ") fmt hint
+      )
+     errs in
+     Logs.err (fun m -> m "@[<v 5>found %i error(s) :@." (List.length errs) );
+     s Fmt.stderr
 
 
-let print_errors (file:string) (errs:error_type) : unit =  
-  let s = List.fold_left (
-    fun s (l,msg) ->
-      if l = (dummy_pos,dummy_pos) then
-        (
-        Logs.info (fun m -> m "No location for error");
-        msg
-        )
+(* taken from http://rosettacode.org/wiki/Levenshtein_distance#A_recursive_functional_version *)
+let levenshtein_distance s t =
+  let m = String.length s
+  and n = String.length t in
+  let d = Array.make_matrix (m + 1) (n + 1) 0 in
+  for i = 0 to m do d.(i).(0) <- i done;
+  for j = 0 to n do  d.(0).(j) <- j done;
+  for j = 1 to n do
+    for i = 1 to m do
+      if s.[i - 1] = t.[j - 1] then d.(i).(j) <- d.(i - 1).(j - 1)
       else
-        let location = MenhirLib.LexerUtil.range l in
-        let indication = show_context file l in 
-        let start = String.make ((fst l).pos_cnum - (fst l).pos_bol )' ' in
-        let ending = String.make ((snd l).pos_cnum - (fst l).pos_cnum )'~' in
-        Printf.sprintf "\n%s\n\t%s\n\t%s%s\n%s\n\n%s" location indication start ending msg s
-  )
-  String.empty errs in
-  Logs.err (fun m -> m "found %i error(s) : \n%s" (List.length errs) s)
+        d.(i).(j) <- min (d.(i - 1).(j) + 1) (min (d.(i).(j - 1) + 1) (d.(i - 1).(j - 1) + 1))
+    done
+  done;
+  d.(m).(n)
+  
 
 
-let partition_result f l  : 'a list * error_type  = 
-  let r,e = List.partition_map ( fun r -> match f r with Ok a -> Either.left a | Error e -> Either.right e) l 
-  in r,List.flatten e
-
-
-
-module MonadErrorTransformer (M : Monad)  : MonadTransformer
-with type 'a t = ('a, error_type) Result.t M.t and type 'a old_t = 'a M.t  = struct
-  open MonadSyntax(M)
-
-  type 'a t = ('a, error_type) Result.t M.t
-
-  type 'a old_t = 'a M.t
-
-  let pure x = Result.ok x |> M.pure
-
-  let fmap (f:'a -> 'b) (x : 'a t) : 'b t = let+ x in Result.map f x 
-
-  let apply f x = let* f in match f with Ok f -> fmap f x  | Error e -> Error e |> M.pure
-
-  let bind (x: 'a t) (f:('a -> 'b t)) : 'b t = 
-    let* x in match x with
-    | Ok v -> f v
-    | Error e -> Error e |> M.pure
-
-  let lift x = let+ x in Result.ok x
+module type Logger = sig
+  include MonadTransformer
+  val catch : 'a t -> (error -> 'a t) -> 'a t
+  val throw : error -> 'a t
+  val log : error -> unit t
+  val recover : 'a -> 'a t -> 'a t
+  val fail :  'a t -> 'a t
+  val log_if : bool -> error -> unit t
+  val throw_if : bool -> error -> unit t
 
 end
 
+ module MakeTransformer (M : Monad) : Logger with type 'a t = (('a,error) Result.t * error list) M.t and type 'a old_t = 'a M.t = struct 
+  open MonadSyntax(M)
 
-module MonadError = MonadErrorTransformer(MonadIdentity)
+  type 'a old_t = 'a M.t
+  type 'a t = (('a, error) Result.t * error list) old_t
 
-(* module MonadError = MonadWriter.Make(Monoid.MonoidList(struct type t = error_type end)) *)
+  let pure (x:'a) : 'a t = (Ok x,[]) |> M.pure
+
+  let fmap (f: 'a -> 'b) (x:'a t) : 'b t =
+    let+ v,l = x in
+    match v with
+    | Ok x -> Ok (f x),l
+    | Error e -> Error e,l
+
+  let apply (f:('a -> 'b) t) (x: 'a t) : 'b t = 
+  let+ f,l1 = f and* x,l2 = x in
+  match f,x with
+  | Error err1,Error err2 -> Error err1, err2 :: l1 @ l2 
+  | Error err1,_ -> Error err1, l1@l2
+  | Ok f, Ok x -> Ok (f x),l1@l2
+  | Ok _, Error err ->  Error err,l1@l2
+
+  let bind (x:'a t) (f : 'a -> 'b t) : 'b t = 
+  let* v,l1 = x in 
+  match v with
+  | Error err -> (Error err,l1) |> M.pure
+  | Ok x -> let+ v,l2 = f x in v,l1@l2
+
+  let lift (x:'a M.t) : 'a t = let+ x in Ok x,[]
+
+  let throw (e:error) : 'a t = (Error e,[]) |> M.pure
+
+  let catch (x : 'a t) (f:error -> 'a t) : 'a t = 
+  let* v,l = x in 
+  match v with
+  | Error err -> let+ x,l2 = f err in x,l@l2
+  | Ok x ->  (Ok x,l) |> M.pure 
+
+
+  let log (msg:error) : unit t = (Ok (),[msg]) |> M.pure
+
+  let recover (default : 'a)  (x:'a t) : 'a t =
+    let+ v,l = x in
+      match v with
+    | Ok x -> Ok x,l
+    | Error err -> Ok default,err::l
+
+
+  let fail (x:'a t) : 'a t = 
+    let+ v,l = x in
+    match v,l with
+    | Error err,_ -> Error err,l
+    | Ok x,[] -> Ok x,[]
+    | Ok _,h::t -> Error h,t
+
+  let log_if b e = if b then log e else pure ()
+  let throw_if b e = if b then throw e else pure ()
+
+
+end
+
+module Logger = MakeTransformer(MonadIdentity)

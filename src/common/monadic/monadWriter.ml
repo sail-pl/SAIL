@@ -30,7 +30,6 @@ module type Writer = sig
   val write : elt -> unit t
 end
 
-module type T = functor (M : Monad)  -> functor (Mi : Monoid) -> Writer
 
 module MakeTransformer (M : Monad) (T : Monoid)  : Writer with type 'a t = ('a * T.t) M.t and type elt = T.t  and type 'a old_t = 'a M.t = struct 
   open MonadSyntax(M)

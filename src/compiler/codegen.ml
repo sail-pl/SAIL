@@ -4,6 +4,8 @@ open Common.TypesCommon
 open Llvm
 open IrMir
 
+open Common.Monad.MonadSyntax(E.Logger)
+open Common.Monad.MonadFunctions(E.Logger)
 
 let unary (op:unOp) (t,v) : llbuilder -> llvalue = 
   let f = 
@@ -105,7 +107,7 @@ and construct_call (name:string) (args:AstMir.expression list) (env:SailEnv.t) (
 open AstMir
   
 let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env :SailEnv.t) : unit = 
-  let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t =
+  let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t E.Logger.t=
     let _ = mut in (* todo manage mutable types *)
     let entry_b = entry_block proto |> instr_begin |> builder_at llvm.c in
     let v =  
@@ -119,7 +121,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
         let t' = getLLVMType ty llvm.c llvm.m in
         build_alloca t' name entry_b
     in
-    SailEnv.declare_var env name  (dummy_pos,(mut,v)) |> Result.get_ok
+    SailEnv.declare_var env name  (dummy_pos,(mut,v)) 
 
   and assign_var (target:expression) (exp:expression) (env:SailEnv.t) = 
     let lvalue = eval_l env llvm target 
@@ -182,12 +184,12 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
 
     | Some _ -> llvm_bbs (* already treated, nothing to do *)
   in
-  let env = List.fold_left (fun e (d:declaration) -> declare_var d.mut d.id d.varType None e) env decls
+  (let+ env = foldLeftM (fun e (d:declaration) -> declare_var d.mut d.id d.varType None e) env decls
   in
   let init_bb = insertion_block llvm.b
   and llvm_bbs = aux cfg.input BlockMap.empty env in
   position_at_end init_bb llvm.b;
-  build_br (BlockMap.find cfg.input llvm_bbs) llvm.b |> ignore
+  build_br (BlockMap.find cfg.input llvm_bbs) llvm.b) |> ignore
 
 
 let toLLVMArgs (args: param list ) (llvm:llvm_args) : (bool * sailtype * llvalue) array = 
@@ -199,7 +201,6 @@ let toLLVMArgs (args: param list ) (llvm:llvm_args) : (bool * sailtype * llvalue
   Array.of_list llvalue_list
 
 let methodToIR (llc:llcontext) (llm:llmodule) ((m,proto):Declarations.method_decl) (env:SailEnv.t) (name : string) : llvalue =
-
   match Either.find_right m.m_body with 
   | None -> proto (* extern method *)
   | Some b -> 
@@ -216,12 +217,14 @@ let methodToIR (llc:llcontext) (llm:llmodule) ((m,proto):Declarations.method_dec
 
     let new_env,args = Array.fold_left_map (
       fun env (m,_,v) -> 
-        let new_env = SailEnv.declare_var env (value_name v) (dummy_pos,(m,v)) |> Result.get_ok in 
-        (new_env, v)
-      ) env args 
+        (
+        let* env in 
+        let+ new_env = SailEnv.declare_var env (value_name v) (dummy_pos,(m,v)) in 
+        new_env
+        ),v
+      ) (E.Logger.pure env) args 
 
     in Array.iteri (fun i arg -> build_store (param proto i) arg llvm.b |> ignore ) args;
-
-    cfgToIR proto b llvm new_env;
+    (let+ new_env in cfgToIR proto b llvm new_env) |> ignore;
     proto
 

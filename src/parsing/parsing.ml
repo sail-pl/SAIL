@@ -1,7 +1,9 @@
 (*  based on https://gitlab.inria.fr/fpottier/menhir/-/blob/master/demos/calc-syntax-errors/calc.ml *)
 
+open Common
 open Lexer
 open Lexing
+open Error
 module L = MenhirLib.LexerUtil
 module E = MenhirLib.ErrorReports
 
@@ -17,13 +19,13 @@ let print_error_position lexbuf =
 
 
 
-let fastParse filename : (string * AstParser.statement Common.SailModule.t, string) Result.t =
+let fastParse filename : (string * AstParser.statement SailModule.t, string) Result.t =
   let text, lexbuf = L.read filename in
   match Parser.sailModule read_token lexbuf with
   | v -> Result.ok (text,(v filename))
 
   | exception SyntaxError (loc,msg) ->
-      Common.Error.print_errors text [loc,msg];
+      Error.print_errors text @@ [Error.make loc msg];
       exit 1
 
   | exception Parser.Error ->
@@ -50,7 +52,7 @@ module I = UnitActionsParser.MenhirInterpreter
 let get text checkpoint i =
   match I.get i (env checkpoint) with
   | Some (I.Element (_, _, pos1, pos2)) ->
-      Common.Error.show_context text (pos1, pos2)
+      Error.show_context text (pos1, pos2)
   | None -> "???"
   
 
@@ -63,9 +65,9 @@ let fail text buffer (checkpoint : _ I.checkpoint) =
   let message = ParserMessages.message state_num in
   let message = E.expand (get text checkpoint) message in
   Logs.debug (fun m -> m "reached error state %i "state_num);
-  Result.error [location, message]  
+  Logger.throw @@ Error.make location message
   with Not_found -> 
-    Result.error [location,Printf.sprintf "parser : No message found for state %i" state_num]
+    Logger.throw @@ Error.make location "Syntax error"
   
   
 let slowParse filename text = 
@@ -77,10 +79,11 @@ let slowParse filename text =
 
 
 
-let parse_program filename : string * (AstParser.statement Common.SailModule.t, Common.Error.error_type) Result.t =   
+let parse_program filename : string * AstParser.statement SailModule.t Logger.t = 
+  let open Monad.MonadOperator(Logger) in
   match fastParse filename with
-  | Result.Ok (txt,sm) -> txt,Result.ok sm
-  | Result.Error txt -> txt,slowParse filename txt
+  | Result.Ok (txt,sm) -> txt,Logger.pure sm
+  | Result.Error txt -> txt,slowParse filename txt >>| fun () -> SailModule.emptyModule
 
   
   
