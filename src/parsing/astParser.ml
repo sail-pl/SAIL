@@ -34,9 +34,9 @@ type expression = loc * expression_ and expression_ =
   | BinOp of binOp * expression * expression
   | Ref of bool * expression
   | ArrayStatic of expression list
-  | StructAlloc of string * expression FieldMap.t
-  | EnumAlloc of string * expression list 
-  | MethodCall of string * expression list
+  | StructAlloc of (loc * string) * expression FieldMap.t
+  | EnumAlloc of (loc * string) * expression list 
+  | MethodCall of (loc * string) * expression list
 
   
   type pattern =
@@ -54,9 +54,9 @@ type statement = loc * statement_ and statement_ =
   | While of expression * statement
   | Break of unit
   | Case of expression * (pattern * statement) list
-  | Invoke of  string * expression list
+  | Invoke of  (loc*string) * expression list
   | Return of expression option
-  | Run of string * expression list
+  | Run of (loc*string) * expression list
   | Loop of statement
   | Emit of string
   | Await of string

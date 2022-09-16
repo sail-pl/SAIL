@@ -91,7 +91,7 @@ struct
         let+ m = mapMapM aux m in StructAlloc (loc, id, m)
       | loc, EnumAlloc (id, el) ->
         let+ el = listMapM aux el in  EnumAlloc (loc, id, el)
-      | loc, MethodCall (id, el) ->
+      | loc, MethodCall ((l_id,id), el) ->
           let* m = ECSW.get_method id in 
           match m with
           | Some (_proto_loc,proto) -> 
@@ -102,12 +102,12 @@ struct
               let x = "__f" ^ string_of_int n in
               let* el = listMapM aux el in
               let* () = DeclVar (dummy_pos, false, x, Some rtype, None) |> ECSW.write in
-              let+ () = Invoke(loc, Some x, id, el) |> ECSW.write in
+              let+ () = Invoke(loc, Some x, (l_id,id), el) |> ECSW.write in
               Variable (dummy_pos, x)
                 
             | None -> ECSW.throw (Error.make loc "methods in expressions should return a value")
             end
-          | _ -> let* env = ECSW.get_env in let hint = get_hint id env in ECSW.throw (Error.make loc (Printf.sprintf "unknown method %s"  id) ~hint)
+          | _ -> let* env = ECSW.get_env in let hint = get_hint id env in ECSW.throw (Error.make l_id "unknown method" ~hint)
       in aux e
 
   let buildSeq s1 s2 = Seq (dummy_pos, s1, s2)
@@ -150,12 +150,12 @@ struct
     | l, Case (e, _cases) ->  let+ e,s = lower_expression e in
         buildSeq s (Case (l, e, []))
 
-    | l, Invoke (id, el) ->
+    | l, Invoke ((l_id,id) as lid, el) ->
         let* m = ECS.get_method id and* env = ECS.get in
-        let* () = ECS.log_if (Option.is_none m) (let hint = get_hint id env in (Error.make l (Printf.sprintf "unknown method %s"  id) ~hint))
+        let* () = ECS.log_if (Option.is_none m) (let hint = get_hint id env in (Error.make l_id "unknown method" ~hint))
         in
         let+ el,s = listMapM lower_expression el in
-        buildSeq s (Invoke (l, None, id, el))
+        buildSeq s (Invoke (l, None, lid, el))
 
     | l, Return e -> 
         begin match e with 
@@ -165,12 +165,12 @@ struct
         end
     | l, Block c -> let+ c = aux c in Block (l, c) 
     
-    | l, Run (id, el) -> 
-      let* () = ECS.log_if (id = c.name) (Error.make l @@ Printf.sprintf "a process cannot call itself (yet)") in 
+    | l, Run (l_id,id as lid, el) -> 
+      let* () = ECS.log_if (id = c.name) (Error.make l_id "a process cannot call itself (yet)") in 
       let* m = ECS.get_process id and* env = ECS.get in
-      let* () = ECS.log_if (Option.is_none m) (let hint = get_hint id env in (Error.make l (Printf.sprintf "unknown process %s"  id) ~hint)) in
-      let* () =  ECS.log_if (c.bt = BMethod) (Error.make l @@ Printf.sprintf "%s is a process but methods cannot call processes" id) in
-      let+ el,s = listMapM lower_expression el in buildSeq s (Run(l, id, el))
+      let* () = ECS.log_if (Option.is_none m) (let hint = get_hint id env in (Error.make l_id "unknown process" ~hint)) in
+      let* () =  ECS.log_if (c.bt = BMethod) (Error.make l_id "this is a process but methods cannot call processes") in
+      let+ el,s = listMapM lower_expression el in buildSeq s (Run(l, lid, el))
 
     | l,_ when c.bt = Pass.BMethod -> 
       let+ () = ECS.log (Error.make l @@ Printf.sprintf "method %s : methods can't contain reactive statements" c.name) 
