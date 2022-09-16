@@ -93,15 +93,15 @@ let removeCalls (p : SailModule.moduleSignature list) (e : expression) : Interme
         let (p0, c) = pathOfExpression e in
         let _ = write c in
           return (Intermediate.Path (Intermediate.StructField(p0,f)))
-    | StructAlloc (x, fel) -> 
+    | StructAlloc ((_,x), fel) -> 
         let l = FieldMap.fold (fun x a y -> (x,a)::y) fel [] in    
         let* l = listMapM (pairMap2 aux) l in
         let m = List.fold_left (fun x (y,e) -> FieldMap.add y e x) FieldMap.empty l in
         return (Intermediate.StructAlloc(x,m)) 
-    | EnumAlloc (x,el) ->
+    | EnumAlloc ((_,x),el) ->
         let* el = listMapM aux el in 
           return (Intermediate.EnumAlloc(x, el))
-    | MethodCall (id, el) ->
+    | MethodCall ((_,id), el) ->
       if (id = "box") then
         match el with
           [e] -> let* e = aux e in return (Intermediate.Box e)
@@ -171,7 +171,7 @@ let translate (p : SailModule.moduleSignature list) (t : statement) : Intermedia
           let (e,l) = removeCalls p e in 
             let pl = (List.map (fun (x,y) -> (x, aux y) ) pl) in
             seq_oflist (l @ [Intermediate.Case(e, pl)])
-      | Invoke(m, el) -> 
+      | Invoke((_,m), el) -> 
         Logs.debug (fun m -> m "Here 0"); 
         let l = List.map (removeCalls p) el in 
         let l1 = List.map fst l in 

@@ -125,7 +125,7 @@ let check_call (name:string) (args: expression list) loc : sailtype option ES.t 
       (* if variadic, we just make sure there is at least minimum number of arguments needed *)
       let args = if f.variadic then List.filteri (fun i _ -> i < (List.length f.args)) args else args in
       let nb_args = List.length args and nb_params = List.length f.args in
-      let* () = ES.log_if (nb_args <> nb_params)
+      let* () = ES.throw_if (nb_args <> nb_params)
         (Error.make loc (Printf.sprintf "unexpected number of arguments passed to %s : expected %i but got %i" name nb_params nb_args))
       in
       let* resolved_generics = List.fold_left2 
@@ -288,7 +288,7 @@ struct
       | Invoke (l, var, id, el) -> (* todo: handle var *) fun e ->
         let open MonadSyntax(E) in
         let* el,e' = listMapM (lower_rexp decl.generics) el e in 
-        let+ _ = check_call id el l e' in Invoke(l, var, id,el),e'
+        let+ _ = check_call (snd id) el l e' in Invoke(l, var, id,el),e'
 
       | Return (l, None) as r -> 
         if decl.ret = None then return r else log (Error.make l @@ Printf.sprintf "void return but %s returns %s" decl.name (string_of_sailtype decl.ret))
@@ -322,11 +322,13 @@ struct
       | Run (l, id, el) -> fun e ->
         let open MonadSyntax(E) in
         let* el,e = listMapM (lower_rexp decl.generics) el e in
-        let+ _ = check_call id el l e in
+        let+ _ = check_call (snd id) el l e in
         Run (l, id, el),e
 
       | Par (l, c1, c2) -> 
+        let* env = ES.get in 
         let* c1 = aux c1 in
+        let* () = ES.set env in
         let+ c2 = aux c2 in
         Par (l, c1, c2)
 

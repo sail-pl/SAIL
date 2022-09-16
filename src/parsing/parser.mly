@@ -76,7 +76,6 @@
 
 let sailModule := l = defn* ; EOF ; {fun x -> mk_program x l}
 
-
 let brace_del_sep_list(sep,x) == delimited("{", separated_list(sep, x), "}") 
 
 let defn :=
@@ -138,15 +137,15 @@ let expression :=
     | "*" ; ~ = expression ; %prec UNARY <Deref>
     | e1 = expression ; op =binOp ; e2 =expression ; { BinOp(op,e1,e2) }
     | ~ = delimited ("[", separated_list(",", expression), "]") ; <ArrayStatic>
-    | id=ID ; l = brace_del_sep_list(",", id_colon(expression)) ;
+    | id=located(ID) ; l = brace_del_sep_list(",", id_colon(expression)) ;
         {
         let m = List.fold_left (fun x (y,(_,z)) -> FieldMap.add y z x) FieldMap.empty l
         in 
         StructAlloc(id, m)
         }
-    | id = UID ; {EnumAlloc(id, [])}
-    | ~ = UID ; ~ = delimited ("(", separated_list(",", expression), ")") ; <EnumAlloc>
-    | ~ = ID ; ~ = delimited ("(", separated_list (",", expression), ")") ; <MethodCall>
+    | id = located(UID) ; {EnumAlloc(id, [])}
+    | ~ = located(UID) ; ~ = delimited ("(", separated_list(",", expression), ")") ; <EnumAlloc>
+    | ~ = located(ID) ; ~ = delimited ("(", separated_list (",", expression), ")") ; <MethodCall>
 )
 
 
@@ -200,9 +199,9 @@ let single_statement :=
     | IF ; e = parenthesized_exp ; s1 = single_statement ; ELSE ; s2 = single_statement ; {If(e, s1, Some s2)}
     | WHILE ; ~ = parenthesized_exp ; ~ = single_statement ; <While>
     | CASE ; ~ = parenthesized_exp ; ~ = brace_del_sep_list(",", case) ; <Case>
-    | ~ = ID ; ~ = delimited("(", separated_list(",", expression), ")") ; <Invoke>
+    | ~ = located(ID) ; ~ = delimited("(", separated_list(",", expression), ")") ; <Invoke>
     | RETURN ; ~ = expression? ; <Return>
-    | ~ = UID ; ~ = delimited("(", separated_list(",", expression ), ")") ; <Run>
+    | ~ = located(UID) ; ~ = delimited("(", separated_list(",", expression ), ")") ; <Run>
     | EMIT ; ~ = ID ; <Emit>
     | AWAIT ; ~ = ID ; <Await>
     | WATCHING ; ~ = ID ; ~ = single_statement ; <Watching>

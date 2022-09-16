@@ -33,8 +33,8 @@ type 'a expression =
   | BinOp of 'a * binOp * 'a expression * 'a expression
   | Ref of 'a * bool * 'a expression
   | ArrayStatic of 'a * 'a expression list
-  | StructAlloc of 'a * string * 'a expression FieldMap.t
-  | EnumAlloc of 'a * string * 'a expression list 
+  | StructAlloc of 'a * (loc * string) * 'a expression FieldMap.t
+  | EnumAlloc of 'a * (loc * string) * 'a expression list 
   
 
 type 'a statement =
@@ -48,9 +48,9 @@ type 'a statement =
   | While of loc * 'a * 'a statement
   | Break of loc
   | Case of loc * 'a * (string * string list * 'a statement) list
-  | Invoke of loc * string option * string * 'a list
+  | Invoke of loc * string option * (loc * string) * 'a list
   | Return of loc * 'a option
-  | Run of loc * string * 'a list
+  | Run of loc * (loc*string) * 'a list
   | Emit of loc * string
   | Await of loc * string
   | When of loc * string * 'a statement

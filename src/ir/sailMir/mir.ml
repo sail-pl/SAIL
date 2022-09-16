@@ -190,13 +190,13 @@ let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t =
               |> BlockMap.union disjoint goto.blocks
   }
 
-let buildInvoke (l : loc) (id : string) (target : string option) (el : expression list) : cfg ESC.t =
+let buildInvoke (l : loc) (id : loc * string) (target : string option) (el : expression list) : cfg ESC.t =
   let* env = match target with 
   | None -> ESC.get_env 
   | Some tid -> let* () = ESC.update_var l tid assign_var in ESC.get_env 
   in 
   let+ invokeLbl = ESC.fresh and* returnLbl = ESC.fresh in 
-  let invokeBlock = {assignments = []; predecessors = LabelSet.empty ; env; location=l; terminator = Some (Invoke {id = id; target; params = el; next = returnLbl})} in
+  let invokeBlock = {assignments = []; predecessors = LabelSet.empty ; env; location=l; terminator = Some (Invoke {id = (snd id); target; params = el; next = returnLbl})} in
   let returnBlock = {assignments = []; predecessors = LabelSet.singleton invokeLbl ; env; location = dummy_pos; terminator = None} in 
   {
     input = invokeLbl;

@@ -19,11 +19,11 @@ let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
     |StructAlloc  (_, id, m) ->
       let pp_field pf (x, y) = Format.fprintf pf "%s:%a" x ppPrintExpression y in
-      Format.fprintf pf "%s{%a}" id
+      Format.fprintf pf "%s{%a}" (snd id)
         (Format.pp_print_list ~pp_sep:pp_comma pp_field)
         (Common.TypesCommon.FieldMap.bindings m)
     | EnumAlloc (_,id,el) ->  
-      Format.fprintf pf "[%s(%a)]" id
+      Format.fprintf pf "[%s(%a)]" (snd id)
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
 
 let ppPrintPredecessors (pf : Format.formatter) (preds : LabelSet.t ) : unit = 
