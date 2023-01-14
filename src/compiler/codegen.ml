@@ -50,7 +50,7 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : llbuilder -> llva
     | Some Some oper -> oper l1 l2 ""
     | Some None | None -> Printf.sprintf "codegen: bad usage of binop '%s' with type %s" (string_of_binop op) (string_of_sailtype @@ Some t) |> failwith
 
-let get_type e = IrThir.Thir.extract_exp_loc_ty e |>snd
+let get_type e = IrThir.ThirUtils.extract_exp_loc_ty e |>snd
 
 let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : llvalue = 
   match x with

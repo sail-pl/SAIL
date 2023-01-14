@@ -25,6 +25,9 @@ let fastParse filename : (string * AstParser.statement SailModule.t, string) Res
   | v -> Result.ok (text,(v filename))
 
   | exception SyntaxError (loc,msg) ->
+      let lexer_prefix = "Lexer - " in
+      (* removes lexer prefix in case of a lexing error *)
+      let msg = String.(if starts_with ~prefix:lexer_prefix msg then sub msg (length lexer_prefix) (length msg - length lexer_prefix) else msg) in
       Error.print_errors text @@ [Error.make loc msg];
       exit 1
 
@@ -83,7 +86,7 @@ let parse_program filename : string * AstParser.statement SailModule.t Logger.t 
   let open Monad.MonadOperator(Logger) in
   match fastParse filename with
   | Result.Ok (txt,sm) -> txt,Logger.pure sm
-  | Result.Error txt -> txt,slowParse filename txt >>| fun () -> SailModule.emptyModule
+  | Result.Error txt -> txt,slowParse filename txt
 
   
   
