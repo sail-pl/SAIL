@@ -21,7 +21,7 @@ sailModule: METHOD ID LPAREN ID WHILE
 ## ID
 ##
 
-expected ':'
+expected ': <type>'
 
 sailModule: METHOD ID LPAREN ID COLON WHILE
 ##
@@ -33,7 +33,7 @@ sailModule: METHOD ID LPAREN ID COLON WHILE
 ## ID COLON
 ##
 
-expected type
+expected a type
 
 sailModule: PROCESS WHILE
 ##
