@@ -4,25 +4,25 @@ open Format
 open AstMir 
 
 let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit =
-  match e with 
-    | Variable (_, s) -> fprintf pf "%s" s
-    | Deref (_, e) -> fprintf pf "*%a" ppPrintExpression e 
-    | StructRead (_, e, s) -> fprintf pf "%a.%s" ppPrintExpression e s
-    | ArrayRead (_, e1, e2) -> fprintf pf "%a[%a]" ppPrintExpression e1 ppPrintExpression e2
-    | Literal (_,l) -> fprintf pf "%a" PpCommon.pp_literal l 
-    | UnOp (_, o, e) -> fprintf pf "%a %a" pp_unop o ppPrintExpression e
-    | BinOp (_, o, e1, e2) -> fprintf pf "%a %a %a" ppPrintExpression e1 pp_binop o ppPrintExpression e2
-    | Ref (_, true,e) -> fprintf pf "&mut %a" ppPrintExpression e 
-    | Ref (_, false,e) -> fprintf pf "&%a" ppPrintExpression e 
-    | ArrayStatic (_,el) ->  
+  match e.exp with 
+    | Variable s -> fprintf pf "%s" s
+    | Deref e -> fprintf pf "*%a" ppPrintExpression e 
+    | StructRead (e, s) -> fprintf pf "%a.%s" ppPrintExpression e s
+    | ArrayRead (e1, e2) -> fprintf pf "%a[%a]" ppPrintExpression e1 ppPrintExpression e2
+    | Literal (l) -> fprintf pf "%a" PpCommon.pp_literal l 
+    | UnOp (o, e) -> fprintf pf "%a %a" pp_unop o ppPrintExpression e
+    | BinOp ( o, e1, e2) -> fprintf pf "%a %a %a" ppPrintExpression e1 pp_binop o ppPrintExpression e2
+    | Ref (true,e) -> fprintf pf "&mut %a" ppPrintExpression e 
+    | Ref (false,e) -> fprintf pf "&%a" ppPrintExpression e 
+    | ArrayStatic el ->  
       Format.fprintf pf "[%a]"
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    |StructAlloc  (_, id, m) ->
+    |StructAlloc  (id, m) ->
       let pp_field pf (x, y) = Format.fprintf pf "%s:%a" x ppPrintExpression y in
       Format.fprintf pf "%s{%a}" (snd id)
         (Format.pp_print_list ~pp_sep:pp_comma pp_field)
         (Common.TypesCommon.FieldMap.bindings m)
-    | EnumAlloc (_,id,el) ->  
+    | EnumAlloc (id,el) ->  
       Format.fprintf pf "[%s(%a)]" (snd id)
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
 

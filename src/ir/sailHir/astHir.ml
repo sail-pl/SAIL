@@ -22,39 +22,39 @@
 
 open Common.TypesCommon
 
-
-type 'a expression = 
-  | Variable of 'a * string 
-  | Deref of 'a * 'a expression 
-  | StructRead of 'a * 'a expression * string
-  | ArrayRead of 'a * 'a expression * 'a expression  
-  | Literal of 'a * literal
-  | UnOp of 'a * unOp * 'a expression
-  | BinOp of 'a * binOp * 'a expression * 'a expression
-  | Ref of 'a * bool * 'a expression
-  | ArrayStatic of 'a * 'a expression list
-  | StructAlloc of 'a * (loc * string) * 'a expression FieldMap.t
-  | EnumAlloc of 'a * (loc * string) * 'a expression list 
+type 'a expression = {info: 'a ; exp:'a _expression} and 'a _expression = 
+  | Variable of string 
+  | Deref of 'a expression 
+  | StructRead of 'a expression * string
+  | ArrayRead of 'a expression * 'a expression  
+  | Literal of literal
+  | UnOp of unOp * 'a expression
+  | BinOp of binOp * 'a expression * 'a expression
+  | Ref of bool * 'a expression
+  | ArrayStatic of 'a expression list
+  | StructAlloc of (loc * string) * 'a expression FieldMap.t
+  | EnumAlloc of (loc * string) * 'a expression list 
   
 
-type 'a statement =
-  | DeclVar of loc * bool * string * sailtype option * 'a option 
-  | DeclSignal of loc * string
-  | Skip of loc
-  | Assign of loc * 'a * 'a
-  | Seq of loc * 'a statement * 'a statement
-  | Par of loc * 'a statement * 'a statement
-  | If of loc * 'a * 'a statement * 'a statement option
-  | While of loc * 'a * 'a statement
-  | Break of loc
-  | Case of loc * 'a * (string * string list * 'a statement) list
-  | Invoke of loc * string option * (loc * string) * 'a list
-  | Return of loc * 'a option
-  | Run of loc * (loc*string) * 'a list
-  | Emit of loc * string
-  | Await of loc * string
-  | When of loc * string * 'a statement
-  | Watching of loc * string * 'a statement
-  | Block of loc * 'a statement
+type ('i,'e) statement = {info: 'i; stmt: ('i,'e) _statement} and ('i,'e) _statement =
+  | DeclVar of bool * string * sailtype option * 'e option 
+  | DeclSignal of string
+  | Skip
+  | Assign of 'e * 'e
+  | Seq of ('i,'e) statement * ('i,'e) statement
+  | Par of ('i,'e) statement * ('i,'e) statement
+  | If of 'e * ('i,'e) statement * ('i,'e) statement option
+  | While of 'e * ('i,'e) statement
+  | Break
+  | Case of 'e * (string * string list * ('i,'e) statement) list
+  | Invoke of string option * (loc * string) * 'e list
+  | Return of 'e option
+  | Run of (loc*string) * 'e list
+  | Emit of string
+  | Await of string
+  | When of string * ('i,'e) statement
+  | Watching of string * ('i,'e) statement
+  | Block of ('i,'e) statement
 
-  
+let buildExp (info:'a) (exp:'a _expression) : 'a expression = {info;exp}
+let buildStmt (info:'i) (stmt:'s) : ('i,'e) statement = {info;stmt}

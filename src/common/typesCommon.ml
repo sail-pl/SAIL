@@ -143,4 +143,3 @@ type function_proto =
   generics : string list;
   variadic : bool;
 }
-

@@ -33,7 +33,7 @@ let show_context text (p1,p2) =
     let s fmt = List.iter (
       fun {where;what;hint;_} ->
         if where = (dummy_pos,dummy_pos) then
-          Fmt.pf fmt "%s" what
+          Logs.debug (fun m -> m "found one error at an unknown location : \n\t %s \n" what)
         else
           let location = MenhirLib.LexerUtil.range where in
           let indication = show_context file where in 

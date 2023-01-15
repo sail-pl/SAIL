@@ -7,20 +7,8 @@ open Monad
 open MonadSyntax(ES)
 open MonadFunctions(ES)
 
-let extract_exp_loc_ty : 'a AstHir.expression -> 'a = function
-| Variable (lt,_) | Deref (lt,_) | StructRead (lt,_,_)
-| ArrayRead (lt,_,_) | Literal (lt,_) | UnOp (lt,_,_)
-| BinOp (lt,_,_,_) | Ref  (lt,_,_) | ArrayStatic (lt,_)
-| StructAlloc (lt,_,_) | EnumAlloc  (lt,_,_) -> lt
-
-let extract_statements_loc : _ AstHir.statement -> loc  = function
-| Watching(l, _, _) | Emit(l, _) | Await(l, _)
-| When(l, _, _)  | Run(l, _, _) | Par(l, _, _)
-| DeclSignal(l, _)  | Skip l  | Return (l,_)
-| Invoke (l,_,_,_) | Block (l, _) | If (l,_,_,_)
-| DeclVar (l,_,_,_,_) | Seq (l,_,_) | Assign (l,_,_)
-| While (l,_,_) | Break l | Case (l,_,_) -> l
-
+type expression = (loc * sailtype) AstHir.expression
+type statement = (loc,expression) AstHir.statement
 
 let degenerifyType (t: sailtype) (generics: sailtype dict) loc : sailtype ES.t =
   let rec aux = function
@@ -89,7 +77,7 @@ let check_binop op l r : sailtype E.t =
     let+ _ = matchArgParam r (snd l) [] [] in snd l
 
 
-let check_call (name:string) (args: 'a list) loc : sailtype option ES.t =
+let check_call (name:string) (args: expression list) loc : sailtype option ES.t =
   let* env = ES.get in
   match THIREnv.get_method env name,THIREnv.get_process env name  with
   | Some (_l,f), _ | _,Some (_l,f) -> 
@@ -102,9 +90,9 @@ let check_call (name:string) (args: 'a list) loc : sailtype option ES.t =
       in
       let* resolved_generics = List.fold_left2 
       (
-        fun g ca {ty=a;_} ->
+        fun g (ca:expression) {ty=a;_} ->
           let* g in 
-          let+ x = matchArgParam (extract_exp_loc_ty ca) a f.generics g |> ES.lift in
+          let+ x = matchArgParam ca.info a f.generics g |> ES.lift in
           snd x
       ) (return []) args f.args
       in

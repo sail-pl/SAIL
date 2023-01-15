@@ -11,8 +11,6 @@ open MonadOperator(ESC)
 open MonadFunctions(ESC) 
 
 
-
-
 open Pass
 
 module Pass = MakeFunctionPass(V)(
@@ -22,10 +20,38 @@ struct
   type in_body = Thir.Pass.out_body
   type out_body = mir_function
 
-  open MonadFunctions(E)
-  open MonadSyntax(E) 
+  let rec lexpr (e : Thir.expression) : expression ESC.t = 
+    let open IrHir.AstHir in
+    let lt = e.info in 
+    match e.exp with 
+      | Variable name ->
+        let* id = find_scoped_var name in
+        let+ () = ESC.update_var (fst lt) id assign_var in buildExp lt (Variable id)
+      | Deref e -> rexpr e 
+      | ArrayRead (e1, e2) -> let+ e1' = lexpr e1 and* e2' = rexpr e2 in buildExp lt (ArrayRead(e1',e2'))
+      | StructRead _ | StructAlloc _ | EnumAlloc _ | Ref _ -> 
+        let+ () = ESC.error @@ Error.make (fst lt) "todo" in buildExp lt (Variable(""))
+      | _ -> failwith "problem with thir"
+  and rexpr (e : Thir.expression) : expression ESC.t = 
+    let lt = e.info in 
+    let open IrHir.AstHir in
+    match e.exp with 
+      | Variable name ->
+        let+ id = find_scoped_var name in buildExp lt (Variable id)
+      | Literal l -> buildExp lt (Literal l) |> ESC.pure
+      | Deref e -> lexpr e 
+      | ArrayRead (array_exp,idx) -> let+ arr = rexpr array_exp and* idx' = rexpr idx in buildExp lt (ArrayRead(arr,idx'))
+      | StructRead _ -> let+ () = ESC.error @@ Error.make (fst lt) "todo" in buildExp lt (Variable(""))
+      | UnOp (o, e) -> let+ e' = rexpr e in buildExp lt (UnOp (o, e'))
+      | BinOp (o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in buildExp lt (BinOp(o, e1', e2'))
+      | Ref (b, e) -> let+ e' = rexpr e in buildExp lt (Ref(b, e'))
+      | ArrayStatic el -> let+ el' = listMapM rexpr el in buildExp lt (ArrayStatic el')
+      | _ -> failwith "problem with thir"
+      
+      open MonadFunctions(E)
+      open MonadSyntax(E)     
 
-  let lower_function decl env : out_body  E.t =
+      let lower_function decl env : out_body  E.t =
     let _check_function (_,cfg : out_body) : unit E.t = 
       let* ret,unreachable_blocks = cfg_returns cfg in
       if Option.is_some ret && decl.ret <> None then 
@@ -57,8 +83,9 @@ struct
     let rec aux (s : Thir.statement) : out_body ESC.t = 
       let open MonadSyntax(ESC) in 
       let open MonadFunctions(ESC) in 
-      match s with
-      | DeclVar(loc, mut, name, Some ty, None) -> 
+      let loc = s.info in
+      match s.stmt with
+      | DeclVar(mut, name, Some ty, None) -> 
         let* bb = emptyBasicBlock loc  in
         let* id = 
           let+ curr_lbl = ESC.get in
@@ -67,62 +94,63 @@ struct
         let+ () = ESC.declare_var loc id {ty;mut;name} in
         [{location=loc; mut; id; varType=ty}],bb
 
-      | DeclVar(loc, mut, name, Some ty, Some e) -> 
+      | DeclVar(mut, name, Some ty, Some e) -> 
         let* expression = rexpr e in
         let* id = 
           let+ curr_lbl = ESC.get in
           get_scoped_var name (curr_lbl + 1)
         in
         let* () = ESC.declare_var loc id {ty;mut;name} in
-        let+ bn = assignBasicBlock loc {location=loc; target=Variable ((loc, ty), id); expression }  in
+        let target = IrHir.AstHir.buildExp (loc,ty) (Variable id) in
+        let+ bn = assignBasicBlock loc {location=loc; target; expression }  in
         [{location=loc; mut; id=id; varType=ty}],bn
         (* ++ other statements *)
 
       | DeclVar _ -> failwith "hir broken : variable declaration should have a type"
 
-      | Skip loc -> let+ bb = emptyBasicBlock loc in ([],  bb)
+      | Skip -> let+ bb = emptyBasicBlock loc in ([],  bb)
 
-      | Assign (loc, e1, e2) -> 
+      | Assign (e1, e2) -> 
         let* expression = rexpr e2 and* target = lexpr e1 in
         let+ bb = assignBasicBlock loc {location=loc; target; expression} in [],bb
         
-      | Seq (_, s1, s2) ->
+      | Seq (s1, s2) ->
         (* let* env = ESC.get_env in *)
         let* d1, cfg1 = aux s1 
         and* d2, cfg2 = aux s2 in
         (* let* () = ESC.set_env env in  *)
         let+ bb = buildSeq cfg1 cfg2 in d1@d2,bb
 
-      | If (loc, e, s, None) -> 
+      | If (e, s, None) -> 
         let* e' = rexpr e in
         let* d, cfg = aux s in
         let+ ite = buildIfThen loc e' cfg in
         (d,ite) 
         
-      | If (loc, e, s1, Some s2) -> 
+      | If (e, s1, Some s2) -> 
         let* e' = rexpr e in
         let* d1,cfg1 = aux s1 and* d2,cfg2 = aux s2 in
         let+ ite = buildIfThenElse loc e' cfg1 cfg2 in
         (d1@d2, ite) 
 
-      | While (loc, e, s) ->  
+      | While (e, s) ->  
         let* e' = rexpr e in
         let* d, cfg = aux s in 
         let+ l = buildLoop loc e' cfg in
         (d, l)
 
-      | Break(loc) -> 
+      | Break -> 
         let* env = ESC.get_env in 
         let bb = {location=loc; env; assignments=[]; predecessors=LabelSet.empty;terminator=Some Break} in
         let+ cfg = singleBlock bb in
         ([],cfg)
         
-      | Invoke (loc, target, id, el) -> 
+      | Invoke (target, id, el) -> 
         let* el' = listMapM rexpr el in
         let+ invoke = buildInvoke loc id target el' in
         ([], invoke)
 
-      | Return (loc, e) ->
+      | Return e ->
         let* e = match e with 
         | None -> None |> ESC.pure 
         | Some e -> let+ e' = rexpr e in Some e' in 
@@ -130,11 +158,10 @@ struct
         ([], ret)
 
       | Run _ | Emit _ | Await _ | When _  | Watching _ 
-      | Par _  | Case _ | DeclSignal _ as s -> 
-        let l = ThirUtils.extract_statements_loc s in
-        let* () = ESC.error @@ Error.make l "unimplemented" in let+ bb = emptyBasicBlock l in ([],  bb)
+      | Par _  | Case _ | DeclSignal _ -> 
+        let* () = ESC.error @@ Error.make loc "unimplemented" in let+ bb = emptyBasicBlock loc in ([],  bb)
 
-      | Block (_l, s) -> 
+      | Block s -> 
         let* env = ESC.get_env in
         let* res = aux s in
         let+ () = ESC.set_env env in
