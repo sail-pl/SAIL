@@ -5,6 +5,7 @@ module Declarations = struct
   type method_decl = loc * function_proto 
   type struct_decl = loc * struct_proto
   type enum_decl = loc * enum_proto
+  type builtin_decl = method_sig
 end
 
 module DeclEnv = Env.DeclarationsEnv(Declarations)
@@ -17,7 +18,7 @@ type 'a t =
   declEnv: DeclEnv.t;
   methods : 'a method_defn list ;
   processes : 'a process_defn list;
-  (* builtins : builtins list ;  *)
+  builtins : method_sig list ; 
 }
 
 type moduleSignature = unit t
@@ -34,5 +35,6 @@ let emptyModule =
     name = String.empty;
     declEnv = DeclEnv.empty;
     methods = [];
-    processes = []
+    processes = [];
+    builtins = [];
   }

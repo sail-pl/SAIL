@@ -109,8 +109,9 @@ let merge_modules sm1 sm2 =
   let name = sm2.name 
   and declEnv = merge_envs sm1.declEnv sm2.declEnv
   and methods = sm1.methods @ sm2.methods
-  and processes=sm1.processes @ sm2.processes in
- {name; declEnv; methods; processes}
+  and processes=sm1.processes @ sm2.processes
+  and builtins = sm1.builtins in 
+ {name; declEnv; methods; processes;builtins}
 
 
 let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () = 

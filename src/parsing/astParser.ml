@@ -115,5 +115,6 @@ let mk_program name l : statement SailModule.t =
             in (env,m,d::p)
   in 
   let (declEnv,methods,processes) = aux l in 
-  {name;declEnv;methods;processes}
+  let builtins = Builtins.get_builtins () in
+  {name;declEnv;methods;processes;builtins}
 

@@ -29,6 +29,17 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : llbuilder -> llva
           (And, build_and) ; (Or, build_or) ;
         ]
       ) ;
+      (Char, 
+      [
+        (Minus, build_sub) ; (Plus, build_add) ; (Rem, build_srem) ;
+        (Mul,build_mul) ; (Div, build_sdiv) ; 
+        (Eq, build_icmp Icmp.Eq) ; (NEq, build_icmp Icmp.Ne) ;
+        (Lt, build_icmp Icmp.Slt) ; (Gt, build_icmp Icmp.Sgt) ; 
+        (Le, build_icmp Icmp.Sle) ; (Ge, build_icmp Icmp.Sge) ;
+        (And, build_and) ; (Or, build_or) ;
+      ]
+    )
+      ;
       (Float,
         [
           (Minus, build_fsub) ; (Plus, build_fadd) ; (Rem, build_frem) ;
@@ -50,36 +61,37 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : llbuilder -> llva
     | Some Some oper -> oper l1 l2 ""
     | Some None | None -> Printf.sprintf "codegen: bad usage of binop '%s' with type %s" (string_of_binop op) (string_of_sailtype @@ Some t) |> failwith
 
-let get_type e = IrThir.ThirUtils.extract_exp_loc_ty e |>snd
+let get_type (e:AstMir.expression) = snd e.info
 
 let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : llvalue = 
-  match x with
-  | Variable (_, x) -> let _,v = SailEnv.get_var env x |> Option.get |> snd in v
-  | Deref (_, x) -> eval_r env llvm x
-  | ArrayRead (_, array_exp, index_exp) -> 
+  match x.exp with
+  | Variable x -> let _,v = SailEnv.get_var env x |> Option.get |> snd in v
+  | Deref x -> eval_r env llvm x
+  | ArrayRead (array_exp, index_exp) -> 
     let array_val = eval_l env llvm array_exp in
     let index = eval_r env llvm index_exp in
     let llvm_array = build_in_bounds_gep array_val [|(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
     llvm_array
   | StructRead _ -> failwith "struct assign unimplemented"
-  | StructAlloc (_, _, _) -> failwith "struct allocation unimplemented"
-  | EnumAlloc (_, _, _) -> failwith "enum allocation unimplemented"
+  | StructAlloc _ -> failwith "struct allocation unimplemented"
+  | EnumAlloc _ -> failwith "enum allocation unimplemented"
   | _  -> failwith "problem with thir"
 
 and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue = 
-  match x with
+  let ty = get_type x in
+  match x.exp with
   | Variable _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
-  | Literal (_, l) ->  getLLVMLiteral l llvm
-  | UnOp ((_,t), op,e) -> let l = eval_r env llvm e in unary op (t,l) llvm.b
-  | BinOp ((_,t), op,e1, e2) -> 
+  | Literal l ->  getLLVMLiteral l llvm
+  | UnOp (op,e) -> let l = eval_r env llvm e in unary op (ty,l) llvm.b
+  | BinOp (op,e1, e2) -> 
       let l1 = eval_r env llvm e1
       and l2 = eval_r env llvm e2
-      in binary op t l1 l2 llvm.b
-  | StructRead (_, _, _) -> failwith "struct read undefined"
+      in binary op ty l1 l2 llvm.b
+  | StructRead _ -> failwith "struct read undefined"
   | ArrayRead _ -> let v = eval_l env llvm x in build_load v "" llvm.b    
-  | Ref (_, _,e) -> eval_l env llvm e
-  | Deref (_, e) -> let v = eval_l env llvm e in build_load v "" llvm.b
-  | ArrayStatic (_, elements) -> 
+  | Ref (_,e) -> eval_l env llvm e
+  | Deref e -> let v = eval_l env llvm e in build_load v "" llvm.b
+  | ArrayStatic elements -> 
     begin
     let array_values = List.map (eval_r env llvm) elements in
     let ty = List.hd array_values |> type_of in

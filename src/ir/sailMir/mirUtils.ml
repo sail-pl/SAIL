@@ -1,5 +1,4 @@
 open AstMir
-open IrThir
 open Common 
 open TypesCommon
 open Monad
@@ -218,36 +217,9 @@ let find_scoped_var name : string ESC.t =
   let* curr_lbl = ESC.get in 
   aux (curr_lbl+1)
 
-let rec lexpr (e : Thir.expression) : expression ESC.t = 
-  let open IrHir.AstHir in
-  match (e:Thir.expression) with 
-    | Variable (l,_ as lt, name) ->
-      let* id = find_scoped_var name in
-      let+ () = ESC.update_var l id assign_var in Variable (lt, id)
-    | Deref (_,e) -> rexpr e 
-    | ArrayRead (lt, e1, e2) -> let+ e1' = lexpr e1 and* e2' = rexpr e2 in ArrayRead(lt,e1',e2')
-    | StructRead _ | StructAlloc _ | EnumAlloc _ | Ref _ -> 
-      let l,_ as lt = ThirUtils.extract_exp_loc_ty e in let+ () = ESC.error @@ Error.make l "todo" in Variable(lt,"")
-    | _ -> failwith "problem with thir"
-and rexpr (e : Thir.expression) : expression ESC.t = 
-  let open IrHir.AstHir in
-  match (e:Thir.expression) with 
-    | Variable (lt, name) ->
-      let+ id = find_scoped_var name in
-      Variable (lt, id)
-    | Literal (lt, l) -> Literal (lt, l) |> ESC.pure
-    | Deref (_,e) -> lexpr e 
-    | ArrayRead (lt,array_exp,idx) -> let+ arr = rexpr array_exp and* idx' = rexpr idx in ArrayRead(lt,arr,idx')
-    | StructRead ((l,_ as lt),_,_) -> let+ () = ESC.error @@ Error.make l "todo" in Variable(lt,"")
-    | UnOp (lt, o, e) -> let+ e' = rexpr e in UnOp (lt, o, e')
-    | BinOp (lt, o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in BinOp(lt, o, e1', e2')
-    | Ref (lt, b, e) -> let+ e' = rexpr e in Ref(lt, b, e')
-    | ArrayStatic (lt, el) -> let+ el' = listMapM rexpr el in ArrayStatic (lt, el')
-    | _ -> failwith "problem with thir"
-
 
 let seqOfList (l : statement list) : statement = 
-  List.fold_left (fun s l : statement -> Seq (dummy_pos, s, l)) (Skip dummy_pos) l
+  List.fold_left (fun s l : statement ->  {info=dummy_pos; stmt=Seq (s, l)}) {info=dummy_pos;stmt=Skip} l
 
 
 let reverse_traversal (lbl:int) (blocks : basicBlock BlockMap.t) :  basicBlock BlockMap.t = 
