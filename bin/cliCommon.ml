@@ -1,5 +1,7 @@
 open Cmdliner
 
+let prefix = "libr--"
+let prefix_size = String.length prefix
 
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
@@ -24,8 +26,11 @@ let sailfile_conv =
           let msg = Fmt.str "'%s' is not a sail file. Hint: use the .sl extension\n%!" filename in
           Error (`Msg msg)
       else
-        let msg = Fmt.str "'%s' : no such file" filename in
-        Error (`Msg msg )
+      	if (String.starts_with ~prefix filename) then
+      		(Ok filename)
+      	else
+        	let msg = Fmt.str "'%s' : No such file" filename in
+        	Error (`Msg msg )
     in
     let print f s = Format.fprintf f "%s" s in
     Arg.conv (parse,print)

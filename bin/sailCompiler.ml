@@ -13,6 +13,8 @@ open Codegen
 open CompilerEnv
 let error_handler err = "LLVM ERROR: " ^ err |> print_endline
 
+let librairies = ref ""
+
 
 let moduleToIR (name:string) (m:Mir.Pass.out_body SailModule.t) (dump_decl:bool) : llmodule  = 
   let module FieldMap = Map.Make (String) in
@@ -66,7 +68,7 @@ let compile (llm:llmodule) (module_name : string) (target, machine) : int =
   if Target.has_asm_backend target then
     begin
       TargetMachine.emit_to_file llm ObjectFile objfile machine;
-      Sys.command ( "clang " ^ objfile ^ " -o " ^ module_name) |> ignore;
+      Sys.command ( "clang " ^ objfile ^ " -o " ^ module_name ^ !librairies) |> ignore;
       "rm " ^ objfile |>  Sys.command
     end
   else
@@ -91,7 +93,7 @@ let execute (llm:llmodule) =
   Llvm_executionengine.dispose ee (* implicitely disposes the module *)
 
 
-let merge_modules sm1 sm2 =
+let merge_together sm1 sm2 =
   let open SailModule in
   let merge_envs (e1:DeclEnv.t) (e2:DeclEnv.t) : DeclEnv.t = 
     let merge =TypesCommon.FieldMap.union
@@ -105,12 +107,29 @@ let merge_modules sm1 sm2 =
   in
   let open SailModule in
   let open Monad.MonadSyntax(Error.Logger) in
-  let+ sm1 and* sm2 in 
+  let+ sm1 and* sm2 in
   let name = sm2.name 
   and declEnv = merge_envs sm1.declEnv sm2.declEnv
   and methods = sm1.methods @ sm2.methods
   and processes=sm1.processes @ sm2.processes in
- {name; declEnv; methods; processes}
+  {name; declEnv; methods; processes}
+
+
+
+let merge_modules sm = 
+	let include_list = ["print_utils.sl";"print_utils_2.sl"] in (* temporary *)
+	let rec aux = fun ilist sailm ->
+		match ilist with
+			| [] -> sailm
+			| h :: t -> aux t (merge_together (Parsing.parse_program h |> snd) sailm)
+	in aux include_list sm
+	
+	
+let isSailFile (file: string) =
+	if String.equal (Filename.extension file) ".sl" 
+		then true 
+		else (librairies := !librairies ^ (" -l" ^ (String.sub file prefix_size ((String.length file) - prefix_size))) ; false)
+
 
 
 let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () = 
@@ -123,7 +142,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
     begin
         let fcontent,sail_module = Parsing.parse_program f in
         let sail_module = 
-          merge_modules (Parsing.parse_program "print_utils.sl" |> snd) sail_module (*  temporary *)
+          merge_modules (*fcontent*) sail_module
           |> Hir.Pass.lower 
           |> Thir.Pass.lower 
           |> Mir.Pass.lower 
@@ -171,7 +190,8 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
   | [] -> `Ok ()
   
   in 
-  try aux files with
+  let sail_files = (List.filter isSailFile files) in
+  try aux sail_files with
   | e -> `Error (false,Printexc.to_string e)
 
 let jit_arg =
