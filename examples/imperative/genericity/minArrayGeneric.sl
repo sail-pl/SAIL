@@ -1,3 +1,4 @@
+import print_utils
 
 method getMin<T> (a : array<T;5>) : T {
 

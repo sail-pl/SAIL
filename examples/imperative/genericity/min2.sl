@@ -1,3 +1,4 @@
+import print_utils
 method min<T>(x : T, y : T) : T {
  if (x > y) return y 
   else return x

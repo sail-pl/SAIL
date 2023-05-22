@@ -1,3 +1,4 @@
+import print_utils
 method sumTo(n : int) : int{
     var mut res : int = 0;
     var mut cpt : int = 0;

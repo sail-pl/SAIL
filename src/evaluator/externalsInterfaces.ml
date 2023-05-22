@@ -8,9 +8,10 @@ let e_print_new_line = {pos= dummy_pos;name="print_newline"; generics=[];params=
 
 let drop = {pos=dummy_pos;name="drop"; generics=["A"]; params=[{id="x";mut=false;ty=Box (GenericType "A"); loc=dummy_pos}];variadic=false;rtype=None}
 let exSig = {
-  name = "_External"; 
   declEnv = DeclEnv.empty;
   methods = [];
   processes = [];
-  builtins=[]
+  builtins=[];
+  imports=ImportSet.empty;
+  md = {name="_External"; hash= ""; libs=FieldSet.empty}
 }

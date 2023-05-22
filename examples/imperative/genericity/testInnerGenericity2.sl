@@ -1,3 +1,4 @@
+import print_utils
 method g<S>(a : S) : S {
     return a;
 }

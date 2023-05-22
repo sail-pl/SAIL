@@ -1,3 +1,4 @@
+import print_utils
 // Must fail, x moved twice
 process Main(){
     

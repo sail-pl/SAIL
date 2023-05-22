@@ -1,3 +1,4 @@
+import print_utils
 method f(x:box<int>){
     return
 }

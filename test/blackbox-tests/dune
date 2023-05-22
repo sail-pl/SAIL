@@ -1,6 +1,7 @@
 (cram
  (applies_to sailor)
  (deps 
+  print_utils.sl
   %{bin:sailor}))
 
 (cram

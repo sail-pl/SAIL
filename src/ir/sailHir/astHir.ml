@@ -22,39 +22,41 @@
 
 open Common.TypesCommon
 
-type 'a expression = {info: 'a ; exp:'a _expression} and 'a _expression = 
+type ('info,'import) expression = {info: 'info ; exp: ('info,'import) _expression} and ('info,'import) _expression = 
   | Variable of string 
-  | Deref of 'a expression 
-  | StructRead of 'a expression * string
-  | ArrayRead of 'a expression * 'a expression  
+  | Deref of ('info,'import) expression 
+  | StructRead of ('info,'import)expression * string
+  | ArrayRead of ('info,'import) expression * ('info,'import) expression  
   | Literal of literal
-  | UnOp of unOp * 'a expression
-  | BinOp of binOp * 'a expression * 'a expression
-  | Ref of bool * 'a expression
-  | ArrayStatic of 'a expression list
-  | StructAlloc of (loc * string) * 'a expression FieldMap.t
-  | EnumAlloc of (loc * string) * 'a expression list 
+  | UnOp of unOp * ('info,'import) expression
+  | BinOp of binOp * ('info,'import)  expression * ('info,'import) expression
+  | Ref of bool * ('info,'import) expression
+  | ArrayStatic of ('info,'import) expression list
+  | StructAlloc of (loc * string) * ('info,'import) expression FieldMap.t
+  | EnumAlloc of (loc * string) * ('info,'import) expression list 
+  | MethodCall of (loc * string) * 'import * ('info,'import) expression list
+
   
 
-type ('i,'e) statement = {info: 'i; stmt: ('i,'e) _statement} and ('i,'e) _statement =
-  | DeclVar of bool * string * sailtype option * 'e option 
+type ('info,'import,'exp) statement = {info: 'info; stmt: ('info,'import,'exp) _statement} and ('info,'import,'exp) _statement =
+  | DeclVar of bool * string * sailtype option * 'exp option 
   | DeclSignal of string
   | Skip
-  | Assign of 'e * 'e
-  | Seq of ('i,'e) statement * ('i,'e) statement
-  | Par of ('i,'e) statement * ('i,'e) statement
-  | If of 'e * ('i,'e) statement * ('i,'e) statement option
-  | While of 'e * ('i,'e) statement
+  | Assign of 'exp * 'exp
+  | Seq of ('info,'import,'exp) statement * ('info,'import,'exp) statement
+  | Par of ('info,'import,'exp) statement * ('info,'import,'exp) statement
+  | If of 'exp * ('info,'import,'exp) statement * ('info,'import,'exp) statement option
+  | While of 'exp * ('info,'import,'exp) statement
   | Break
-  | Case of 'e * (string * string list * ('i,'e) statement) list
-  | Invoke of string option * (loc * string) * 'e list
-  | Return of 'e option
-  | Run of (loc*string) * 'e list
+  | Case of 'exp * (string * string list * ('info,'import,'exp) statement) list
+  | Invoke of string option * 'import * (loc * string) * 'exp list
+  | Return of 'exp option
+  | Run of (loc*string) * 'exp list
   | Emit of string
   | Await of string
-  | When of string * ('i,'e) statement
-  | Watching of string * ('i,'e) statement
-  | Block of ('i,'e) statement
+  | When of string * ('info,'import,'exp) statement
+  | Watching of string * ('info,'import,'exp) statement
+  | Block of ('info,'import,'exp) statement
 
-let buildExp (info:'a) (exp:'a _expression) : 'a expression = {info;exp}
-let buildStmt (info:'i) (stmt:'s) : ('i,'e) statement = {info;stmt}
+let buildExp info (exp: (_,_) _expression) : (_,_) expression = {info;exp}
+let buildStmt info stmt : (_,_,_) statement = {info;stmt}

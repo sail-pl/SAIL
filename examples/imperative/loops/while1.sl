@@ -1,3 +1,4 @@
+import print_utils
 process Main(){
     var mut x : int = 0;
     while (x < 10){

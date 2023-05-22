@@ -13,13 +13,12 @@ open MonadSyntax(ES)
 open MonadFunctions(ES)
 
 
-type expression = (loc * sailtype) AstHir.expression
-type statement = (loc,expression) AstHir.statement
+type expression = ThirUtils.expression
+type statement = ThirUtils.statement
 
 module Pass = Pass.MakeFunctionPass(V)(
 struct
   let name = "THIR"
-  
   type in_body = Hir.Pass.out_body
   type out_body = statement
 
@@ -27,12 +26,10 @@ struct
   let rec aux (e:Hir.expression) : expression ES.t = 
     let loc = e.info in  match e.exp with
     | Variable id -> 
-      let* v = ES.get in 
-      begin
-        match THIREnv.get_var v id with
-        | Some (_,(_,t)) -> return @@ buildExp (loc,t) @@ Variable id
-        | None -> ES.throw @@ Error.make loc (Printf.sprintf "unknown variable %s" id)
-      end
+      let* v = ES.get_var id in 
+      let+ (_,(_,t)) = ES.throw_if_none v (Error.make loc @@ Printf.sprintf "unknown variable %s" id) in
+      buildExp (loc,t) @@ Variable id
+
     | Deref e -> let* e = lower_rexp generics e in
       (* return @@ Deref((l,extract_exp_loc_ty e |> snd), e) *)
       begin
@@ -44,7 +41,7 @@ struct
       begin 
         match snd array_exp.info with
         | ArrayType (t,size) -> 
-          let* _ = matchArgParam (idx.info) Int generics [] |> ES.lift in
+          let* _ = matchArgParam (idx.info) Int generics [] in
           let* () = 
           begin 
             (* can do a simple oob check if the type is an int literal *)
@@ -64,18 +61,15 @@ struct
   let rec aux (e:Hir.expression) : expression ES.t = 
     let loc = e.info in match e.exp with
     | Variable id -> 
-      let* v = ES.get in 
-      begin
-        match THIREnv.get_var v id with
-        | Some (_,(_,t)) -> return @@ buildExp (loc,t) @@ Variable id
-        | None -> ES.throw @@ Error.make loc (Printf.sprintf "unknown variable %s" id)
-      end
+      let* v = ES.get_var id in 
+      let+ (_,(_,t)) = ES.throw_if_none v (Error.make loc @@ Printf.sprintf "unknown variable %s" id) in
+      buildExp (loc,t) @@ Variable id
     | Literal li -> let t = sailtype_of_literal li in return @@ buildExp (loc,t) @@ Literal li
     | UnOp (op,e) -> let+ e = aux e in buildExp e.info @@ UnOp (op,e)
     | BinOp (op,le,re) ->
       let* le = aux le and* re = aux re in
       let lt = le.info  and rt = re.info in
-      let+ t = check_binop op lt rt |> E.recover (snd lt) |> ES.lift in 
+      let+ t = check_binop op lt rt |> ES.recover (snd lt) in 
       buildExp (loc,t) @@ BinOp (op,le,re)
 
     | Ref (mut,e) -> let+ e = lower_lexp generics e in 
@@ -86,11 +80,19 @@ struct
       let first_t = snd first_t.info in
       let* el = listMapM (
         fun e -> let+ e = aux e in
-        let+ _ = matchArgParam e.info first_t [] [] |> ES.lift in e
+        let+ _ = matchArgParam e.info first_t [] [] in e
       ) el in 
       let+ el = sequence el in
       let t = ArrayType (first_t, List.length el) in 
       buildExp (loc,t) (ArrayStatic el)
+
+    | MethodCall ((l,_) as lid,source,el) -> 
+      let* (el: expression list) = listMapM (lower_rexp generics) el in 
+      let* mod_loc,(_,realname,m) = find_function_source e.info None lid source el in
+      let+ ret = ES.throw_if_none m.ret  (Error.make e.info "methods in expressions should return a value") in
+      buildExp (loc,ret) (MethodCall ((l,realname),mod_loc,el)) 
+
+
     | ArrayRead _ -> lower_lexp generics e  (* todo : some checking *)
     | Deref _ -> lower_lexp generics e  (* todo : some checking *)
     | StructAlloc _ 
@@ -99,7 +101,7 @@ struct
   in aux e
 
 
-  let lower_function (decl:in_body function_type) (env:THIREnv.t) : out_body E.t = 
+  let lower_function (decl:in_body function_type) (env:THIREnv.t) _ : out_body E.t = 
     let log e = let+ () = ES.log e in buildStmt e.where Skip  in 
     let rec aux (s:in_body) : out_body ES.t = 
       let open MonadOperator(MonadOption.M) in
@@ -110,12 +112,15 @@ struct
         begin
           let* var_type =
             match (t,optexp) with
-            | (Some t,Some e) -> let* e in let+ a = matchArgParam e.info t decl.generics [] |> ES.lift in fst a
-            | (Some t, None) -> return t
+            | (Some t,Some e) -> 
+              let* t = resolve_type t in 
+              let* e in let+ a = matchArgParam e.info t decl.generics [] in fst a
+            | (Some t, None) -> resolve_type t
             | (None,Some t) -> let+ t in snd t.info
             | (None,None) -> ES.throw (Error.make loc "can't infere type with no expression")
             
           in
+          let* var_type = resolve_type var_type in 
           let* () = ES.update (fun st -> THIREnv.declare_var st id (loc,(mut,var_type)) ) in 
           match optexp with
           | None -> return @@ buildStmt loc @@ DeclVar (mut,id,Some var_type,None)
@@ -125,7 +130,7 @@ struct
       | Assign(e1, e2) -> 
         let* e1 = lower_lexp decl.generics e1
         and* e2 = lower_rexp decl.generics e2 in
-        let* _ = matchArgParam e2.info (snd e1.info) [] [] |> ES.lift in
+        let* _ = matchArgParam e2.info (snd e1.info) [] [] in
         return @@ buildStmt loc (Assign(e1, e2))
 
       | Seq(c1, c2) -> 
@@ -136,7 +141,7 @@ struct
 
       | If(cond_exp, then_s, else_s) -> 
         let* cond_exp = lower_rexp decl.generics cond_exp in
-        let* _ = matchArgParam cond_exp.info Bool [] [] |> ES.lift in
+        let* _ = matchArgParam cond_exp.info Bool [] [] in
         let* res = aux then_s in
         begin
         match else_s with
@@ -156,10 +161,11 @@ struct
         buildStmt loc (Case (e, []))
 
 
-      | Invoke (var, id, el) -> (* todo: handle var *)
+      | Invoke (var, mod_loc, id, el) -> (* todo: handle var *)
         let* el = listMapM (lower_rexp decl.generics) el in 
-        let+ _ = check_call (snd id) el loc in 
-        buildStmt loc (Invoke(var, id,el))
+        let* mod_loc,_ = find_function_source s.info var id mod_loc el in 
+        (* let+ _ = check_call (snd id) el loc in  *)
+        buildStmt loc (Invoke(var,mod_loc, id,el)) |> return 
 
       | Return None as r -> 
         if decl.ret = None then return (buildStmt loc r) else 
@@ -176,7 +182,7 @@ struct
           | None -> 
             log (Error.make loc @@ Printf.sprintf "returns %s but %s doesn't return anything"  (string_of_sailtype (Some t)) decl.name)
           | Some r ->
-            let+ _ = matchArgParam lt r decl.generics [] |> ES.lift  in
+            let+ _ = matchArgParam lt r decl.generics []  in
             buildStmt loc (Return (Some e))
           end
 
@@ -193,8 +199,8 @@ struct
       | When (s, c) -> let+ res = aux c in buildStmt loc (When (s, res))
       | Run (id, el) ->
         let* el = listMapM (lower_rexp decl.generics) el in
-        let+ _ = check_call (snd id) el loc in
-        buildStmt loc (Run (id, el))
+        (* let+ _ = check_call (snd id) el loc in *)
+        buildStmt loc (Run (id, el)) |> return
 
       | Par (c1, c2) -> 
         let* env = ES.get in 

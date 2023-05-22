@@ -1,6 +1,7 @@
 open TypesCommon
 module E = Error.Logger
-open Monad.MonadSyntax(E)
+open Monad
+open MonadSyntax(E)
 
 
 module type Declarations = sig
@@ -8,80 +9,150 @@ module type Declarations = sig
   type method_decl
   type struct_decl
   type enum_decl
+  type type_decl
 end
 
 
-module type DeclEnvType = functor (D : Declarations) -> sig
+ module type DeclEnvType = functor (D : Declarations) -> sig
   open D
 
   type t 
+
+  type _ decl_ty = 
+    | Method : method_decl decl_ty
+    | Process : process_decl decl_ty
+    | Struct : struct_decl decl_ty
+    | Enum : enum_decl decl_ty
+    | Type : type_decl decl_ty
+
+  type ('a,_) search_type = 
+  | All : 'a decl_ty -> ('a,(import * 'a) list) search_type
+  | Self : ('a decl_ty) -> ('a,'a option) search_type
+  | Specific : (string * 'a decl_ty) -> ('a,'a option) search_type
+
   val empty : t
-  val add_process : t -> string -> process_decl -> t
-  val add_method : t -> string -> method_decl -> t
-  val add_struct : t -> string -> struct_decl -> t
-  val add_enum : t -> string -> enum_decl -> t
-  val find_process : t -> string -> process_decl option
-  val find_method : t -> string -> method_decl option
-  val find_struct : t -> string -> struct_decl option
-  val find_enum : t -> string -> enum_decl option
+
+  val add_decl : t -> string -> 'a -> 'a decl_ty -> t
+
+  val find_decl : t -> string -> ('a,'b) search_type -> 'b
+
+  val add_import_decls : t -> (import * t) -> t
+
+  val get_imports : t -> import list
 
   val find_closest: string -> t -> string list
-
   val write_declarations : 'a -> 'b -> unit
   val print_declarations : t -> unit
   val iter_methods : (string -> method_decl -> unit) -> t -> unit
-end
+end 
 
 
-module DeclarationsEnv (D:Declarations)  = struct
+module DeclarationsEnv : DeclEnvType = functor (D:Declarations) -> struct
   open D
 
-  type t = {
+
+  type _ decl_ty = 
+    | Method : method_decl decl_ty
+    | Process : process_decl decl_ty
+    | Struct : struct_decl decl_ty
+    | Enum : enum_decl decl_ty
+    | Type : type_decl decl_ty
+
+    type ('a,_) search_type = 
+    | All : 'a decl_ty -> ('a,(import * 'a) list) search_type
+    | Self : ('a decl_ty) -> ('a,'a option) search_type
+    | Specific : (string * 'a decl_ty) -> ('a,'a option) search_type
+
+  type env = {
     methods : method_decl FieldMap.t;
     processes : process_decl FieldMap.t;
     structs : struct_decl FieldMap.t;
     enums : enum_decl FieldMap.t;
+    types : type_decl FieldMap.t;
   } 
 
-  let empty = {
-    methods = FieldMap.empty;
-    processes = FieldMap.empty;
-    structs = FieldMap.empty;
-    enums = FieldMap.empty;
+  type t = {
+    self : env;
+    imports : (import * env) list
   }
 
-  let add_process decls id (p:process_decl) = { decls with processes=(FieldMap.add id p decls.processes)}
-  let add_method decls id (m:method_decl) = { decls with methods=(FieldMap.add id m decls.methods)}
-  let add_struct decls id (s:struct_decl) = { decls with structs=(FieldMap.add id s decls.structs)}
-  let add_enum decls id (e:enum_decl) = { decls with enums=(FieldMap.add id e decls.enums)}
+  let empty = {
+    self={
+      methods = FieldMap.empty;
+      processes = FieldMap.empty;
+      structs = FieldMap.empty;
+      enums = FieldMap.empty;
+      types = FieldMap.empty
+    } ; 
+    imports = []
+  }
+
+  let get_imports (env:t) = List.map fst env.imports
+
+  let get_field (type d) env: d decl_ty -> d FieldMap.t = function
+  | Method -> env.methods
+  | Process -> env.processes
+  | Struct -> env.structs
+  | Enum -> env.enums
+  | Type -> env.types
+
+  let add_decl(type d) (env:t) id (decl:d) : d decl_ty -> t = function
+  | Process -> {env with self={env.self with processes=FieldMap.add id decl env.self.processes}}
+  | Method -> {env with self={env.self with methods=FieldMap.add id decl env.self.methods}}
+  | Struct -> {env with self={env.self with structs=FieldMap.add id decl env.self.structs}}
+  | Type -> {env with self={env.self with types=FieldMap.add id decl env.self.types}}
+  | Enum -> {env with self={env.self with enums=FieldMap.add id decl env.self.enums}}
+
+  let find_decl_aux (type d) (env:env) id (ty : d decl_ty) :d option = 
+    FieldMap.find_opt id (get_field env ty)
 
 
+  let find_decl (type d) (type o) (env:t) id (s:(d,o) search_type) : o = 
+    let open MonadOption in
+    let open MonadOperator(M) in
+    match s with
+    | All d -> List.fold_left 
+        (fun acc (m,env) -> acc @ ((find_decl_aux env id d >>| fun res -> m,res) |> list_of_option)) 
+        []
+        (({mname="_self"; dir=""; loc=dummy_pos},env.self)::env.imports) 
 
-  let find_process decls id = FieldMap.find_opt id decls.processes 
-  let find_method decls id = FieldMap.find_opt id decls.methods 
-  let find_struct decls id = FieldMap.find_opt id decls.structs 
-  let find_enum decls id = FieldMap.find_opt id decls.enums 
+    | Self d -> find_decl_aux env.self id d
+
+    | Specific (m,d) -> 
+      if m = "_self" then
+        find_decl_aux env.self id d
+      else
+        List.find_opt (fun ({mname;_},_) -> mname = m) env.imports
+         >>= fun (_,env) -> find_decl_aux env id d 
+
+
+  let add_import_decls (_to : t) (mname,from : import * t) = 
+    let imports = (mname,from.self)::_to.imports in
+    {_to with imports}
+
 
   let write_declarations _decls _filename = () (* todo *) 
 
-  let iter_methods f env = FieldMap.iter f env.methods
+  let iter_methods f env = FieldMap.iter f env.self.methods
 
 
-  let print_declarations decls = 
-    FieldMap.iter (fun n _ -> Printf.fprintf stdout "process %s\n" n) decls.processes;
-    FieldMap.iter (fun n _ -> Printf.fprintf stdout "method %s\n" n) decls.methods;
-    FieldMap.iter (fun n _ -> Printf.fprintf stdout "struct %s\n" n) decls.structs;
-    FieldMap.iter (fun n _ -> Printf.fprintf stdout "enum %s\n" n) decls.enums
+  let print_declarations env = 
+    FieldMap.iter (fun n _ -> Printf.fprintf stdout "process %s\n" n) env.self.processes;
+    FieldMap.iter (fun n _ -> Printf.fprintf stdout "method %s\n" n)  env.self.methods;
+    FieldMap.iter (fun n _ -> Printf.fprintf stdout "struct %s\n" n)  env.self.structs;
+    FieldMap.iter (fun n _ -> Printf.fprintf stdout "enum %s\n" n)  env.self.enums;
+    Printf.fprintf stdout "There are %i imports : %s \n" (List.length env.imports) (String.concat " " (List.map (fun ({mname;_},_) -> mname) env.imports))
 
-  let find_closest name decls : string list =
+
+  let find_closest name env : string list =
     if String.length name > 3 then
       let check = (fun n  _  l -> if Error.levenshtein_distance n name < 3 then n::l else l) in
-      FieldMap.fold check decls.methods []
-      |> fun l -> FieldMap.fold check decls.processes l
-      |> fun l -> FieldMap.fold check decls.structs l
-      |> fun l -> FieldMap.fold check decls.enums l
+      FieldMap.fold check env.self.methods []
+      |> fun l -> FieldMap.fold check env.self.processes l
+      |> fun l -> FieldMap.fold check env.self.structs l
+      |> fun l -> FieldMap.fold check env.self.enums l
     else []
-end
+end 
 
 
 module type Variable = sig
@@ -166,10 +237,9 @@ module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
 
   type t = VE.t * D.t
 
-  let get_process (_,g) name = D.find_process g name
-  let get_method (_,g) name = D.find_method g name
-  let get_struct (_,g) name = D.find_struct g name
-  let get_enum (_,g) name = D.find_enum g name
+  let get_decl (_,g) name = D.find_decl g name
+
+  let get_imports (_,g) = D.get_imports g
 
   let get_closest (_,g) name = D.find_closest name g
   let get_var (env,_) id = VE.get_var env id

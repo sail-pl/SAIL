@@ -1,3 +1,4 @@
+import print_utils
 method add<T>(n1 : T, n2 : T) : T {
 	var x : T = n1;
 	var y : T = n2;

@@ -16,31 +16,39 @@ let show_context text (p1,p2) =
     where : TypesCommon.loc;
     what :   string;
     why : (TypesCommon.loc option * string) option;
-    hint : string option;
+    hint : (TypesCommon.loc option * string) option;
     label : string option;
   } 
   type errors = error list
   type 'a result = ('a, errors) Result.t
 
-  let make ?(why=None) ?(hint="") ?(label="") where what : error = 
-    let option_of_string = function "" -> None | s -> Some s in 
-    let label = option_of_string label 
-    and hint = option_of_string hint in
+  let make ?(why=None) ?(hint=None) ?(label=None) where what : error = 
    {where;what;why;label;hint}
   
-   let print_errors (file:string) (errs:errors) : unit =  
+   let print_errors (errs:errors) : unit =  
+    let print_indication fmt  (where: TypesCommon.loc) what : unit = 
+      let location = MenhirLib.LexerUtil.range where in
+      let f = ((fst where).pos_fname |> open_in |> In_channel.input_all) in
+      let indication = show_context f where in 
+      let start = String.make ((fst where).pos_cnum - (fst where).pos_bol )' ' in
+      let ending = String.make ((snd where).pos_cnum - (fst where).pos_cnum )'^' in
+      Fmt.pf fmt "@[<v>%s@ %s@ %s%s %s@,@]@ @ " location indication start ending what
+    in
     if errs <> [] then
     let s fmt = List.iter (
       fun {where;what;hint;_} ->
         if where = (dummy_pos,dummy_pos) then
-          Logs.debug (fun m -> m "found one error at an unknown location : \n\t %s \n" what)
+          Fmt.pf fmt "@[<v>%s@ @] @ @ " what
         else
-          let location = MenhirLib.LexerUtil.range where in
-          let indication = show_context file where in 
-          let start = String.make ((fst where).pos_cnum - (fst where).pos_bol )' ' in
-          let ending = String.make ((snd where).pos_cnum - (fst where).pos_cnum )'^' in
-          Fmt.pf fmt "@[<v>%s@ %s@ %s%s %s@,@]@ @ " location indication start ending what;
-          Format.pp_print_option  (fun fmt -> Fmt.pf fmt "@[<v>Hint : %s @ @]@ ") fmt hint
+          print_indication fmt where what;
+          match hint with 
+          | Some (where,h) -> 
+            begin
+             match where with
+             | Some loc -> print_indication fmt loc h                
+             | None -> Fmt.pf fmt "@[<v>Hint : %s @ @]@ " h
+            end
+          | None -> ()
       )
      errs in
      Logs.err (fun m -> m "@[<v 5>found %i error(s) :@." (List.length errs) );
@@ -68,12 +76,17 @@ let levenshtein_distance s t =
 module type Logger = sig
   include MonadTransformer
   val catch : 'a t -> (error -> 'a t) -> 'a t
+
+  val get_error : 'a t -> (error -> unit) -> 'a t
   val throw : error -> 'a t
   val log : error -> unit t
   val recover : 'a -> 'a t -> 'a t
   val fail :  'a t -> 'a t
   val log_if : bool -> error -> unit t
   val throw_if : bool -> error -> unit t
+  val throw_if_none : 'a option -> error -> 'a t
+  val get_warnings : 'a t -> (error list -> unit) -> 'a t
+
 
 end
 
@@ -116,6 +129,13 @@ end
   | Ok x ->  (Ok x,l) |> M.pure 
 
 
+  let get_error (x : 'a t) (f:error -> unit) : 'a t = 
+    let* v,l = x in 
+    match v with
+    | Error err -> f err; ((Error err),l) |> M.pure 
+    | Ok x ->  (Ok x,l) |> M.pure 
+  
+
   let log (msg:error) : unit t = (Ok (),[msg]) |> M.pure
 
   let recover (default : 'a)  (x:'a t) : 'a t =
@@ -135,6 +155,13 @@ end
   let log_if b e = if b then log e else pure ()
   let throw_if b e = if b then throw e else pure ()
 
+  let throw_if_none (x:'a option) (e: error) : 'a t = 
+    match x with
+    | None -> throw e
+    | Some r -> (Ok r,[])  |> M.pure
+
+  let get_warnings (x : 'a t) (f : error list -> unit) : 'a t =
+    let+ v,l = x in f l; (v,l) 
 
 end
 

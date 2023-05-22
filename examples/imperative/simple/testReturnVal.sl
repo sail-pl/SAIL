@@ -1,3 +1,4 @@
+import print_utils
 
 method f(x : int) : int{
     return x;

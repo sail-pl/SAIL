@@ -14,4 +14,6 @@ module ESC = struct
   let declare_var l id v = ES.update (fun e -> VE.declare_var e id (l,v)) |> lift
   let find_var id = bind get_env (fun e -> VE.get_var e id |> pure) 
 
+  let throw_if_none opt e = E.throw_if_none opt e |> ES.lift |> lift
+
 end

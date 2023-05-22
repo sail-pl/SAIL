@@ -36,7 +36,7 @@ type expression = loc * expression_ and expression_ =
   | ArrayStatic of expression list
   | StructAlloc of (loc * string) * expression FieldMap.t
   | EnumAlloc of (loc * string) * expression list 
-  | MethodCall of (loc * string) * expression list
+  | MethodCall of (loc * string) option *  (loc * string) * expression list
 
   
   type pattern =
@@ -54,7 +54,7 @@ type statement = loc * statement_ and statement_ =
   | While of expression * statement
   | Break of unit
   | Case of expression * (pattern * statement) list
-  | Invoke of  (loc*string) * expression list
+  | Invoke of  (loc*string) option *  (loc*string) * expression list
   | Return of expression option
   | Run of (loc*string) * expression list
   | Loop of statement
@@ -64,8 +64,9 @@ type statement = loc * statement_ and statement_ =
   | Watching of string * statement
   | Block of statement
 
-
+ 
 type defn =
+  | Type of ty_defn
   | Struct of struct_defn
   | Enum of enum_defn
   | Method of statement method_defn list
@@ -73,21 +74,25 @@ type defn =
   
 
 
-let mk_program name l : statement SailModule.t =
+let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t =
   let open SailModule in
   let rec aux = function
     |  [] -> (DeclEnv.empty,[],[])
     | d::l ->
       let (e,m,p) = aux l in
         match d with
+          | Type t -> 
+            let env = DeclEnv.add_decl e t.name t Type in 
+            (env,m,p)
+
           | Struct d -> 
-            let env = DeclEnv.add_struct e d.s_name 
-            (d.s_pos, {generics=d.s_generics;fields=d.s_fields}) in
+            let env = DeclEnv.add_decl e d.s_name 
+            (d.s_pos, {generics=d.s_generics;fields=d.s_fields}) Struct in
             (env,m,p)
 
           | Enum d -> 
-            let env = DeclEnv.add_enum e d.e_name 
-            (d.e_pos,{generics=d.e_generics;injections=d.e_injections}) in
+            let env = DeclEnv.add_decl e d.e_name 
+            (d.e_pos,{generics=d.e_generics;injections=d.e_injections}) Enum  in
             (env,m,p)
 
           | Method d -> 
@@ -95,12 +100,13 @@ let mk_program name l : statement SailModule.t =
             List.fold_left (fun (e,f) d -> 
               let env = 
                 let pos = d.m_proto.pos
+                and true_name = (match d.m_body with Left (sname,_) -> sname | Right _ -> d.m_proto.name)
                 and ret = d.m_proto.rtype 
                 and args = d.m_proto.params 
                 and generics = d.m_proto.generics 
                 and variadic = d.m_proto.variadic in
-                DeclEnv.add_method e d.m_proto.name 
-                (pos,{ret;args;generics;variadic}) in
+                DeclEnv.add_decl e d.m_proto.name
+                (pos,true_name,{ret;args;generics;variadic}) Method in
                 (env,d::f)
               ) (e,m) d in (env,funs,p)
           | Process d ->
@@ -110,11 +116,11 @@ let mk_program name l : statement SailModule.t =
               and args = fst d.p_interface
               and generics = d.p_generics
               and variadic = false in
-              DeclEnv.add_process e d.p_name 
-              (pos,{ret;args;generics;variadic})
+              DeclEnv.add_decl e d.p_name
+              (pos,{ret;args;generics;variadic}) Process
             in (env,m,d::p)
   in 
   let (declEnv,methods,processes) = aux l in 
   let builtins = Builtins.get_builtins () in
-  {name;declEnv;methods;processes;builtins}
+  {md; imports; declEnv ; methods;processes;builtins}
 

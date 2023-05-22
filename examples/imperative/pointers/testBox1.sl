@@ -1,3 +1,4 @@
+import print_utils
 struct s {
     x : int
 }

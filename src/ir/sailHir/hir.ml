@@ -4,13 +4,13 @@ open TypesCommon
 open Monad
 open AstHir
 
-type expression = loc AstHir.expression
-type statement = (loc,expression) AstHir.statement
+type expression = (loc,(loc * string) option) AstHir.expression
+type statement = (loc,(loc * string) option,expression) AstHir.statement
 
 open HirMonad.Make( struct
   type t = statement
-  let mempty = {info=dummy_pos; stmt=Skip}
-  let mconcat = fun x y -> {info=dummy_pos; stmt=Seq (x,y)}
+  let mempty : t = {info=dummy_pos; stmt=Skip}
+  let mconcat : t -> t -> t = fun x y -> {info=dummy_pos; stmt=Seq (x,y)}
   end)
 
 module Pass = Pass.MakeFunctionPass (V)(
@@ -20,16 +20,15 @@ struct
   type in_body = AstParser.statement
   type out_body = statement
       
+  open MonadFunctions(ECSW)
+  open MakeOrderedFunctions(String)
 
   let get_hint id env = 
-    match List.nth_opt (HIREnv.get_closest env id) 0 with
-    | None ->  ""
-    | Some id ->  Printf.sprintf "Did you mean %s ?" id
+    MonadOption.M.bind (List.nth_opt (HIREnv.get_closest env id) 0) (fun id -> Some (None,Printf.sprintf "Did you mean %s ?" id))
+
 
   let lower_expression (e : AstParser.expression) : expression ECSW.t = 
     let open MonadSyntax(ECSW) in
-    let open MonadFunctions(ECSW) in 
-
     let rec aux (info,e : AstParser.expression) : expression ECSW.t  = 
     match e with 
       | Variable id -> return {info; exp=Variable id}
@@ -56,28 +55,12 @@ struct
         let+ m = mapMapM aux m in {info; exp=StructAlloc (id, m)}
       | EnumAlloc (id, el) ->
         let+ el = listMapM aux el in  {info;exp=EnumAlloc (id, el)}
-      | MethodCall ((l_id,id), el) ->
-          let* m = ECSW.get_method id in 
-          match m with
-          | Some (_proto_loc,proto) -> 
-            begin
-            match proto.ret with 
-            | Some rtype -> 
-              let* n = ECSW.fresh in 
-              let x = "__f" ^ string_of_int n in
-              let* el = listMapM aux el in
-              let* () =  {info; stmt=DeclVar (false, x, Some rtype, None)} |> ECSW.write in
-              let+ () = {info; stmt=Invoke(Some x, (l_id,id), el)} |> ECSW.write in
-              {info;exp=Variable x}
-                
-            | None -> ECSW.throw (Error.make info "methods in expressions should return a value")
-            end
-          | _ -> let* env = ECSW.get_env in let hint = get_hint id env in ECSW.throw (Error.make l_id "unknown method" ~hint)
+      | MethodCall (mod_loc, id, el) ->
+        let+ el = listMapM aux el in {info ; exp=MethodCall(id, mod_loc, el)}
       in aux e
 
-  let lower_function (c:in_body Pass.function_type) (env:HIREnv.t) : out_body E.t = 
+  let lower_function (c:in_body Pass.function_type) (env:HIREnv.t) _ : out_body E.t = 
     let open MonadSyntax(ECS) in
-    let open MonadFunctions(ECSW) in 
     let open MonadOperator(ECS) in 
     
   let rec aux (info,s : in_body) : out_body ECS.t = 
@@ -121,12 +104,9 @@ struct
     | Case (e, _cases) ->  let+ e,s = lower_expression e in
         buildSeqStmt s (Case (e, []))
 
-    | Invoke ((l_id,id) as lid, el) ->
-        let* m = ECS.get_method id and* env = ECS.get in
-        let* () = ECS.log_if (Option.is_none m) (let hint = get_hint id env in (Error.make l_id "unknown method" ~hint))
-        in
+    | Invoke (mod_loc, lid, el) ->
         let+ el,s = listMapM lower_expression el in
-        buildSeqStmt s (Invoke(None, lid,el))
+        buildSeqStmt s (Invoke(None, mod_loc, lid,el))
 
     | Return e -> 
         begin match e with 
@@ -138,8 +118,8 @@ struct
     
     | Run (l_id,id as lid, el) -> 
       let* () = ECS.log_if (id = c.name) (Error.make l_id "a process cannot call itself (yet)") in 
-      let* m = ECS.get_process id and* env = ECS.get in
-      let* () = ECS.log_if (Option.is_none m) (let hint = get_hint id env in (Error.make l_id "unknown process" ~hint)) in
+      let* m = ECS.get_decl id (Self Process) and* env = ECS.get in
+      let* () = ECS.log_if (m = None) (let hint = get_hint id env in (Error.make l_id "unknown process" ~hint)) in
       let* () =  ECS.log_if (c.bt = BMethod) (Error.make l_id "this is a process but methods cannot call processes") in
       let+ el,s = listMapM lower_expression el in 
       buildSeqStmt s (Run(lid, el))

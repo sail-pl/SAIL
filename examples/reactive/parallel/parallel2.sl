@@ -1,3 +1,4 @@
+import print_utils
 process Main(){
 
     print_string("A\n");
