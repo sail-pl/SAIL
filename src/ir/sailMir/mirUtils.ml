@@ -173,13 +173,19 @@ let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t =
               |> BlockMap.union disjoint goto.blocks
   }
 
-let buildInvoke (l : loc) (id : loc * string) (target : string option) (el : expression list) : cfg ESC.t =
+let buildInvoke (l : loc) (origin:import) (id : loc * string) (target : string option) (el : expression list) : cfg ESC.t =
   let* env = match target with 
   | None -> ESC.get_env 
   | Some tid -> let* () = ESC.update_var l tid assign_var in ESC.get_env 
   in 
   let+ invokeLbl = ESC.fresh and* returnLbl = ESC.fresh in 
-  let invokeBlock = {assignments = []; predecessors = LabelSet.empty ; env; location=l; terminator = Some (Invoke {id = (snd id); target; params = el; next = returnLbl})} in
+  let invokeBlock = 
+  {
+      assignments = []; 
+      predecessors = LabelSet.empty ; env; 
+      location=l; 
+      terminator = Some (Invoke {id = (snd id); origin; target; params = el; next = returnLbl})
+  } in
   let returnBlock = {assignments = []; predecessors = LabelSet.singleton invokeLbl ; env; location = dummy_pos; terminator = None} in 
   {
     input = invokeLbl;
@@ -225,12 +231,14 @@ let seqOfList (l : statement list) : statement =
 let reverse_traversal (lbl:int) (blocks : basicBlock BlockMap.t) :  basicBlock BlockMap.t = 
   let rec aux lbl blocks = 
     let blocks' = BlockMap.remove lbl blocks in
-    if blocks' != blocks then
-      Logs.debug (fun m -> m "reverse bb %i" lbl);
-      match BlockMap.find_opt lbl blocks with
-      | None -> blocks'
-      | Some bb -> 
-          LabelSet.fold (fun lbl b -> aux lbl b) bb.predecessors blocks' 
+    
+    (* if blocks' != blocks then
+      Logs.debug (fun m -> m "reverse bb %i" lbl); *)
+
+    match BlockMap.find_opt lbl blocks with
+    | None -> blocks'
+    | Some bb -> 
+        LabelSet.fold (fun lbl b -> aux lbl b) bb.predecessors blocks' 
     in
     aux lbl blocks
     
@@ -240,22 +248,26 @@ let cfg_returns ({input;blocks;_} : cfg) : (loc option * basicBlock BlockMap.t) 
   let open MonadSyntax(E) in 
   let rec aux lbl blocks = 
     let blocks' = BlockMap.remove lbl blocks in
+
+    (* 
     if blocks' != blocks then
       Logs.debug (fun m -> m "checking bb %i" lbl);
-      match BlockMap.find_opt lbl blocks with
-      | None -> (None, blocks') |> E.pure
-      | Some bb -> 
-        begin
-        match bb.terminator with
-        | None -> (Some bb.location, blocks') |> E.pure
-        | Some Break -> let* () = E.log @@ Error.make bb.location "there should be no break at this point" in aux input blocks'
-        | Some Return _ -> (None, blocks') |> E.pure
-        | Some (Invoke {next;_}) -> aux next blocks'
-        | Some (Goto lbl) -> aux lbl blocks'
-        | Some (SwitchInt (_,cases,default)) -> 
+    *) 
+    
+    match BlockMap.find_opt lbl blocks with
+    | None -> (None, blocks') |> E.pure
+    | Some bb -> 
+      begin
+      match bb.terminator with
+      | None -> (Some bb.location, blocks') |> E.pure
+      | Some Break -> let* () = E.log @@ Error.make bb.location "there should be no break at this point" in aux input blocks'
+      | Some Return _ -> (None, blocks') |> E.pure
+      | Some (Invoke {next;_}) -> aux next blocks'
+      | Some (Goto lbl) -> aux lbl blocks'
+      | Some (SwitchInt (_,cases,default)) -> 
 
-          let* x = aux default blocks' in 
-          foldLeftM (fun (_,b) (_,lbl) -> aux lbl b) x cases
-      end
+        let* x = aux default blocks' in 
+        foldLeftM (fun (_,b) (_,lbl) -> aux lbl b) x cases
+    end
   in
 aux input blocks

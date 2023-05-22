@@ -1,12 +1,13 @@
 extern "c" {
-	method printf(s : string ...)
+	method printf(s : string ...) : int
 }
+
 
 method print_int(v : int)  {
-	printf("%i", v)
+	printf("%i", v);
 }
 
-method print_string(v : string)  {
+method print_string(v : string) {
         printf("%s", v)
 }
 

@@ -51,4 +51,6 @@ module T (M: Monad )   : MonadTransformer
 end
 
 
+let list_of_option = function Some x -> [x] | None -> []
+
 module M = T(MonadIdentity)

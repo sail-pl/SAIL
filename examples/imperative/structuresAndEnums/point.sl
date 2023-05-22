@@ -1,3 +1,4 @@
+import print_utils
 enum color {
     Red,
     Black

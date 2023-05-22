@@ -1,3 +1,4 @@
+import print_utils
 process Main(){
     var x : int = 0;
     var z : int;

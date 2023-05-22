@@ -59,6 +59,7 @@ rule read_token = parse
   | "float" { TYPE_FLOAT }
   | "char" { TYPE_CHAR}
   | "string" { TYPE_STRING}
+  | "type" {TYPE}
   | "(" { LPAREN }
   | ")" { RPAREN }
   | "{" { LBRACE }
@@ -67,9 +68,11 @@ rule read_token = parse
   | "]" { RSQBRACE}
   | "<" { LANGLE }
   | ">" { RANGLE }
+  (* | "->" { ARROW } *)
   | "," { COMMA }
   | "." { DOT }
   | ":" { COLON }
+  | "::" { DCOLON }
   | ";" { SEMICOLON }
   | "=" { ASSIGN }
   | "+" { PLUS }
@@ -94,6 +97,7 @@ rule read_token = parse
   | "process" { PROCESS }
   | "method" { METHOD }
   | "extern" { EXTERN }
+  | "import" { IMPORT }
   | "..." { VARARGS }
   | "true" { TRUE }
   | "false" { FALSE }
@@ -108,6 +112,7 @@ rule read_token = parse
   | "watching" { WATCHING }
   | "mut" {MUT}
   | "array" {ARRAY}
+  | "self" {SELF}
   | uid { UID (Lexing.lexeme lexbuf) }
   | whitespace { read_token lexbuf }
   | "//" { read_single_line_comment lexbuf }

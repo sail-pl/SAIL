@@ -21,6 +21,7 @@
 (**************************************************************************)
 
 module FieldMap = Map.Make (String)
+module FieldSet = Set.Make (String)
 
 type loc = Lexing.position * Lexing.position
 let dummy_pos : loc = Lexing.dummy_pos,Lexing.dummy_pos
@@ -34,7 +35,7 @@ type sailtype =
   | Char 
   | String
   | ArrayType of sailtype * int
-  | CompoundType of string * sailtype list
+  | CompoundType of string option * (loc * string) * sailtype list
   | Box of sailtype
   | RefType of sailtype * bool
   | GenericType of string
@@ -63,7 +64,7 @@ let rec string_of_sailtype (t : sailtype option) : string =
   | Some Char -> "char"
   | Some String -> "string"
   | Some ArrayType (t,s) -> sprintf "array<%s;%d>" (string_of_sailtype (Some t)) s
-  | Some CompoundType (x, _tl) -> sprintf "%s<todo>" x
+  | Some CompoundType (_, (_,x), _ ) -> sprintf "%s<todo>" x
   | Some Box(t) -> sprintf "ref<%s>" (string_of_sailtype (Some t))
   | Some RefType (t,b) -> 
       if b then sprintf "&mut %s" (string_of_sailtype (Some t))
@@ -75,6 +76,7 @@ type unOp = Neg | Not
 
 type binOp = Plus | Mul | Div | Minus | Rem
            | Lt | Le | Gt | Ge | Eq | NEq | And | Or
+
 
 
 type param = {
@@ -122,8 +124,15 @@ type method_sig =
 type 'a method_defn =  
 {
   m_proto : method_sig;
-  m_body : (string option,'a) Either.t
+  m_body : (string * string option,'a) Either.t
 }
+
+type ty_defn = {
+      name: string;
+      ty: sailtype option;
+      loc : loc;
+}
+
 type enum_proto = 
 {
   generics : string list;
@@ -142,4 +151,21 @@ type function_proto =
   args : param list;
   generics : string list;
   variadic : bool;
+}
+
+type import =
+{
+  loc : loc;
+  mname : string;
+  dir : string;
+}
+
+
+module ImportCmp = struct type t = import let compare i1 i2 = String.compare i1.mname i2.mname end
+module ImportSet = Set.Make(ImportCmp)
+
+type metadata = {
+  name : String.t;
+  hash : Digest.t;
+  libs : FieldSet.t;
 }

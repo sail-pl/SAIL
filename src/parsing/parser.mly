@@ -26,6 +26,7 @@
     open AstParser
 %}
 %token TYPE_BOOL TYPE_INT TYPE_FLOAT TYPE_CHAR TYPE_STRING
+%token TYPE
 %token <int> INT
 %token <float> FLOAT
 %token <string> ID
@@ -33,9 +34,10 @@
 %token <string> STRING
 %token <char> CHAR
 
-%token LPAREN "(" RPAREN ")" LBRACE "{" RBRACE "}" LSQBRACE "[" RSQBRACE "]" LANGLE "<" RANGLE ">"
-%token COMMA "," COLON ":" SEMICOLON ";" DOT "."
+%token LPAREN "(" RPAREN ")" LBRACE "{" RBRACE "}" LSQBRACE "[" RSQBRACE "]" LANGLE "<" RANGLE ">" (* ARROW "->" *)
+%token COMMA "," COLON ":" DCOLON "::" SEMICOLON ";" DOT "."
 %token ASSIGN "="
+%token IMPORT
 %token EXTERN
 %token VARARGS
 %token METHOD PROCESS STRUCT ENUM 
@@ -50,6 +52,7 @@
 %token REF "&"
 %token MUT
 %token ARRAY
+%token SELF
 %token EOF
 
 %left AND OR
@@ -63,7 +66,7 @@
 
 %nonassoc ELSE
 
-%start <string -> statement SailModule.t> sailModule
+%start <metadata -> statement SailModule.t> sailModule
 
 %type <expression> expression 
 %type <sailtype> sailtype
@@ -74,31 +77,43 @@
 %% 
 
 
-let sailModule := l = defn* ; EOF ; {fun x -> mk_program x l}
+let sailModule := i = import* ; l = defn* ; EOF ; {fun metadata -> mk_program metadata (ImportSet.of_list i) l}
 
 let brace_del_sep_list(sep,x) == delimited("{", separated_list(sep, x), "}") 
 
+let import := IMPORT ; mname = ID ; {{loc=$loc;mname;dir=""}}
+
 let defn :=
+| TYPE ; name = ID ; ty = preceded("=",sailtype)? ; { Type {name; loc = $loc; ty} }
+
 | STRUCT ; name = ID ; g = generic ;  f = brace_del_sep_list(",", id_colon(sailtype)) ;
     {Struct {s_pos=$loc;s_name = name; s_generics = g; s_fields = f}}
+
 | ENUM ; name = ID ; g = generic ; fields = brace_del_sep_list(",", enum_elt) ;
     {Enum {e_pos=$loc;e_name=name; e_generics=g; e_injections=fields}}
-| proto = fun_sig ; body = block ; 
-    {Method [{m_proto=proto; m_body = Either.right body}]}
+
+| METHOD ; name=ID ; generics=generic ; LPAREN ; params=separated_list(COMMA, mutable_var(sailtype)) ; RPAREN ; rtype=returnType ; body = block ; 
+    {Method [{m_proto={pos=$loc;name; generics; params; variadic=false; rtype=rtype }; m_body = Either.right body}]}
+
 | PROCESS ; name = UID ; generics=generic ; interface=delimited("(",interface,")") ; body =block ;
     {Process ({p_pos=$loc;p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
-| EXTERN ; lib=STRING? ; protos = brace_del_sep_list(";", fun_sig) ;
-    {let protos = List.map (fun p -> {m_proto=p; m_body= Either.left lib}) protos in Method protos}
+
+| EXTERN ; lib=STRING? ; protos =  delimited("{", separated_list(";", extern_sig), "}") ;
+    {let protos = List.map (fun (sid,p) -> {m_proto=p; m_body= Either.left (sid,lib)}) protos in Method protos}
 
 
-fun_sig : METHOD name=ID generics=generic LPAREN params=separated_list(COMMA, mutable_var(sailtype)) variadic=is_variadic RPAREN rtype=returnType 
-        { {pos=$loc;name; generics; params; variadic; rtype=rtype } }
+extern_sig : METHOD ; name=ID ; LPAREN ;  params=separated_list(COMMA, mutable_var(sailtype)) ; variadic=is_variadic ; RPAREN ; rtype=returnType ; ext_name=STRING?
+        { (match ext_name with Some n -> n | None -> name),{pos=$loc; name; generics=[]; params; variadic; rtype=rtype} }
 
 
 
 is_variadic:
 | {false}
 | VARARGS {true}
+
+let module_loc :=  
+ | ~ = located(ID); DCOLON ; <>
+ | x = located(SELF) ; DCOLON; { (fst x),"_self"}
 
 let enum_elt :=
 | id = UID ; {(id, [])}
@@ -145,7 +160,8 @@ let expression :=
         }
     | id = located(UID) ; {EnumAlloc(id, [])}
     | ~ = located(UID) ; ~ = delimited ("(", separated_list(",", expression), ")") ; <EnumAlloc>
-    | ~ = located(ID) ; ~ = delimited ("(", separated_list (",", expression), ")") ; <MethodCall>
+    | m = module_loc ; id = located(ID) ; args = delimited ("(", separated_list (",", expression), ")") ; {MethodCall(Some m, id, args)}
+    | id = located(ID) ; args = delimited ("(", separated_list (",", expression), ")") ; {MethodCall(None, id, args)}
 )
 
 
@@ -199,7 +215,8 @@ let single_statement :=
     | IF ; e = parenthesized_exp ; s1 = single_statement ; ELSE ; s2 = single_statement ; {If(e, s1, Some s2)}
     | WHILE ; ~ = parenthesized_exp ; ~ = single_statement ; <While>
     | CASE ; ~ = parenthesized_exp ; ~ = brace_del_sep_list(",", case) ; <Case>
-    | ~ = located(ID) ; ~ = delimited("(", separated_list(",", expression), ")") ; <Invoke>
+    | m = module_loc ; l = located(ID) ; args = delimited("(", separated_list(",", expression), ")") ; {Invoke ((Some m), l, args)}
+    | l = located(ID) ; args = delimited("(", separated_list(",", expression), ")") ; {Invoke (None, l, args)}
     | RETURN ; ~ = expression? ; <Return>
     | ~ = located(UID) ; ~ = delimited("(", separated_list(",", expression ), ")") ; <Run>
     | EMIT ; ~ = ID ; <Emit>
@@ -252,7 +269,8 @@ let sailtype :=
 | TYPE_CHAR ; {Char}
 | TYPE_STRING ; {String}
 | ARRAY ; "<" ; ~ = sailtype ; ";" ; ~ = INT ; ">" ; <ArrayType>
-| ~ = ID ; ~ = instance ; <CompoundType>
+| mloc =  module_loc ; id = located(ID) ; i = instance ; {CompoundType (Some (snd mloc), id, i)}
+| id = located(ID) ; i = instance ; {CompoundType(None, id, i)}
 | ~ = UID ; <GenericType>
 | REF ; b = mut ; t = sailtype ; {RefType(t,b)}
 

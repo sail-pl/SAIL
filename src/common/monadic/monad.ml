@@ -61,6 +61,7 @@ module MonadOperator (M : Monad) = struct
   let (<*>) = M.apply
   let (>>=) = M.bind
   let (>>|) x f = x >>= fun x -> f x |> M.pure
+  let (>>) x y = x >>= fun _ -> y
 end
 
 module MonadSyntax (M : Monad ) = struct 
@@ -81,38 +82,65 @@ end
 
 
 module MonadFunctions (M : Monad) = struct 
-  module FieldMap =  Map.Make(String)
-  let mapMapM (f : 'a -> 'b M.t) (m : 'a FieldMap.t) : ('b FieldMap.t) M.t = 
-  let open MonadSyntax (M) in
-  let rec aux (l : (string * 'a) Seq.t) : (string * 'b) Seq.t M.t =
-    match l () with
-    | Seq.Nil -> return (fun () -> Seq.Nil)
-    | Seq.Cons ((x, a), v) ->
-        let* u = f a in 
-        let* l' = aux v in
-        return (fun () -> Seq.Cons ((x,u),l' ))
-  in  
-  let* l' = aux (FieldMap.to_seq m) in 
-  return (FieldMap.of_seq l')
 
 
-  let mapIterM (f : FieldMap.key -> 'a -> unit M.t) (m : 'a FieldMap.t) : unit M.t = 
+  module MakeOrderedFunctions(Order : sig type t val compare : t -> t -> int end ) = struct
+    module MMap = Map.Make(Order)
+    module MSet = Set.Make(Order)
+
+    let mapMapM (f : 'a -> 'b M.t) (m : 'a MMap.t) : ('b MMap.t) M.t = 
     let open MonadSyntax (M) in
-    let rec aux (l : (string * 'a) Seq.t) : unit M.t =
+    let rec aux (l : (MMap.key * 'a) Seq.t) : (MMap.key * 'b) Seq.t M.t =
       match l () with
-      | Seq.Nil -> return ()
-      | Seq.Cons ((k, a), v) ->
-          let* () = f k a in 
-          aux v
+      | Seq.Nil -> return (fun () -> Seq.Nil)
+      | Seq.Cons ((x, a), v) ->
+          let* u = f a in 
+          let+ l' = aux v in
+          fun () -> Seq.Cons ((x,u),l' )
     in  
-    aux (FieldMap.to_seq m) 
-  
+    let* l' = aux (MMap.to_seq m) in 
+    return (MMap.of_seq l')
+
+
+    let mapIterM (f : MMap.key -> 'a -> unit M.t) (m : 'a MMap.t) : unit M.t = 
+      let open MonadSyntax (M) in
+      let rec aux (l : (MMap.key * 'a) Seq.t) : unit M.t =
+        match l () with
+        | Seq.Nil -> return ()
+        | Seq.Cons ((k, a), v) ->
+            let* () = f k a in 
+            aux v
+      in  
+      aux (MMap.to_seq m) 
+
+
+      (* limitation : output Set must be of the same as the input one *)
+      let setMapM (f : Order.t -> Order.t M.t) (m : MSet.t) : MSet.t M.t = 
+        let open MonadSyntax (M) in
+        let rec aux (l : MSet.elt Seq.t) : MSet.elt Seq.t M.t =
+          match l () with
+          | Seq.Nil -> return (fun () -> Seq.Nil)
+          | Seq.Cons (a, v) ->
+              let* u = f a in 
+              let+ l' = aux v in
+              fun () -> Seq.Cons (u,l' )
+        in  
+        let* l' = aux (MSet.to_seq m) in 
+        return (MSet.of_seq l')
+  end
+
   let rec listMapM (f : 'a -> 'b M.t) (l : 'a list) : ('b list) M.t = 
-    let open M in
-    let open MonadOperator(M) in
+    let open MonadSyntax (M) in
     match l with 
-      | [] -> pure []
-      | h::t -> (f h) >>= (fun h -> listMapM f t >>= fun t -> pure (h::t))  
+      | [] -> return []
+      | h::t -> let+ u = (f h) and* t = listMapM f t in u::t
+      
+      
+  let rec listIterM (f : 'a -> unit M.t)  (l : 'a list) : unit M.t = 
+      let open MonadSyntax (M) in
+      match l with 
+      | [] -> return ()
+      | h::t -> let* () = (f h) in listIterM f t
 
   let rec foldLeftM (f : 'a -> 'b -> 'a M.t) (x : 'a) (l : 'b list) : 'a M.t = 
     let open M in
@@ -120,6 +148,16 @@ module MonadFunctions (M : Monad) = struct
     match l with 
       | [] -> pure x 
       | h :: t -> foldLeftM f x t >>=  (Fun.flip f) h      
+
+      
+  let foldLeftMapM (f : 'a -> 'b -> ('a * 'c) M.t) (accu : 'a) (l : 'b list) : ('a * 'c list) M.t = 
+    let open MonadSyntax (M) in
+    let rec aux accu l_accu = function
+    | [] -> return (accu, List.rev l_accu)
+    | x :: l ->
+        let* accu, x = f accu x in
+        aux accu (x :: l_accu) l in
+    aux accu [] l
 
   
   let rec foldRightM (f : 'a -> 'b -> 'b M.t) (l : 'a list) (x : 'b) : 'b M.t = 
@@ -137,14 +175,12 @@ module MonadFunctions (M : Monad) = struct
       let* h = h and* t = sequence t in return (h::t)
 
   let pairMap1 (f : 'a -> 'b M.t) ((x,y) : 'a * 'c) :('b * 'c) M.t =
-    let open M in
-    let open MonadOperator(M) in
-      f x >>= (fun x -> pure (x, y))
+    let open MonadSyntax (M) in
+      let+ x = f x in (x, y)
 
 
   let pairMap2 (f : 'c -> 'b M.t) ((x,y) : 'a * 'c) :('a * 'b) M.t =
-    let open M in
-    let open MonadOperator(M) in
-      f y >>= (fun y -> pure (x, y))
+    let open MonadSyntax (M) in
+      let+ y = f y in x, y
 end
   

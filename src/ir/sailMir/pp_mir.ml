@@ -25,6 +25,7 @@ let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit
     | EnumAlloc (id,el) ->  
       Format.fprintf pf "[%s(%a)]" (snd id)
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
+    | MethodCall _ -> ()
 
 let ppPrintPredecessors (pf : Format.formatter) (preds : LabelSet.t ) : unit = 
   if LabelSet.is_empty preds then fprintf pf "// no precedessors"
@@ -40,7 +41,7 @@ let ppPrintAssignement (pf : Format.formatter) (a : assignment) : unit =
 let ppPrintTerminator (pf : Format.formatter) (t : terminator) : unit = 
   match t with 
     | Goto lbl -> fprintf pf "\t\tgoto %d;" lbl 
-    | Invoke {id; params;next;target} -> fprintf pf "\t\t%a%s(%a) -> %d" (Format.pp_print_option  (fun fmt id -> fprintf fmt "%s = " id )) target id (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) params next
+    | Invoke {id; params;next;origin;target} -> fprintf pf "\t\t%a%s(%a) -> %d" (Format.pp_print_option  (fun fmt id -> fprintf fmt "%s = %s::" id origin.mname)) target id (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) params next
     | Return None -> fprintf pf "\t\treturn;"
     | Return (Some e) ->  fprintf pf "\t\treturn %a;" ppPrintExpression e 
     | SwitchInt (e, cases, default) -> 
@@ -119,6 +120,6 @@ let ppPrintProcess (pf : Format.formatter) (p : (declaration list * cfg) Common.
 
 
 let ppPrintModule (pf : Format.formatter) (m : (declaration list * cfg) Common.SailModule.t ) : unit = 
-  fprintf pf "// Sail MIR Representation: %s\n%a \n%a" m.name 
+  fprintf pf "// Sail MIR Representation: %s\n%a \n%a" m.md.name 
   (pp_print_list ppPrintMethod) m.methods
   (pp_print_list ~pp_sep:pp_comma ppPrintProcess) m.processes

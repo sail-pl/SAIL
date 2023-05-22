@@ -1,3 +1,4 @@
+import print_utils
 process Main(){
 
     var cpt : int = 0;

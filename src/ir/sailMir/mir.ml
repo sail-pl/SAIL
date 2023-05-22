@@ -31,7 +31,7 @@ struct
       | ArrayRead (e1, e2) -> let+ e1' = lexpr e1 and* e2' = rexpr e2 in buildExp lt (ArrayRead(e1',e2'))
       | StructRead _ | StructAlloc _ | EnumAlloc _ | Ref _ -> 
         let+ () = ESC.error @@ Error.make (fst lt) "todo" in buildExp lt (Variable(""))
-      | _ -> failwith "problem with thir"
+      | _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
   and rexpr (e : Thir.expression) : expression ESC.t = 
     let lt = e.info in 
     let open IrHir.AstHir in
@@ -46,12 +46,13 @@ struct
       | BinOp (o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in buildExp lt (BinOp(o, e1', e2'))
       | Ref (b, e) -> let+ e' = rexpr e in buildExp lt (Ref(b, e'))
       | ArrayStatic el -> let+ el' = listMapM rexpr el in buildExp lt (ArrayStatic el')
-      | _ -> failwith "problem with thir"
+      | _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
       
       open MonadFunctions(E)
       open MonadSyntax(E)     
 
-      let lower_function decl env : out_body  E.t =
+
+  let lower_function decl env (sm:in_body SailModule.t) : out_body  E.t =
     let _check_function (_,cfg : out_body) : unit E.t = 
       let* ret,unreachable_blocks = cfg_returns cfg in
       if Option.is_some ret && decl.ret <> None then 
@@ -145,10 +146,23 @@ struct
         let+ cfg = singleBlock bb in
         ([],cfg)
         
-      | Invoke (target, id, el) -> 
+      | Invoke (target, ({mname;dir;loc} as ml), (l,id), el) -> 
+        begin
+        let mname,env = 
+          if mname = "_self" || mname = sm.md.name  then  sm.md.name,snd env
+          else
+            let file = (dir ^ mname ^ ".mir") in 
+            Logs.debug (fun m -> m "function %s is from module %s" id file) ;
+            let sm : out_body SailModule.t = In_channel.with_open_bin file Marshal.from_channel in 
+            mname,sm.declEnv
+
+        in
+        let* (_,realname,_) = ESC.throw_if_none (SailModule.DeclEnv.find_decl env id (Self Method))
+                                                (Error.make loc "Compiler Error : function declaration must exist") in
         let* el' = listMapM rexpr el in
-        let+ invoke = buildInvoke loc id target el' in
+        let+ invoke = buildInvoke loc {ml with mname} (l,realname) target el' in
         ([], invoke)
+        end
 
       | Return e ->
         let* e = match e with 
@@ -178,7 +192,7 @@ struct
 
     BlockMap.iter (
       fun l bb -> match bb.terminator with 
-      | Some (Return _) -> Logs.debug (fun m -> m "found leaf at %i" l); reverse_traversal l cfg.blocks |> ignore 
+      | Some (Return _) -> (* Logs.debug (fun m -> m "found leaf at %i" l); *) reverse_traversal l cfg.blocks |> ignore 
       | _ -> ()
     ) cfg.blocks;
     res

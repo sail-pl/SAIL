@@ -1,4 +1,5 @@
-open Common.TypesCommon
+open Common
+open TypesCommon
 
 type expression = IrThir.Thir.expression
 type statement = IrThir.Thir.statement
@@ -11,7 +12,7 @@ module LabelSet = Set.Make(Int)
 
 type terminator = 
 | Goto of label
-| Invoke of {id : string; target: string option; params : expression list; next:label}
+| Invoke of {id : string; origin:import; target: string option; params : expression list; next:label}
 | Return of expression option
 | SwitchInt of expression * (int * label) list * label
 | Break 

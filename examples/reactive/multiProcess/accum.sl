@@ -1,3 +1,4 @@
+import print_utils
 process M(var i : int, o : int; signal s)
 {
 	while (true) {

@@ -1,3 +1,4 @@
+import print_utils
 struct point {
     x : int,
     y : int,

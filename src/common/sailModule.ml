@@ -2,9 +2,10 @@ open TypesCommon
 
 module Declarations = struct
   type process_decl = loc * function_proto
-  type method_decl = loc * function_proto 
+  type method_decl = loc * string * function_proto 
   type struct_decl = loc * struct_proto
   type enum_decl = loc * enum_proto
+  type type_decl = ty_defn
   type builtin_decl = method_sig
 end
 
@@ -14,11 +15,12 @@ module SailEnv = Env.VariableDeclEnv(Declarations)
 
 type 'a t =
 {
-  name : string;
   declEnv: DeclEnv.t;
   methods : 'a method_defn list ;
   processes : 'a process_defn list;
-  builtins : method_sig list ; 
+  builtins : method_sig list ;
+  imports : ImportSet.t;
+  md : metadata;
 }
 
 type moduleSignature = unit t
@@ -32,9 +34,14 @@ let signatureOfModule m =
 
 let emptyModule = 
   {
-    name = String.empty;
     declEnv = DeclEnv.empty;
     methods = [];
     processes = [];
     builtins = [];
+    imports = ImportSet.empty;
+    md = {
+      name = String.empty; 
+      hash = String.empty; 
+      libs = FieldSet.empty
+    };
   }

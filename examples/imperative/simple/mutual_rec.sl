@@ -1,3 +1,4 @@
+import print_utils
 method a(x : int) : int {
  if (x <= 1) {
  	return 1

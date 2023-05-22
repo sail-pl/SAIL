@@ -20,16 +20,15 @@ module Make(MonoidSeq : Monoid.Monoid) = struct
     let log_if b e = E.log_if b e |> EC.lift |> lift 
     let throw_if b e = E.throw_if b e |> EC.lift |> lift 
 
-    let get_method id = bind get (fun e -> HIREnv.get_method e id |> pure) 
-    let get_process id = bind get (fun e -> HIREnv.get_process e id |> pure) 
+    let get_decl id ty = bind get (fun e -> HIREnv.get_decl e id ty |> pure) 
   end
 
   module ECSW = struct
     include MonadWriter.MakeTransformer(ECS)(MonoidSeq)
-    let get_method id = ECS.bind ECS.get (fun e -> HIREnv.get_method e id |> ECS.pure) |> lift
-    let fresh = EC.fresh |> ECS.lift |> lift
-    let throw e = E.throw e |> EC.lift |> ECS.lift |> lift 
-    let log e = E.log e |> EC.lift |> ECS.lift |> lift 
+    let get_decl id ty = ECS.bind ECS.get (fun e -> HIREnv.get_decl e id ty |> ECS.pure) |> lift
+    let fresh = ECS.fresh |> lift
+    let throw e = ECS.throw e |> lift 
+    let log e = ECS.log e |> lift 
     let get_env = ECS.get |> lift
   end
 end

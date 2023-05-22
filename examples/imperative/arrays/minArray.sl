@@ -1,3 +1,4 @@
+import print_utils
 process Main(){
     var mut a : array<int;10> = [6,57,23,2,5,6,7,10,13,5];
     var mut res : int = 0;

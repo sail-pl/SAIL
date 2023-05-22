@@ -1,11 +1,14 @@
-open CompilerCommon
-open CompilerEnv
-open Common.TypesCommon
+open CodegenCommon
+open CodegenEnv
+open Common
+open TypesCommon
 open Llvm
 open IrMir
 
-open Common.Monad.MonadSyntax(E.Logger)
-open Common.Monad.MonadFunctions(E.Logger)
+module E = Error.Logger
+
+open Common.Monad.MonadSyntax(E)
+open Common.Monad.MonadFunctions(E)
 
 let unary (op:unOp) (t,v) : llbuilder -> llvalue = 
   let f = 
@@ -105,21 +108,28 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue =
     build_load array "" llvm.b
     end
   | _ -> failwith "problem with thir"
-and construct_call (name:string) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
-  let args_type,args = List.map (fun arg -> get_type arg,eval_r env llvm arg) args |> List.split
+and construct_call (name:string) (origin:import) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
+  let _args_type,args = List.map (fun arg -> get_type arg,eval_r env llvm arg) args |> List.split
   in
-  let mname = mangle_method_name name args_type in 
+  (* let mname = mangle_method_name name origin.mname args_type in  *)
+  let mname = "_" ^ origin.mname ^ "_" ^ name in 
   let args = Array.of_list args in
-  Logs.info (fun m -> m "constructing call to %s" mname);
-  match SailEnv.get_method env name  with 
-  | None ->  Printf.sprintf "method %s not found" name |> failwith
+  Logs.debug (fun m -> m "constructing call to %s" name);
+  match SailEnv.get_decl env mname (Self Method) with 
+  | None ->   
+    begin
+    match SailEnv.get_decl env name (Self Method) with 
+    | Some (_,m) -> build_call m args "" llvm.b
+    | None ->  Printf.sprintf "implementation of %s not found" name |> failwith
+
+    end
   | Some (_,m) -> build_call m args "" llvm.b
 
   
 open AstMir
   
 let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env :SailEnv.t) : unit = 
-  let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t E.Logger.t=
+  let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t E.t=
     let _ = mut in (* todo manage mutable types *)
     let entry_b = entry_block proto |> instr_begin |> builder_at llvm.c in
     let v =  
@@ -166,7 +176,7 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
           
 
         | Some (Invoke f) ->    
-          let c = construct_call f.id f.params env llvm  in
+          let c = construct_call  f.id f.origin f.params env llvm  in
           begin
             match f.target with
             | Some id -> build_store c (let _,v = SailEnv.get_var env id |> Option.get |> snd in v) llvm.b |> ignore
@@ -234,7 +244,7 @@ let methodToIR (llc:llcontext) (llm:llmodule) ((m,proto):Declarations.method_dec
         let+ new_env = SailEnv.declare_var env (value_name v) (dummy_pos,(m,v)) in 
         new_env
         ),v
-      ) (E.Logger.pure env) args 
+      ) (E.pure env) args 
 
     in Array.iteri (fun i arg -> build_store (param proto i) arg llvm.b |> ignore ) args;
     (let+ new_env in cfgToIR proto b llvm new_env) |> ignore;

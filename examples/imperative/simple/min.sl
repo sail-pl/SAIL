@@ -1,3 +1,4 @@
+import print_utils
 method min(x : int, y : int, z : int) : int {
     if (x < y) 
         if (y < z) return x
