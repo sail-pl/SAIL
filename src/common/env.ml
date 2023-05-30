@@ -52,6 +52,9 @@ end
 
   val set_name : string -> t -> t
   val add_decl : string -> 'd -> 'd decl_ty -> t -> t E.t
+
+  val remove_decl : string -> 'd decl_ty  -> t -> t E.t
+
   val update_decl : string -> 'd -> 'd update_type -> t -> t
   val find_decl : string -> ('a,'b) search_type -> t -> 'b
   val add_import_decls : (import * t) -> t -> t
@@ -178,6 +181,12 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
     E.throw_if (Error.make dummy_pos @@ Fmt.str "duplicate declarations for '%s'" id) (FieldMap.mem id (get_decls  ty env.self))
     >>= fun () -> return {env with self=update_decls (FieldMap.add id decl) ty env.self}
 
+  let remove_decl id (ty:'a decl_ty) t = 
+    let new_env = update_decls (FieldMap.remove id) ty t.self in
+    let+ () = E.throw_if 
+      (Error.make dummy_pos @@ Fmt.str "attempting to remove unknown declaration '%s'" id) 
+      (new_env <> t.self)
+    in {t with self=new_env}
 
   let to_seq = FieldMap.to_seq
   let of_seq = FieldMap.of_seq

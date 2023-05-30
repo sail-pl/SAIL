@@ -104,6 +104,7 @@ let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t
             in (env,m,p)
 
           | Method d -> 
+            
             let+ env,funs = 
             ListM.fold_left (fun (e,f) d -> 
               let true_name = (match d.m_body with Left (sname,_) -> sname | Right _ -> d.m_proto.name) in
