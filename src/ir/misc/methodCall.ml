@@ -23,9 +23,9 @@ module ECS = struct
   let log e = E.log e |> EC.lift |> lift
   let log_if b e = E.log_if b e |> EC.lift |> lift
   let throw_if b e = E.throw_if b e |> EC.lift |> lift
-  let run e = let e = EC.run e in E.bind e (fun e -> fst e |> E.pure)
+  let run e = let e = EC.run e in E.bind e (fun (e,(_,s)) ->  E.pure (e,s))
 
-  let get_decl id ty = bind get (fun e -> THIREnv.get_decl e id ty |> pure) 
+  let get_decl id ty = bind get (fun e -> THIREnv.get_decl id ty e |> pure) 
 end
 
 module ECSW = struct
@@ -40,11 +40,11 @@ module ECSW = struct
   let log e = ECS.log e |> lift 
   let get_env = ECS.get |> lift
 
-  let get_decl id ty = ECS.bind ECS.get (fun e -> THIREnv.get_decl e id ty |> ECS.pure) |> lift
+  let get_decl id ty = ECS.bind ECS.get (fun e -> THIREnv.get_decl id ty e |> ECS.pure) |> lift
 end
 
 let get_hint id env = 
-  MonadOption.M.bind (List.nth_opt (THIREnv.get_closest env id) 0) (fun id -> Some (None,Printf.sprintf "Did you mean %s ?" id))
+  MonadOption.M.bind (List.nth_opt (THIREnv.get_closest id env) 0) (fun id -> Some (None,Printf.sprintf "Did you mean %s ?" id))
 
 
 
@@ -63,6 +63,7 @@ module Pass =  Pass.MakeFunctionPass(V)
 
     let lower_expression e : expression ECSW.t = 
       let open MonadSyntax(ECSW) in
+      let open MonadOperator(ECSW) in
       let rec aux (e:expression)  = 
       let loc,_ as info = e.info in 
       match e.exp with 
@@ -85,11 +86,11 @@ module Pass =  Pass.MakeFunctionPass(V)
         | Ref (b, e) ->
           let+ e = aux e in {info;exp=Ref(b, e)}
         | ArrayStatic el -> 
-          let+ el = listMapM aux el in {info;exp=ArrayStatic el}
+          let+ el = ListM.map aux el in {info;exp=ArrayStatic el}
         | StructAlloc (id, m) ->
-          let+ m = mapMapM aux m in {info; exp=StructAlloc (id, m)}
+          let+ m = MapM.map (fun _ -> aux) m in {info; exp=StructAlloc (id, m)}
         | EnumAlloc (id, el) ->
-          let+ el = listMapM aux el in  {info;exp=EnumAlloc (id, el)}
+          let+ el = ListM.map aux el in  {info;exp=EnumAlloc (id, el)}
         | MethodCall ((l_id,id), mod_loc, el) ->
           let* m = ECSW.get_decl id (Specific (mod_loc.mname,Method)) in 
           match m with
@@ -99,18 +100,18 @@ module Pass =  Pass.MakeFunctionPass(V)
             | Some rtype -> 
               let* n = ECSW.fresh in 
               let x = "__f" ^ string_of_int n in
-              let* el = listMapM aux el in
-              let* () =  {info=loc; stmt=DeclVar (false, x, Some rtype, None)} |> ECSW.write in
-              let+ () = {info=loc; stmt=Invoke(Some x,mod_loc, (l_id,id), el)} |> ECSW.write in
-              {info;exp=Variable x}
+              let* el = ListM.map aux el in
+              ECSW.write {info=loc; stmt=DeclVar (false, x, Some rtype, None)} >>
+              ECSW.write {info=loc; stmt=Invoke(Some x,mod_loc, (l_id,id), el)} >>
+              return {info;exp=Variable x}
                 
-            | None -> ECSW.throw (Error.make loc "methods in expressions should return a value")
+            | None -> ECSW.throw (Error.make loc "methods in expressions should return a value (problem with THIR)")
             end
           | _ -> let* env = ECSW.get_env in let hint = get_hint id env in ECSW.throw (Error.make l_id "unknown method" ~hint)
         in aux e
   
 
-    let lower_function (f : in_body function_type) env _ : out_body E.t =
+    let lower_function (f : in_body function_type) env _ : (out_body * THIREnv.D.t) E.t =
       let open MonadSyntax(ECS) in
       let open MonadOperator(ECS) in 
 
@@ -152,7 +153,7 @@ module Pass =  Pass.MakeFunctionPass(V)
             buildSeqStmt s (Case (e, []))
     
         | Invoke (target, origin, lid, el) ->
-            let+ el,s = listMapM lower_expression el in
+            let+ el,s = ListM.map lower_expression el in
             buildSeqStmt s (Invoke(target, origin, lid,el))
     
         | Return e -> 
@@ -164,7 +165,7 @@ module Pass =  Pass.MakeFunctionPass(V)
         | Block c -> let+ c = aux c in buildStmt (Block c)
         
         | Run (lid, el) -> 
-          let+ el,s = listMapM lower_expression el in 
+          let+ el,s = ListM.map lower_expression el in 
           buildSeqStmt s (Run(lid, el))
         | DeclSignal s -> return @@ buildStmt (DeclSignal s)
         | Emit s -> return @@ buildStmt (Emit s)
@@ -174,7 +175,9 @@ module Pass =  Pass.MakeFunctionPass(V)
         | Par (c1, c2) ->  let+ c1 = aux c1 and* c2 = aux c2 in buildStmt (Par(c1,c2))
     
         in
-        ECS.run (aux f.body env) |> E.recover {info=dummy_pos;stmt=Skip}
+        ECS.run (aux f.body env) |> E.recover ({info=dummy_pos;stmt=Skip},snd env)
+
+        let preprocess = Error.Logger.pure
   end
 )
 

@@ -33,15 +33,16 @@ let signatureOfModule m =
 }
 
 let emptyModule = 
-  {
-    declEnv = DeclEnv.empty;
-    methods = [];
-    processes = [];
-    builtins = [];
-    imports = ImportSet.empty;
-    md = {
-      name = String.empty; 
-      hash = String.empty; 
-      libs = FieldSet.empty
-    };
-  }
+{
+  declEnv = DeclEnv.empty;
+  methods = [];
+  processes = [];
+  builtins = [];
+  imports = ImportSet.empty;
+  md = {
+    name = String.empty; 
+    version = String.empty;
+    hash = String.empty; 
+    libs = FieldSet.empty
+  };
+}

@@ -15,20 +15,20 @@ module Pass = Pass.Make( struct
   let read_imports (imports : ImportSet.t) : (string * in_body SailModule.t) list  = 
     List.map (fun i ->  
       Logs.debug (fun m -> m "reading mir for import '%s' (%s)" i.mname i.dir); 
-      i.dir,In_channel.with_open_bin (i.dir ^ i.mname ^ ".mir") Marshal.from_channel
+      i.dir,In_channel.with_open_bin (i.dir ^ i.mname ^ Constants.mir_file_ext) Marshal.from_channel
     ) (ImportSet.elements imports)
 
   let set_fcall_source (m:in_body SailModule.t) : in_body SailModule.t E.Logger.t = 
     let imports = read_imports m.imports in
 
     let+ libs,methods = 
-      foldLeftMapM (fun libs f -> 
+      ListM.fold_left_map (fun libs f -> 
       match f.m_body with
       | Right b -> 
         (libs,{m_proto={f.m_proto with name = "_" ^ m.md.name ^"_" ^ f.m_proto.name}; m_body=Either.Right b}) |> E.Logger.pure
       | Left (realname,lib) -> (* extern method, give it its realname for codegen *)
         let m_proto = {f.m_proto with name=realname} in
-        let libs = match lib with Some l -> FieldSet.add l libs | None -> libs in 
+        let libs = FieldSet.add_seq (List.to_seq lib) libs in
         return (libs,{f with m_proto}) (* add lib required by ffi *)
       ) FieldSet.empty m.methods 
     in

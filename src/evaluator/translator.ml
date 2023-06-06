@@ -22,7 +22,6 @@
 
 open SailParser.AstParser
 open Common
-open Monoid
 open Monad
 open TypesCommon
 
@@ -86,7 +85,7 @@ let removeCalls (p : SailModule.moduleSignature list) (e : expression) : Interme
         let _ = write c in
         return (Intermediate.Path (Intermediate.ArrayRead (p0, e2)))
     | Ast.ArrayStatic (el) -> 
-        let* el = listMapM aux el in 
+        let* el = ListM.map aux el in 
         return (Intermediate.ArrayAlloc el)*)
     | StructRead (e,f) -> 
         let* e = aux e in 
@@ -95,11 +94,11 @@ let removeCalls (p : SailModule.moduleSignature list) (e : expression) : Interme
           return (Intermediate.Path (Intermediate.StructField(p0,f)))
     | StructAlloc ((_,x), fel) -> 
         let l = FieldMap.fold (fun x a y -> (x,a)::y) fel [] in    
-        let* l = listMapM (pairMap2 aux) l in
+        let* l = ListM.map (pairMap2 aux) l in
         let m = List.fold_left (fun x (y,e) -> FieldMap.add y e x) FieldMap.empty l in
         return (Intermediate.StructAlloc(x,m)) 
     | EnumAlloc ((_,x),el) ->
-        let* el = listMapM aux el in 
+        let* el = ListM.map aux el in 
           return (Intermediate.EnumAlloc(x, el))
     | MethodCall (_, (_,id),  el) ->
       if (id = "box") then
@@ -108,7 +107,7 @@ let removeCalls (p : SailModule.moduleSignature list) (e : expression) : Interme
           | _ -> raise (NotSupportedInCoreSail "overloading box")
       else
       let x = freshVar () in
-      let* el = listMapM aux el in 
+      let* el = ListM.map aux el in 
       match fetch_rtype p id with 
       Some t ->       let* _ = write [
         Intermediate.DeclVar (true, x, t, None);
@@ -210,7 +209,7 @@ let method_translator (prg :  SailModule.moduleSignature list) (m : statement me
       None -> m.m_proto.params
     | Some t -> m.m_proto.params@[{id=resvar; mut=false; ty=RefType(t,true); loc=dummy_pos}]
   in
-  let open MonadSyntax(MonadEither.Make((struct type t = string * string option end))) in
+  let open MonadSyntax(MonadEither.Make((struct type t = string * string list end))) in
   {
     m_proto = {m.m_proto with params};
     m_body = let+ b = m.m_body in translate prg b

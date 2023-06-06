@@ -45,14 +45,14 @@ struct
       | UnOp (o, e) -> let+ e' = rexpr e in buildExp lt (UnOp (o, e'))
       | BinOp (o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in buildExp lt (BinOp(o, e1', e2'))
       | Ref (b, e) -> let+ e' = rexpr e in buildExp lt (Ref(b, e'))
-      | ArrayStatic el -> let+ el' = listMapM rexpr el in buildExp lt (ArrayStatic el')
+      | ArrayStatic el -> let+ el' = ListM.map rexpr el in buildExp lt (ArrayStatic el')
       | _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
       
       open MonadFunctions(E)
       open MonadSyntax(E)     
 
 
-  let lower_function decl env (sm:in_body SailModule.t) : out_body  E.t =
+  let lower_function decl env (_sm:in_body SailModule.t) : (out_body * SailModule.DeclEnv.t) E.t =
     let _check_function (_,cfg : out_body) : unit E.t = 
       let* ret,unreachable_blocks = cfg_returns cfg in
       if Option.is_some ret && decl.ret <> None then 
@@ -101,13 +101,13 @@ struct
           let+ curr_lbl = ESC.get in
           get_scoped_var name (curr_lbl + 1)
         in
-        let* () = ESC.declare_var loc id {ty;mut;name} in
+        ESC.declare_var loc id {ty;mut;name} >>
         let target = IrHir.AstHir.buildExp (loc,ty) (Variable id) in
         let+ bn = assignBasicBlock loc {location=loc; target; expression }  in
         [{location=loc; mut; id=id; varType=ty}],bn
         (* ++ other statements *)
 
-      | DeclVar _ -> failwith "hir broken : variable declaration should have a type"
+      | DeclVar (_,name,None,_) -> failwith @@ "thir broken : variable declaration should have a type : " ^name
 
       | Skip -> let+ bb = emptyBasicBlock loc in ([],  bb)
 
@@ -146,23 +146,13 @@ struct
         let+ cfg = singleBlock bb in
         ([],cfg)
         
-      | Invoke (target, ({mname;dir;loc} as ml), (l,id), el) -> 
-        begin
-        let mname,env = 
-          if mname = "_self" || mname = sm.md.name  then  sm.md.name,snd env
-          else
-            let file = (dir ^ mname ^ ".mir") in 
-            Logs.debug (fun m -> m "function %s is from module %s" id file) ;
-            let sm : out_body SailModule.t = In_channel.with_open_bin file Marshal.from_channel in 
-            mname,sm.declEnv
-
+      | Invoke (target, ({mname;_} as ml), (l,id), el) -> 
+        let* (_,realname,_) = ESC.throw_if_none (SailModule.DeclEnv.find_decl id (Specific (mname,Method)) (snd env))
+                                                (Error.make loc @@ Fmt.str "Compiler Error : function '%s' must exist" id) 
         in
-        let* (_,realname,_) = ESC.throw_if_none (SailModule.DeclEnv.find_decl env id (Self Method))
-                                                (Error.make loc "Compiler Error : function declaration must exist") in
-        let* el' = listMapM rexpr el in
+        let* el' = ListM.map rexpr el in
         let+ invoke = buildInvoke loc {ml with mname} (l,realname) target el' in
         ([], invoke)
-        end
 
       | Return e ->
         let* e = match e with 
@@ -172,8 +162,7 @@ struct
         ([], ret)
 
       | Run _ | Emit _ | Await _ | When _  | Watching _ 
-      | Par _  | Case _ | DeclSignal _ -> 
-        let* () = ESC.error @@ Error.make loc "unimplemented" in let+ bb = emptyBasicBlock loc in ([],  bb)
+      | Par _  | Case _ | DeclSignal _ -> ESC.error @@ Error.make loc "unimplemented"
 
       | Block s -> 
         let* env = ESC.get_env in
@@ -195,6 +184,8 @@ struct
       | Some (Return _) -> (* Logs.debug (fun m -> m "found leaf at %i" l); *) reverse_traversal l cfg.blocks |> ignore 
       | _ -> ()
     ) cfg.blocks;
-    res
+    res,(snd env)
+
+    let preprocess = Error.Logger.pure
   end
 )

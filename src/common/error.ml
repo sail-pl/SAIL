@@ -85,6 +85,8 @@ module type Logger = sig
   val log_if : bool -> error -> unit t
   val throw_if : bool -> error -> unit t
   val throw_if_none : 'a option -> error -> 'a t
+  val throw_if_some : 'a option -> ('a -> error) -> unit t
+
   val get_warnings : 'a t -> (error list -> unit) -> 'a t
 
 
@@ -158,7 +160,13 @@ end
   let throw_if_none (x:'a option) (e: error) : 'a t = 
     match x with
     | None -> throw e
-    | Some r -> (Ok r,[])  |> M.pure
+    | Some r -> pure r
+
+  let throw_if_some (x:'a option) (f: 'a -> error) : unit t = 
+    match x with
+    | Some r -> throw (f r)
+    | None -> pure ()
+
 
   let get_warnings (x : 'a t) (f : error list -> unit) : 'a t =
     let+ v,l = x in f l; (v,l) 

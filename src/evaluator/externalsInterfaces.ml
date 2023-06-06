@@ -13,5 +13,5 @@ let exSig = {
   processes = [];
   builtins=[];
   imports=ImportSet.empty;
-  md = {name="_External"; hash= ""; libs=FieldSet.empty}
+  md = {name="_External"; hash= ""; libs=FieldSet.empty; version=Common.Constants.sailor_version}
 }

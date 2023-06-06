@@ -112,58 +112,62 @@ module MakeFunctionPass
     val name : string 
     type in_body 
     type out_body 
-    val lower_function : in_body function_type -> SailModule.SailEnv(V).t -> in_body SailModule.t -> out_body Logger.t 
+    val lower_function : in_body function_type -> SailModule.SailEnv(V).t -> in_body SailModule.t -> (out_body * SailModule.SailEnv(V).D.t) Logger.t 
+    val preprocess : in_body SailModule.t -> in_body SailModule.t Logger.t
     end)  
   : S with type in_body := T.in_body  and type out_body = T.out_body = 
 struct
-let name = T.name
-type out_body = T.out_body
+  let name = T.name
+  type out_body = T.out_body
 
-module VEnv = SailModule.SailEnv(V)
+  module VEnv = SailModule.SailEnv(V)
 
-let lower_method (m:T.in_body method_defn) (sm : T.in_body SailModule.t) : T.out_body method_defn Logger.t = 
-  let start_env = VEnv.get_start_env sm.declEnv m.m_proto.params in
-  match m.m_body with
-  | Right b -> 
+  let lower_method (m:T.in_body method_defn) (sm : T.in_body SailModule.t) : (VEnv.D.t  * T.out_body method_defn) Logger.t = 
+    let start_env = VEnv.get_start_env sm.declEnv m.m_proto.params in
+    match m.m_body with
+    | Right b -> 
+      let decl = {
+        name=m.m_proto.name;
+        body=b;
+        pos=m.m_proto.pos;
+        ret=m.m_proto.rtype;
+        bt=BMethod;
+        generics=m.m_proto.generics
+      } in
+      let* ve = start_env in
+      let+ b,d = T.lower_function decl ve sm in 
+      d,{ m with m_body=Either.right b }
+    | Left x ->  Logger.pure (sm.declEnv,{ m with m_body = Left x})
+
+
+  let lower_process (p: T.in_body process_defn) (sm : T.in_body SailModule.t) : (VEnv.D.t * T.out_body process_defn ) Logger.t  = 
+    let start_env = VEnv.get_start_env sm.declEnv (fst p.p_interface) in
     let decl = {
-      name=m.m_proto.name;
-      body=b;
-      pos=m.m_proto.pos;
-      ret=m.m_proto.rtype;
-      bt=BMethod;
-      generics=m.m_proto.generics
+        name=p.p_name;
+        body=p.p_body;
+        pos=p.p_pos;
+        ret=None;
+        bt=BProcess;
+        generics=p.p_generics
     } in
-    let* e = start_env in
-    let+ b = T.lower_function decl e sm in { m with m_body=Either.right b }
-  | Left x ->  Logger.pure { m with m_body = Left x}
+    let* ve = start_env in
+    let+ p_body,d = T.lower_function decl ve sm in
+    d,{ p with p_body}
 
 
-let lower_process (p: T.in_body process_defn) (sm : T.in_body SailModule.t) : T.out_body process_defn Logger.t  = 
-  let start_env = VEnv.get_start_env sm.declEnv (fst p.p_interface) in
-  let decl = {
-      name=p.p_name;
-      body=p.p_body;
-      pos=p.p_pos;
-      ret=None;
-      bt=BProcess;
-      generics=p.p_generics
-  } in
-  let* e = start_env in
-  let+ p_body = T.lower_function decl e sm in
-  { p with p_body}
 
+  let transform (sm :T.in_body SailModule.t Logger.t)  : T.out_body SailModule.t Logger.t =
+    let* sm = sm >>= T.preprocess in
+    Logs.info (fun m -> m "Lowering module '%s' to '%s'" sm.md.name name);
+    (
+    let* declEnv,methods = ListM.fold_left_map (fun declEnv methd -> lower_method methd {sm with declEnv}) sm.declEnv sm.methods |> Logger.recover (sm.declEnv,[]) in
+    let+ declEnv,processes = ListM.fold_left_map (fun declEnv proccess -> lower_process proccess {sm with declEnv}) declEnv sm.processes |> Logger.recover (sm.declEnv,[]) in
 
-let transform (sm :T.in_body SailModule.t Logger.t)  : T.out_body SailModule.t Logger.t =
-  let* sm in
-  Logs.info (fun m -> m "Lowering module '%s' to '%s'" sm.md.name name);
-  (
-  let+ methods = listMapM (fun methd -> lower_method methd sm) sm.methods |> Logger.recover ([])
-  and* processes = listMapM (Fun.flip lower_process sm) sm.processes |> Logger.recover ([]) in
+    { sm with
+      processes;
+      methods; 
+      declEnv
+    }
 
-  { sm with
-    processes;
-    methods;
-  }
-
-  ) |> Logger.fail
+    ) |> Logger.fail
 end

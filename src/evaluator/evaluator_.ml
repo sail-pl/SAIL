@@ -179,7 +179,7 @@ let eval (env : env) (h : heap) (e : Intermediate.expression) : (value * heap) R
         let* (vs, h') = foldM (fun (x, h0) (str,e) -> aux e h0 >>= fun (v,h') -> return (FieldMap.add str v x, h')) (FieldMap.empty, h) es in
         return (VStruct (id, vs), h')
     | EnumAlloc (c, es) ->
-        let* (l,h) = foldLeftM (fun (x, h0) e -> aux e h0 >>= fun (v, h') -> return (v::x, h') ) ([], h) es in     
+        let* (l,h) = ListM.fold_left (fun (x, h0) e -> aux e h0 >>= fun (v, h') -> return (v::x, h') ) ([], h) es in     
         return (VEnum (c, l), h)
     | Ref (b, p) ->
         let* (a, o) = evalL env h p in
@@ -211,7 +211,7 @@ let rec deepFree (h : heap) (a : Heap.address) : heap Result.t =
 and dropReferencesFromValue (h : heap) (v : value) : heap Result.t =
     let open MonadSyntax (Result) in
     let open MonadFunctions (Result) in
-    foldLeftM deepFree h (ownedLocations v)
+    ListM.fold_left deepFree h (ownedLocations v)
 
 let rec filter ((v, p) : value * pattern) : (string * value) list option =
   let open MonadFunctions (M) in
@@ -219,7 +219,7 @@ let rec filter ((v, p) : value * pattern) : (string * value) list option =
   match (v, p) with
   | _, PVar x -> Some [ (x, v) ]
   | VEnum (x, l), PCons (y, m) when x = y ->
-      listMapM filter (List.combine l m) >>= fun l -> Some (List.concat l)
+      ListM.map filter (List.combine l m) >>= fun l -> Some (List.concat l)
   | _ -> None
 
 let rec freshn (h : heap) n : Heap.address list * heap =
@@ -276,7 +276,7 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
             return (Suspend (Block (c', EvalEnv.Env.merge w w')), EvalEnv.Env.emptyFrame, h')
         | _ -> 
             let l = EvalEnv.Env.allValues (EvalEnv.Env.merge w w') in
-            let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h' l in 
+            let* cleanHeap = ListM.fold_left (fun h a -> deepFree h a) h' l in 
             return (k, EvalEnv.Env.emptyFrame, cleanHeap)
         )
     | If (e, c1, c2) -> 
@@ -304,12 +304,12 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
             in
             let w = List.fold_left EvalEnv.Env.merge EvalEnv.Env.emptyFrame varmap in
             let locmap = List.combine l vals in
-            let* h'' = foldLeftM setLocation h' locmap in
+            let* h'' = ListM.fold_left setLocation h' locmap in
             aux (Block (c, w)) env h''
         | None -> aux (Case (e, pl)) env h)
     | Invoke (x, el) -> (
         let* (real_params,h0) = 
-        foldLeftM (fun (vl,h0) e -> let* (v,h1) = eval env h0 e in return (v::vl, h1)) ([], h) el in 
+        ListM.fold_left (fun (vl,h0) e -> let* (v,h1) = eval env h0 e in return (v::vl, h1)) ([], h) el in 
         match List.find_opt (fun m -> m.m_proto.name = x) p with
 
         | None ->
@@ -325,7 +325,7 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
             in
             let* h'' =
               let values = List.map (fun x -> Either.Left x) real_params in
-              foldLeftM setLocation h' (List.combine l values)
+              ListM.fold_left setLocation h' (List.combine l values)
             in
             let w = List.fold_left EvalEnv.Env.merge EvalEnv.Env.emptyFrame varmap in
             (
@@ -354,7 +354,7 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
                 | Suspend c' -> return (Suspend (When (s, c', EvalEnv.Env.merge w w')), EvalEnv.Env.emptyFrame, h')
                 | _ -> 
                     let l = EvalEnv.Env.allValues (EvalEnv.Env.merge w w') in
-                    let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h' l in 
+                    let* cleanHeap = ListM.fold_left (fun h a -> deepFree h a) h' l in 
                     return (k, EvalEnv.Env.emptyFrame, cleanHeap)
         else return (Suspend (When (s, c, w)), EvalEnv.Env.emptyFrame, h))
     | Watching (s, c, w) -> (
@@ -365,7 +365,7 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
               (Suspend (Watching (s, c', EvalEnv.Env.merge w w')), EvalEnv.Env.emptyFrame, h')
         | _ -> 
             let l = EvalEnv.Env.allValues (EvalEnv.Env.merge w w') in
-            let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h' l in 
+            let* cleanHeap = ListM.fold_left (fun h a -> deepFree h a) h' l in 
             return (k, EvalEnv.Env.emptyFrame, cleanHeap))
     | Par (c1, w1, c2, w2) -> (
         let* k1, w1', h' = aux c1 (EvalEnv.Env.activate env w1) h in
@@ -373,7 +373,7 @@ let reduce (p : Intermediate.statement method_defn list) (c : command) (env : en
         match (k1, k2) with
         | Continue, Continue ->
             let l = EvalEnv.Env.allValues (EvalEnv.Env.merge w1 (EvalEnv.Env.merge w2 (EvalEnv.Env.merge w1' w2'))) in
-            let* cleanHeap = foldLeftM (fun h a -> deepFree h a) h'' l in 
+            let* cleanHeap = ListM.fold_left (fun h a -> deepFree h a) h'' l in 
             return (Continue, EvalEnv.Env.emptyFrame, cleanHeap)
         | Continue, Suspend c ->
             return

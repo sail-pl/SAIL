@@ -16,9 +16,9 @@ module THIREnv = SailModule.SailEnv(V)
 module ES = struct
   include MonadState.T(E)(THIREnv)
 
-  let get_decl id ty = bind get (fun e -> THIREnv.get_decl e id ty |> pure) 
+  let get_decl id ty = bind get (fun e -> THIREnv.get_decl id ty e |> pure) 
 
-  let get_var id = bind get (fun e -> THIREnv.get_var e id |> pure) 
+  let get_var id = bind get (fun e -> THIREnv.get_var id e |> pure) 
 
 
   let throw e = E.throw e |> lift
@@ -29,9 +29,8 @@ module ES = struct
   let throw_if_none opt e = E.throw_if_none opt e |> lift
 
 
-  let run e = E.bind e (fun e -> fst e |> E.pure)
+  let run e = E.bind e (fun (e,(_,s)) -> E.pure (e,s))
 
-  let recover (type a) (_default:a) (_e: a t) : a t =
-     Logs.info (fun m -> m "todo recover ES");
-     _e
+  let recover (type a) (default:a) (x: a t) : a t = 
+    fun e -> E.recover (default,e) (x e)
 end

@@ -66,7 +66,7 @@
 
 %nonassoc ELSE
 
-%start <metadata -> statement SailModule.t> sailModule
+%start <metadata -> statement SailModule.t E.t> sailModule
 
 %type <expression> expression 
 %type <sailtype> sailtype
@@ -81,10 +81,11 @@ let sailModule := i = import* ; l = defn* ; EOF ; {fun metadata -> mk_program me
 
 let brace_del_sep_list(sep,x) == delimited("{", separated_list(sep, x), "}") 
 
-let import := IMPORT ; mname = ID ; {{loc=$loc;mname;dir=""}}
+let import := IMPORT ; mname = ID ; {{loc=$loc;mname;dir="";proc_order=1}}
 
 let defn :=
-| TYPE ; name = ID ; ty = preceded("=",sailtype)? ; { Type {name; loc = $loc; ty} }
+| TYPE ; name = ID ; ty = preceded("=",sailtype)? ; 
+    {Type {name; loc = $loc; ty} }
 
 | STRUCT ; name = ID ; g = generic ;  f = brace_del_sep_list(",", id_colon(sailtype)) ;
     {Struct {s_pos=$loc;s_name = name; s_generics = g; s_fields = f}}
@@ -99,10 +100,14 @@ let defn :=
     {Process ({p_pos=$loc;p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
 
 | EXTERN ; lib=STRING? ; protos =  delimited("{", separated_list(";", extern_sig), "}") ;
-    {let protos = List.map (fun (sid,p) -> {m_proto=p; m_body= Either.left (sid,lib)}) protos in Method protos}
+    {let protos = List.map (
+        fun (sid,p) -> 
+            let lib = match lib with Some s -> String.split_on_char ' ' s | None -> [] in 
+            {m_proto=p; m_body=Either.left (sid,lib)}
+    ) protos in Method protos}
 
 
-extern_sig : METHOD ; name=ID ; LPAREN ;  params=separated_list(COMMA, mutable_var(sailtype)) ; variadic=is_variadic ; RPAREN ; rtype=returnType ; ext_name=STRING?
+extern_sig : METHOD ; name=ID ; LPAREN ;  params=separated_list(COMMA, mutable_var(sailtype)) ; variadic=is_variadic ; RPAREN ; rtype=returnType ; ext_name=preceded("=",STRING)?
         { (match ext_name with Some n -> n | None -> name),{pos=$loc; name; generics=[]; params; variadic; rtype=rtype} }
 
 
@@ -113,7 +118,7 @@ is_variadic:
 
 let module_loc :=  
  | ~ = located(ID); DCOLON ; <>
- | x = located(SELF) ; DCOLON; { (fst x),"_self"}
+ | x = located(SELF) ; DCOLON; { (fst x),Constants.sail_module_self}
 
 let enum_elt :=
 | id = UID ; {(id, [])}
@@ -269,8 +274,8 @@ let sailtype :=
 | TYPE_CHAR ; {Char}
 | TYPE_STRING ; {String}
 | ARRAY ; "<" ; ~ = sailtype ; ";" ; ~ = INT ; ">" ; <ArrayType>
-| mloc =  module_loc ; id = located(ID) ; i = instance ; {CompoundType (Some (snd mloc), id, i)}
-| id = located(ID) ; i = instance ; {CompoundType(None, id, i)}
+| mloc = module_loc ; name = located(ID) ; generic_instances = instance ; {CompoundType {origin=Some mloc; name; generic_instances} }
+| name = located(ID) ; generic_instances = instance ; {CompoundType {origin=None; name; generic_instances}}
 | ~ = UID ; <GenericType>
 | REF ; b = mut ; t = sailtype ; {RefType(t,b)}
 

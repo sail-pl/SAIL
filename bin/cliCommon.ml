@@ -1,5 +1,6 @@
 open Cmdliner
 
+module C = Common.Constants
 
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
@@ -18,10 +19,10 @@ Arg.flag info |> Arg.value
 let sailfile_conv =
   let parse filename =
       if Sys.file_exists filename && not (Sys.is_directory filename) then
-        if String.equal (Filename.extension filename) ".sl" then 
+        if String.equal (Filename.extension filename) C.sail_file_ext then 
           (Ok filename)
         else 
-          let msg = Fmt.str "'%s' is not a sail file. Hint: use the .sl extension\n%!" filename in
+          let msg = Fmt.str "'%s' is not a sail file. Hint: use the '%s' extension\n%!" filename C.sail_file_ext in
           Error (`Msg msg)
       else
         let msg = Fmt.str "'%s' : no such file" filename in
