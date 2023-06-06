@@ -35,7 +35,11 @@ type sailtype =
   | Char 
   | String
   | ArrayType of sailtype * int
-  | CompoundType of string option * (loc * string) * sailtype list
+  | CompoundType of {
+      origin : (loc * string) option; 
+      name : loc * string ; 
+      generic_instances : sailtype list
+    }
   | Box of sailtype
   | RefType of sailtype * bool
   | GenericType of string
@@ -64,7 +68,8 @@ let rec string_of_sailtype (t : sailtype option) : string =
   | Some Char -> "char"
   | Some String -> "string"
   | Some ArrayType (t,s) -> sprintf "array<%s;%d>" (string_of_sailtype (Some t)) s
-  | Some CompoundType (_, (_,x), _ ) -> sprintf "%s<todo>" x
+  | Some CompoundType {name=(_,x); generic_instances=[];_} -> (* empty compound type -> lookup what it binds to *) sprintf "%s" x
+  | Some CompoundType {name=(_,x); generic_instances;_} -> sprintf "%s<%s>" x (String.concat ", " (List.map (fun t -> string_of_sailtype (Some t)) generic_instances))
   | Some Box(t) -> sprintf "ref<%s>" (string_of_sailtype (Some t))
   | Some RefType (t,b) -> 
       if b then sprintf "&mut %s" (string_of_sailtype (Some t))
@@ -124,12 +129,12 @@ type method_sig =
 type 'a method_defn =  
 {
   m_proto : method_sig;
-  m_body : (string * string option,'a) Either.t
+  m_body : (string * string list,'a) Either.t
 }
 
 type ty_defn = {
       name: string;
-      ty: sailtype option;
+      ty: sailtype option; (* None means abstract type *)
       loc : loc;
 }
 
@@ -153,19 +158,43 @@ type function_proto =
   variadic : bool;
 }
 
+type _ decl = 
+| Method : _ method_defn -> function_proto decl
+| Process : _ process_defn -> function_proto decl
+| Struct : struct_defn -> struct_proto decl
+| Enum : enum_defn -> enum_proto decl
+
+let defn_to_proto (type proto) (decl: proto decl) : proto = match decl with
+| Method d -> 
+  let ret = d.m_proto.rtype 
+  and args = d.m_proto.params 
+  and generics = d.m_proto.generics 
+  and variadic = d.m_proto.variadic in
+  {ret;args;generics;variadic}
+| Process d -> 
+  let ret = None
+  and args = fst d.p_interface
+  and generics = d.p_generics
+  and variadic = false in
+  {ret;args;generics;variadic}
+| Struct d -> {generics=d.s_generics;fields=d.s_fields}
+| Enum d -> {generics=d.e_generics;injections=d.e_injections}
+
 type import =
 {
   loc : loc;
   mname : string;
   dir : string;
+  proc_order: int;
 }
 
 
-module ImportCmp = struct type t = import let compare i1 i2 = String.compare i1.mname i2.mname end
+module ImportCmp = struct type t = import let compare i1 i2 = String.compare i1.mname  i2.mname  end
 module ImportSet = Set.Make(ImportCmp)
 
 type metadata = {
   name : String.t;
   hash : Digest.t;
   libs : FieldSet.t;
+  version : String.t;
 }

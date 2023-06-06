@@ -25,7 +25,7 @@ open Common.TypesCommon
 type ('info,'import) expression = {info: 'info ; exp: ('info,'import) _expression} and ('info,'import) _expression = 
   | Variable of string 
   | Deref of ('info,'import) expression 
-  | StructRead of ('info,'import)expression * string
+  | StructRead of ('info,'import) expression * string
   | ArrayRead of ('info,'import) expression * ('info,'import) expression  
   | Literal of literal
   | UnOp of unOp * ('info,'import) expression

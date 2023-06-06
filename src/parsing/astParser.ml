@@ -72,55 +72,42 @@ type defn =
   | Method of statement method_defn list
   | Process of statement process_defn
   
+module E = Error.Logger
 
-
-let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t =
+let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t E.t =
   let open SailModule in
+  let open Monad.MonadSyntax(E) in
+  let open Monad.MonadFunctions(E) in
   let rec aux = function
-    |  [] -> (DeclEnv.empty,[],[])
+    | [] -> return (let e = DeclEnv.empty in DeclEnv.set_name md.name e,[],[])
     | d::l ->
-      let (e,m,p) = aux l in
+      let* (e,m,p) = aux l in
         match d with
           | Type t -> 
-            let env = DeclEnv.add_decl e t.name t Type in 
-            (env,m,p)
+            let+ env = DeclEnv.add_decl t.name t Type e
+            in (env,m,p)
 
           | Struct d -> 
-            let env = DeclEnv.add_decl e d.s_name 
-            (d.s_pos, {generics=d.s_generics;fields=d.s_fields}) Struct in
-            (env,m,p)
+            let+ env = DeclEnv.add_decl d.s_name (d.s_pos, defn_to_proto (Struct d)) Struct e
+            in (env,m,p)
 
           | Enum d -> 
-            let env = DeclEnv.add_decl e d.e_name 
-            (d.e_pos,{generics=d.e_generics;injections=d.e_injections}) Enum  in
-            (env,m,p)
+            let+ env = DeclEnv.add_decl d.e_name (d.e_pos, defn_to_proto (Enum d)) Enum e
+            in (env,m,p)
 
           | Method d -> 
-            let env,funs = 
-            List.fold_left (fun (e,f) d -> 
-              let env = 
-                let pos = d.m_proto.pos
-                and true_name = (match d.m_body with Left (sname,_) -> sname | Right _ -> d.m_proto.name)
-                and ret = d.m_proto.rtype 
-                and args = d.m_proto.params 
-                and generics = d.m_proto.generics 
-                and variadic = d.m_proto.variadic in
-                DeclEnv.add_decl e d.m_proto.name
-                (pos,true_name,{ret;args;generics;variadic}) Method in
-                (env,d::f)
+            let+ env,funs = 
+            ListM.fold_left (fun (e,f) d -> 
+              let true_name = (match d.m_body with Left (sname,_) -> sname | Right _ -> d.m_proto.name) in
+              let+ env =  DeclEnv.add_decl d.m_proto.name (d.m_proto.pos,true_name,defn_to_proto (Method d)) Method e
+              in (env,d::f)
               ) (e,m) d in (env,funs,p)
+
           | Process d ->
-            let env = 
-              let pos = d.p_pos
-              and ret = None
-              and args = fst d.p_interface
-              and generics = d.p_generics
-              and variadic = false in
-              DeclEnv.add_decl e d.p_name
-              (pos,{ret;args;generics;variadic}) Process
+            let+ env =  DeclEnv.add_decl d.p_name (d.p_pos,defn_to_proto (Process d)) Process e
             in (env,m,d::p)
   in 
-  let (declEnv,methods,processes) = aux l in 
+  let+ (declEnv,methods,processes) = aux l in 
   let builtins = Builtins.get_builtins () in
   {md; imports; declEnv ; methods;processes;builtins}
 

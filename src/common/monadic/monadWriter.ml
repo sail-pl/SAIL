@@ -21,8 +21,6 @@
 (**************************************************************************)
 
 open Monad 
-open Monoid
-
 
 module type Writer = sig 
   include MonadTransformer

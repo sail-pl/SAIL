@@ -20,9 +20,23 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
+
+
 module type Type = sig 
   type t
 end
+
+module type Monoid = sig 
+  type t 
+  val mempty : t
+  val mconcat : t -> t -> t
+end
+
+module MonoidList (T : Type) : Monoid with type t = T.t list = struct
+  type t = T.t list
+  let mempty = [] 
+  let mconcat = (@)
+end 
 
 module type Functor = sig 
   type 'a t 
@@ -80,107 +94,129 @@ module MonadSyntax (M : Monad ) = struct
 
 end
 
+module type Sequencable = sig
+  type t 
+  type seq_ty 
+  val to_seq :  t -> seq_ty Seq.t
+  val of_seq :  seq_ty Seq.t -> t 
+end
 
 module MonadFunctions (M : Monad) = struct 
+  open MonadSyntax (M)
+  open MonadOperator (M)
 
+  module SeqM = struct 
+    let rec map (f : 'a -> 'b M.t) (s : 'a Seq.t) : 'b Seq.t M.t =
+      match s () with
+      | Nil -> return Seq.empty
+      | Cons (x, next) ->
+          let* u = f x in 
+          let+ l' = map f next in
+          Seq.cons u l'
 
-  module MakeOrderedFunctions(Order : sig type t val compare : t -> t -> int end ) = struct
-    module MMap = Map.Make(Order)
-    module MSet = Set.Make(Order)
+    let rec iter (f : 'a -> unit M.t) (s : 'a Seq.t) : unit M.t =
+      match s () with
+      | Nil -> return ()
+      | Cons (x, next) ->
+          let* () = f x in 
+          iter f next 
 
-    let mapMapM (f : 'a -> 'b M.t) (m : 'a MMap.t) : ('b MMap.t) M.t = 
-    let open MonadSyntax (M) in
-    let rec aux (l : (MMap.key * 'a) Seq.t) : (MMap.key * 'b) Seq.t M.t =
-      match l () with
-      | Seq.Nil -> return (fun () -> Seq.Nil)
-      | Seq.Cons ((x, a), v) ->
-          let* u = f a in 
-          let+ l' = aux v in
-          fun () -> Seq.Cons ((x,u),l' )
-    in  
-    let* l' = aux (MMap.to_seq m) in 
-    return (MMap.of_seq l')
+    let rec fold_left (f : 'a -> 'b -> 'a M.t) (acc : 'a) (s : 'b Seq.t) : 'a M.t =
+      match s () with
+      | Nil -> return acc
+      | Cons (x, next) ->
+          let* acc = f acc x in 
+          fold_left f acc next 
 
+    let rec fold_left_map (f : 'a -> 'b -> ('a * 'c) M.t) (accu : 'a) (s : 'b Seq.t) : ('a * 'c Seq.t) M.t = 
+    match s () with
+    | Seq.Nil -> return (accu, Seq.empty)
+    | Cons (x,l) ->
+        let* accu,u = f accu x in
+        let+ accu,l' = fold_left_map f accu l in
+        accu,Seq.cons u l'
 
-    let mapIterM (f : MMap.key -> 'a -> unit M.t) (m : 'a MMap.t) : unit M.t = 
-      let open MonadSyntax (M) in
-      let rec aux (l : (MMap.key * 'a) Seq.t) : unit M.t =
-        match l () with
-        | Seq.Nil -> return ()
-        | Seq.Cons ((k, a), v) ->
-            let* () = f k a in 
-            aux v
-      in  
-      aux (MMap.to_seq m) 
-
-
-      (* limitation : output Set must be of the same as the input one *)
-      let setMapM (f : Order.t -> Order.t M.t) (m : MSet.t) : MSet.t M.t = 
-        let open MonadSyntax (M) in
-        let rec aux (l : MSet.elt Seq.t) : MSet.elt Seq.t M.t =
-          match l () with
-          | Seq.Nil -> return (fun () -> Seq.Nil)
-          | Seq.Cons (a, v) ->
-              let* u = f a in 
-              let+ l' = aux v in
-              fun () -> Seq.Cons (u,l' )
-        in  
-        let* l' = aux (MSet.to_seq m) in 
-        return (MSet.of_seq l')
+    let sequence (s : 'a M.t Seq.t) : 'a Seq.t M.t  = map Fun.id s
   end
 
-  let rec listMapM (f : 'a -> 'b M.t) (l : 'a list) : ('b list) M.t = 
-    let open MonadSyntax (M) in
-    match l with 
-      | [] -> return []
-      | h::t -> let+ u = (f h) and* t = listMapM f t in u::t
-      
-      
-  let rec listIterM (f : 'a -> unit M.t)  (l : 'a list) : unit M.t = 
-      let open MonadSyntax (M) in
-      match l with 
-      | [] -> return ()
-      | h::t -> let* () = (f h) in listIterM f t
-
-  let rec foldLeftM (f : 'a -> 'b -> 'a M.t) (x : 'a) (l : 'b list) : 'a M.t = 
-    let open M in
-    let open MonadOperator(M) in
-    match l with 
-      | [] -> pure x 
-      | h :: t -> foldLeftM f x t >>=  (Fun.flip f) h      
-
-      
-  let foldLeftMapM (f : 'a -> 'b -> ('a * 'c) M.t) (accu : 'a) (l : 'b list) : ('a * 'c list) M.t = 
-    let open MonadSyntax (M) in
-    let rec aux accu l_accu = function
-    | [] -> return (accu, List.rev l_accu)
-    | x :: l ->
-        let* accu, x = f accu x in
-        aux accu (x :: l_accu) l in
-    aux accu [] l
-
+  module MakeFromSequencable(S : Sequencable) = struct
+    let map (f : 'a -> 'b M.t) (s : S.t) = let+ s = SeqM.map f (S.to_seq s) in S.of_seq s
+    let fold (f : 'a -> 'b -> 'a M.t) (acc : 'a) (s : S.t) = SeqM.fold_left f acc (S.to_seq s)
+    let iter (f : 'a -> unit M.t) (s : S.t) = SeqM.iter f (S.to_seq s)
   
-  let rec foldRightM (f : 'a -> 'b -> 'b M.t) (l : 'a list) (x : 'b) : 'b M.t = 
-    let open M in
-    let open MonadOperator(M) in
-    match l with 
-      | [] -> pure x
-      | h :: t -> f h x >>= foldRightM f t
+  end
 
-  let rec sequence (l : 'a M.t list) : 'a list M.t =
-    let open MonadSyntax(M) in
-    match l with
-    | [] -> return []
-    | h :: t -> 
-      let* h = h and* t = sequence t in return (h::t)
+  module MakeOrderedFunctions(Order : sig type t val compare : t -> t -> int end ) = struct
+    module MapM = struct
+      module MMap = Map.Make(Order)
+      let map (f : MMap.key -> 'a -> 'b M.t) (m : 'a MMap.t) : ('b MMap.t) M.t = 
+      let* l' = SeqM.map (fun (id,x) -> let+ res = f id x in id,res) (MMap.to_seq m) in 
+      return (MMap.of_seq l')
+
+
+      let iter(f : MMap.key -> 'a -> unit M.t) (m : 'a MMap.t) : unit M.t = 
+        let rec aux (l : (MMap.key * 'a) Seq.t) : unit M.t =
+          match l () with
+          | Seq.Nil -> M.pure ()
+          | Seq.Cons ((k, a), v) -> f k a >> aux v
+        in  
+        aux (MMap.to_seq m) 
+    end
+
+    module SetM = struct
+      module MSet = Set.Make(Order)
+      (* limitation : output Set must be of the same as the input one *)
+      let map (f : Order.t -> Order.t M.t) (m : MSet.t) : MSet.t M.t = 
+        let+ l' = SeqM.map f (MSet.to_seq m) in MSet.of_seq l'
+
+      let fold ?(rev=false) (f : 'a -> Order.t -> 'a M.t) (acc : 'a) (m : MSet.t) : 'a M.t = 
+        let to_seq = if rev then MSet.to_rev_seq else MSet.to_seq in
+        SeqM.fold_left f acc (to_seq m) 
+
+      let fold_left_map ?(rev=false) (f : 'a -> Order.t -> ('a  * 'b) M.t) (acc : 'a) (m : MSet.t) : ('a * MSet.t )M.t = 
+        let to_seq = if rev then MSet.to_rev_seq else MSet.to_seq in
+        let+ acc,l' = SeqM.fold_left_map f acc (to_seq m) in acc,MSet.of_seq l'
+    end
+  end
+
+  module ListM = struct
+    let rec map (f : 'a -> 'b M.t) (l : 'a list) : ('b list) M.t =
+      match l with 
+      | [] -> return []
+      | h::t -> let+ u = (f h) and* t = map f t in u::t
+          
+          
+    let rec iter (f : 'a -> unit M.t)  (l : 'a list) : unit M.t = 
+        match l with 
+        | [] -> M.pure ()
+        | h::t -> f h >> iter f t
+
+    let rec fold_left (f : 'a -> 'b -> 'a M.t) (x : 'a) (l : 'b list) : 'a M.t = 
+      match l with 
+        | [] -> return x 
+        | h :: t -> fold_left f x t >>=  (Fun.flip f) h      
+        
+    let fold_left_map (f : 'a -> 'b -> ('a * 'c) M.t) (accu : 'a) (l : 'b list) : ('a * 'c list) M.t = 
+      let rec aux accu l_accu = function
+      | [] -> return (accu, List.rev l_accu)
+      | x :: l ->
+          let* accu, x = f accu x in
+          aux accu (x :: l_accu) l in
+      aux accu [] l
+
+    
+    let rec fold_right (f : 'a -> 'b -> 'b M.t) (l : 'a list) (x : 'b) : 'b M.t = 
+      match l with 
+        | [] -> return x
+        | h :: t -> f h x >>= fold_right f t
+
+    let sequence (l : 'a M.t list) : 'a list M.t = map Fun.id l
+  end
 
   let pairMap1 (f : 'a -> 'b M.t) ((x,y) : 'a * 'c) :('b * 'c) M.t =
-    let open MonadSyntax (M) in
       let+ x = f x in (x, y)
 
 
   let pairMap2 (f : 'c -> 'b M.t) ((x,y) : 'a * 'c) :('a * 'b) M.t =
-    let open MonadSyntax (M) in
       let+ y = f y in x, y
 end
-  

@@ -140,7 +140,7 @@ let buildSwitch (e : expression) (blocks : (int * cfg) list) (cfg : cfg): cfg ES
   and bb2 = {assignments = []; predecessors = LabelSet.empty ; env; location = dummy_pos; terminator = None} in
 
   let* input =  ESC.fresh and* output = ESC.fresh in 
-  let+ gotos = listMapM (fun (_,cfg) -> addGoto output cfg) blocks in 
+  let+ gotos = ListM.map (fun (_,cfg) -> addGoto output cfg) blocks in 
   {
     input = input;
     output = output;
@@ -176,7 +176,7 @@ let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t =
 let buildInvoke (l : loc) (origin:import) (id : loc * string) (target : string option) (el : expression list) : cfg ESC.t =
   let* env = match target with 
   | None -> ESC.get_env 
-  | Some tid -> let* () = ESC.update_var l tid assign_var in ESC.get_env 
+  | Some tid -> ESC.update_var l tid assign_var >> ESC.get_env 
   in 
   let+ invokeLbl = ESC.fresh and* returnLbl = ESC.fresh in 
   let invokeBlock = 
@@ -246,6 +246,7 @@ let reverse_traversal (lbl:int) (blocks : basicBlock BlockMap.t) :  basicBlock B
 let cfg_returns ({input;blocks;_} : cfg) : (loc option * basicBlock BlockMap.t) E.t = 
   let open MonadFunctions(E) in 
   let open MonadSyntax(E) in 
+  let open MonadOperator(E) in
   let rec aux lbl blocks = 
     let blocks' = BlockMap.remove lbl blocks in
 
@@ -260,14 +261,14 @@ let cfg_returns ({input;blocks;_} : cfg) : (loc option * basicBlock BlockMap.t) 
       begin
       match bb.terminator with
       | None -> (Some bb.location, blocks') |> E.pure
-      | Some Break -> let* () = E.log @@ Error.make bb.location "there should be no break at this point" in aux input blocks'
+      | Some Break -> E.log @@ Error.make bb.location "there should be no break at this point" >> aux input blocks'
       | Some Return _ -> (None, blocks') |> E.pure
       | Some (Invoke {next;_}) -> aux next blocks'
       | Some (Goto lbl) -> aux lbl blocks'
       | Some (SwitchInt (_,cases,default)) -> 
 
         let* x = aux default blocks' in 
-        foldLeftM (fun (_,b) (_,lbl) -> aux lbl b) x cases
+        ListM.fold_left (fun (_,b) (_,lbl) -> aux lbl b) x cases
     end
   in
 aux input blocks

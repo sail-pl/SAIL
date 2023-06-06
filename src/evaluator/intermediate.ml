@@ -137,7 +137,7 @@ let rec pp_print_command (n : int) (pf : Format.formatter) (c : statement) : uni
       Format.fprintf pf "%a || %a" (pp_print_command (n+1)) c1 (pp_print_command (n+1))c2
 
 
-let pp_print_method (n : int) (pf : Format.formatter) (c : (string * string option,statement) Either.t) : unit = 
+let pp_print_method (n : int) (pf : Format.formatter) (c : (string * string list,statement) Either.t) : unit = 
   match Either.find_right c with
   | Some c -> pp_print_command n pf c
   | None -> ()

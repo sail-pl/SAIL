@@ -20,13 +20,13 @@ let print_error_position lexbuf =
 
 
 
-let fastParse filename : (string * AstParser.statement SailModule.t , string) Result.t =
+let fastParse filename : (string * AstParser.statement SailModule.t Error.Logger.t, string) Result.t =
   let text, lexbuf = L.read filename in
   let hash = Digest.string text in
 
   let name =  Filename.chop_extension (Filename.basename filename) in
   match Parser.sailModule read_token lexbuf with
-  | v -> Result.ok (text,(v {name;hash;libs=FieldSet.empty}))
+  | v -> Result.ok (text,(v {name;hash;libs=FieldSet.empty;version=Constants.sailor_version}))
 
   | exception SyntaxError (loc,msg) ->
       let lexer_prefix = "Lexer - " in
@@ -88,7 +88,7 @@ let slowParse filename text =
 
 let parse_program filename : AstParser.statement SailModule.t Logger.t = 
   match fastParse filename with
-  | Result.Ok (_,sm) ->Logger.pure sm
+  | Result.Ok (_,sm) -> sm
   | Result.Error txt -> slowParse filename txt
 
   

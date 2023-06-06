@@ -19,7 +19,7 @@ let degenerifyType (t: sailtype) (generics: sailtype dict) loc : sailtype ES.t =
   | Char -> return Char
   | String -> return String
   | ArrayType (t,s) -> let+ t = aux t in ArrayType (t, s)
-  | CompoundType (_,_name, _tl)-> ES.throw (Error.make loc "todo compoundtype")
+  | CompoundType _ -> ES.throw (Error.make loc "todo compoundtype")
   | Box t -> let+ t = aux t in Box t
   | RefType (t,m) -> let+ t = aux t in RefType (t,m)
   | GenericType t when generics = [] -> ES.throw @@ Error.make loc (Printf.sprintf "generic type %s present but empty generics list" t)
@@ -34,55 +34,62 @@ let degenerifyType (t: sailtype) (generics: sailtype dict) loc : sailtype ES.t =
   aux t
 
 
+let rec resolve_compound_type loc : sailtype -> (sailtype,string) Either.t ES.t = function 
+| CompoundType {origin;name=(_,name);_} -> 
+  let* (_,mname) =  ES.throw_if_none origin (Error.make loc @@ "unknown type '" ^ name ^ "' , all types must have an origin (problem with HIR)") in
+  let* ty_t = ES.get_decl name (Specific (mname,Type)) in 
+  let* ty_t = ES.throw_if_none ty_t (Error.make loc @@ Fmt.str "declaration '%s' requires importing module '%s'" name mname) in 
+  begin
+  match ty_t.ty with
+  | Some (CompoundType _ as ct) -> resolve_compound_type loc ct
+  | Some t -> return (Either.left t)
+  | None -> return (Either.right name) (* abstract type, only look at name *)
+  end
+| t -> return (Either.left t)
+
+let string_of_sailtype_thir (t : sailtype option) : string ES.t = 
+  let+ res = 
+    match t with
+    | Some CompoundType {origin; name=(loc,x); _} -> 
+        let* (_,mname) = ES.throw_if_none origin (Error.make loc "no origin in THIR (problem with HIR)") in
+        let* ty_def = ES.get_decl x (Specific (mname,Type)) in
+        let+ ty_def = ES.throw_if_none ty_def (Error.make loc "type_def is null (problem with HIR)") in
+        begin
+          match ty_def.ty with
+          | Some t -> " (= " ^ string_of_sailtype (Some t) ^ ")"
+          | None -> "(abstract)"
+        end
+    |  _ -> ES.pure ""
+    in (string_of_sailtype t) ^ res
+
+
 let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : string list) (resolved_generics: sailtype dict) : (sailtype * sailtype dict) ES.t =
   let open MonadSyntax(ES) in
-  let rec aux (a:sailtype) (m:sailtype) (g: sailtype dict) (alias_checked : string list) = 
-  match (a,m) with
-  | Bool,Bool -> return (Bool,g)
-  | Int,Int -> return (Int,g)
-  | Float,Float -> return (Float,g)
-  | Char,Char -> return (Char,g)
-  | String,String -> return (String,g)
-  | ArrayType (at,s),ArrayType (mt,s') -> 
-    if s = s' then
-      let+ t,g = aux at mt g alias_checked in ArrayType (t,s),g
-    else
-      ES.throw @@ Error.make l (Printf.sprintf "array length mismatch : wants %i but %i provided" s' s)
-  
-      
-  | CompoundType (mloc,(l,name),[]), t | t,CompoundType (mloc,(l,name),[]) ->     
-    begin
-      (* check if circular type aliasing *)
-      let* () = ES.throw_if (List.mem name alias_checked) 
-      (Error.make l @@ "circular type aliasing : " ^ String.concat " -> " (List.rev alias_checked) ^ " -> " ^ name)
-      in
-      let alias_checked = name::alias_checked in
-      (* check if extern type *)
-      match mloc with
-      | Some s -> let* ty_t = ES.get_decl name (Specific (s,Type)) in 
-                  let* ty_t = ES.throw_if_none ty_t (Error.make l "cannot happen") in 
-                  let* ty = ES.throw_if_none ty_t.ty (Error.make l "todo abstract type") in
-                  aux t ty g alias_checked
 
-      | None -> (* if not, ... *)
-        begin
-        let* env = ES.get_decl name (Self Type) in 
-        match env with
-        | Some {ty=Some ty_t; _ } ->  (* type alias, get it and compare again *) 
-          aux t ty_t g alias_checked
-        | Some {ty=None; _ } -> (* abstract type, t must resolve to the same CompoundType name *)
-          failwith "todo abstract type"
-        | None ->  ES.throw @@ Error.make l @@ "unknown type '" ^ name ^ "' , should not happen"
-        end
-    end
+  let rec aux (a:sailtype) (m:sailtype) (g: sailtype dict) = 
+    let* lt = resolve_compound_type l a in
+    let* rt = resolve_compound_type l m in
 
-  | CompoundType _, _ | _, CompoundType _ ->  ES.throw (Error.make l "todocompoundtype")
+    match lt,rt with
+    | Left Bool,Left Bool -> return (Bool,g)
+    | Left Int,Left Int -> return (Int,g)
+    | Left Float,Left Float -> return (Float,g)
+    | Left Char,Left Char -> return (Char,g)
+    | Left String,Left String -> return (String,g)
+    | Left ArrayType (at,s),Left ArrayType (mt,s') -> 
+      if s = s' then
+        let+ t,g = aux at mt g in ArrayType (t,s),g
+      else
+        ES.throw @@ Error.make l (Printf.sprintf "array length mismatch : wants %i but %i provided" s' s)
+    
+    | Right name, Right name' -> 
+      ES.throw_if (name <> name') (Error.make l @@ Fmt.str "want abstract type %s but abstract type %s provided" name name') >>
+      return (arg,g)
 
 
-
-  | Box _at, Box _mt -> ES.throw (Error.make l "todo box")
-  | RefType (at,am), RefType (mt,mm) -> if am <> mm then ES.throw (Error.make l "different mutability") else aux at mt g alias_checked
-  | at,GenericType gt ->
+  | Left Box _at, Left Box _mt -> ES.throw (Error.make l "todo box")
+  | Left RefType (at,am), Left RefType (mt,mm) -> if am <> mm then ES.throw (Error.make l "different mutability") else aux at mt g
+  | Left at,Left GenericType gt ->
     begin
       if List.mem gt generics then
         match List.assoc_opt gt g with
@@ -91,10 +98,11 @@ let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : strin
       else
         ES.throw @@ Error.make l (Printf.sprintf "generic type %s not declared" gt)
     end
-  | _ ->  ES.throw @@ Error.make l @@ Printf.sprintf "wants %s but %s provided" 
-                                      (string_of_sailtype (Some m_param))
-                                      (string_of_sailtype (Some arg))
-  in aux arg m_param resolved_generics [] 
+  | _ -> let* param = string_of_sailtype_thir (Some m_param) 
+         and* arg = string_of_sailtype_thir (Some arg) in 
+    ES.throw @@ Error.make l @@ Printf.sprintf "wants %s but %s provided" param arg                                      
+                              
+  in aux arg m_param resolved_generics 
 
 
 let check_binop op l r : sailtype ES.t = 
@@ -118,9 +126,9 @@ let check_call (name:string) (args: expression list) loc : sailtype option ES.t 
       (* if variadic, we just make sure there is at least minimum number of arguments needed *)
       let args = if f.variadic then List.filteri (fun i _ -> i < (List.length f.args)) args else args in
       let nb_args = List.length args and nb_params = List.length f.args in
-      let* () = ES.throw_if (nb_args <> nb_params)
-        (Error.make loc (Printf.sprintf "unexpected number of arguments passed to %s : expected %i but got %i" name nb_params nb_args))
-      in
+      ES.throw_if (nb_args <> nb_params)
+                  (Error.make loc (Printf.sprintf "unexpected number of arguments passed to %s : expected %i but got %i" name nb_params nb_args))
+      >>
       let* resolved_generics = List.fold_left2 
       (
         fun g (ca:expression) ({ty=a;_}:param) ->
@@ -143,70 +151,38 @@ let check_call (name:string) (args: expression list) loc : sailtype option ES.t 
 let find_function_source (fun_loc:loc) (_var: string option) (head_loc,id:loc*string) (import:(loc * string) option) (_el: expression list) : (import * SailModule.Declarations.method_decl)  ES.t =
   match import with
   | Some (loc,mname) -> 
-      let+ f = 
-      if mname = "_self" then 
-        let* decl = ES.get_decl id (Self Method) in
+    let* env = ES.get in
+    let current = SailModule.DeclEnv.get_name (snd env) in
+    let mname = if mname = Constants.sail_module_self ||  mname = current then current else mname in
+    let+ f = 
+      if mname = current then 
+        let decl = THIREnv.get_decl id (Self Method) env in
         ES.throw_if_none decl (Error.make loc @@ "no function named " ^ id ^ " in current module ") 
       else
-        let* env = ES.get in
         ES.throw_if_none (List.find_opt (fun m -> mname = m.mname) (THIREnv.get_imports env))
                          (Error.make loc @@ "unknown module " ^ mname) >>
-        ES.throw_if_none (THIREnv.get_decl env id (Specific (mname,Method)))
+        ES.throw_if_none (THIREnv.get_decl id (Specific (mname,Method)) env)
                          (Error.make head_loc @@ "function "  ^ id ^ " not found in module " ^ mname)
-      in
-      {mname;loc;dir=""},f
+    in
+    {mname;loc;dir="";proc_order=0},f
   | None -> (* we must find where the function is defined *)
     begin
       let* decl = ES.get_decl id (All Method) in
       match decl with
       | [i,m] -> 
-        Logs.debug (fun m -> m "resolved '%s' to %s" id i.mname);
+        Logs.debug (fun m -> m "'%s' is from %s" id i.mname);
         return (i,m)
 
       | [] ->  ES.throw @@ Error.make fun_loc @@ "unknown function " ^ id
 
-      | _ as _x -> ES.throw @@ Error.make fun_loc @@ "multiple definition for function " ^ id ^ ", specify one with '::' annotation"
+      | choice as _x -> ES.throw 
+                      @@ Error.make fun_loc ~hint:(Some (None,"specify one with '::' annotation")) 
+                      @@ Fmt.str "multiple definitions for function %s : \n\t%s" id 
+                        (List.map (
+                          fun (i,((_,_,m):SailModule.Declarations.method_decl)) -> 
+                            Fmt.str "from %s : %s(%s) : %s" i.mname id
+                            (List.map (fun a -> Fmt.str "%s:%s" a.id (string_of_sailtype (Some a.ty))) m.args |> String.concat ", ") 
+                            (string_of_sailtype m.ret)
+                        ) choice |> String.concat "\n\t")
+ 
     end
-
-
-
-    (*fixme : code duplication *)
-  let find_type_source (loc,id: loc * string) (import : string option): (string * ty_defn)  ES.t =
-    match import with
-    | Some name -> 
-      begin
-        if name = "_self" then 
-          begin
-            let* decl = ES.get_decl id (Self Type) in
-            let+ decl = ES.throw_if_none decl (Error.make loc @@ "no type named " ^ id ^ " in current module ") in
-            name,decl
-          end
-        else
-          let* env = ES.get in
-          let+ t = 
-            ES.throw_if_none (List.find_opt (fun {mname;_} -> mname = name) (THIREnv.get_imports env))
-                              (Error.make loc @@ "unknown module " ^ name)  >> 
-            ES.throw_if_none (THIREnv.get_decl env id (Specific (name,Type)))
-                              (Error.make loc @@ "type "  ^ id ^ " not found in module " ^ name)
-          in
-          name,t
-      end
-    | None -> (* we must find where the function is defined *)
-      begin
-        let* decl = ES.get_decl id (All Type) in
-        match decl with
-        | [i,m] -> 
-          Logs.debug (fun m -> m "resolved '%s' to %s" id i.mname);
-          return (i.mname,m)
-  
-        | [] ->  ES.throw @@ Error.make loc @@ "unknown type " ^ id
-  
-        | _ as _x -> ES.throw @@ Error.make loc @@ "multiple definition for type " ^ id ^ ", specify one with '::' annotation"
-      end
-  
-
-let resolve_type : sailtype -> sailtype ES.t = function
-| CompoundType (mod_loc,id,l) -> 
-  let+ mname,_ = find_type_source id mod_loc  in CompoundType (Some mname,id,l)
-| _ as t ->  return t
-
