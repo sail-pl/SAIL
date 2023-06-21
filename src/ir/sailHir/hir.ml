@@ -17,6 +17,7 @@ struct
   type out_body = statement
       
   open MonadFunctions(ECSW)
+  open MonadOperator(ECSW)
   open MakeOrderedFunctions(String)
 
   let get_hint id env = 
@@ -48,7 +49,11 @@ struct
       | ArrayStatic el -> 
         let+ el = ListM.map aux el in {info;exp=ArrayStatic el}
       | StructAlloc (id, m) ->
-        let+ m = MapM.map (fun _ -> aux) m in {info; exp=StructAlloc (id, m)}
+        let m' = List.sort_uniq (fun (id1,_) (id2,_) -> String.compare id1 id2) m in
+        ECSW.throw_if (Error.make info "duplicate fields") List.(length m <> length m') >> 
+        let+ m' = ListM.map (pairMap2 aux) m' in
+        {info; exp=StructAlloc (id, m')}
+
       | EnumAlloc (id, el) ->
         let+ el = ListM.map aux el in  {info;exp=EnumAlloc (id, el)}
       | MethodCall (mod_loc, id, el) ->
@@ -151,10 +156,10 @@ struct
     | Block c -> let+ c = aux c in buildStmt (Block c)
     
     | Run (l_id,id as lid, el) -> 
-      ECS.log_if (id = c.name) (Error.make l_id "a process cannot call itself (yet)") >> 
+      ECS.log_if (Error.make l_id "a process cannot call itself (yet)") (id = c.name) >> 
       let* m = ECS.get_decl id (Self Process) and* env = ECS.get in
-      ECS.log_if (m = None) (let hint = get_hint id env in (Error.make l_id "unknown process" ~hint))  >>
-      ECS.log_if (c.bt = BMethod) (Error.make l_id "this is a process but methods cannot call processes") >>
+      ECS.log_if (let hint = get_hint id env in (Error.make l_id "unknown process" ~hint)) (m = None)  >>
+      ECS.log_if (Error.make l_id "this is a process but methods cannot call processes") (c.bt = BMethod) >>
       let+ el,s = ListM.map lower_expression el in 
       buildSeqStmt s (Run(lid, el))
 
@@ -241,10 +246,16 @@ struct
           >> return p
         ) sm.processes in 
 
-
         (* at this point, all types must have an origin *)
         let+ declEnv = ES.get_env in   
         (* Logs.debug (fun m -> m "%s" @@ string_of_declarations declEnv); *)
+
+
+      
+
+
+
+
         {sm with methods; processes; declEnv}
       ) sm.declEnv |> fst in
       sm

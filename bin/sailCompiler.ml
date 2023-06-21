@@ -31,7 +31,7 @@ let moduleToIR (m:Mir.Pass.out_body SailModule.t) (dump_decl:bool) : llmodule E.
 
   let env = SailEnv.empty decls in
 
-  DeclEnv.iter_decls (fun name m -> methodToIR llc llm m env name |> Llvm_analysis.assert_valid_function ) (Self Method) decls >>
+  DeclEnv.iter_decls (fun name m -> methodToIR llc llm m env name |> Llvm_analysis.assert_valid_function) (Self Method) decls >>
   match Llvm_analysis.verify_module llm with 
   | None -> return llm 
   | Some reason -> E.throw @@ Error.make dummy_pos (Fmt.str "LLVM : %s" reason)
@@ -68,7 +68,7 @@ let add_passes (pm : [`Module] PassManager.t) : unit  =
   Llvm_ipo.add_function_inlining pm
 
 
-let link ?(is_lib = false) (llm:llmodule) (module_name : string) (imports: string list) (libs : string list) (target, machine) : int =
+let link ?(is_lib = false) (llm:llmodule) (module_name : string) (imports: string list) (libs : string list) (target, machine) clang_args : int =
   let mname = module_name ^ C.object_file_ext in 
   let objfiles = String.concat " " (mname::imports) in 
   let libs = List.map (fun l -> "-l " ^ l) libs |> String.concat " "  in 
@@ -79,7 +79,7 @@ let link ?(is_lib = false) (llm:llmodule) (module_name : string) (imports: strin
       if not is_lib then 
         begin
         if (Option.is_none (lookup_function "main" llm)) then failwith ("no Main process found for module '" ^ module_name ^  "', can't compile as executable");
-        let clang_cmd = "clang " ^ objfiles ^ " -o " ^ module_name ^ " " ^ libs in
+        let clang_cmd = Fmt.str "clang %s -o %s %s %s" objfiles module_name libs clang_args in
         Logs.debug (fun m -> m "invoking clang with the following parameters : \n%s" clang_cmd);
         Sys.command clang_cmd
         (* "rm " ^ objfile |>  Sys.command *)
@@ -135,7 +135,7 @@ let find_file_opt ?(maxdepth = 4) ?(paths = ["."]) (f:string)  : string option =
 
 
 
-let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () (force_comp:bool list) (paths:string list) (is_lib : bool)= 
+let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () (force_comp:bool list) (paths:string list) (is_lib : bool) (clang_args: string) = 
   enable_pretty_stacktrace ();
   install_fatal_error_handler error_handler;
 
@@ -148,11 +148,9 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
     |> Imports.Pass.transform
     |> (if is_lib then Fun.id else MainProcess.Pass.transform)
     |> Monomorphization.Pass.transform
-    (* |> (Fun.flip Error.Logger.get_warnings) Error.print_errors *)
-    (* |> (Fun.flip Error.Logger.get_error (fun e -> Error.print_errors [e])) *)
 
     in
-    (* Out_channel.with_open_text (m.md.name ^ ".mir.debug") (fun f -> Format.fprintf (Format.formatter_of_out_channel f) "%a" Pp_mir.ppPrintModule m); *)
+    Out_channel.with_open_text (m.md.name ^ ".mir.debug") (fun f -> Format.fprintf (Format.formatter_of_out_channel f) "%a" Pp_mir.ppPrintModule m);
     
     let+ llm = moduleToIR m dump_decl in
 
@@ -177,7 +175,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       begin
         let libs,object_files = List.partition Filename.(fun e -> extension e <> C.object_file_ext) (FieldSet.elements m.md.libs) in 
         let imports = object_files @ List.map (fun i -> i.dir ^ i.mname ^ C.object_file_ext) @@ ImportSet.elements m.imports in
-        let ret = link llm sail_module.md.name imports libs tm ~is_lib in
+        let ret = link llm sail_module.md.name imports libs tm ~is_lib clang_args in
         if ret <> 0 then
           (Fmt.str "clang couldn't execute properly (error %i)" ret |> failwith);
       end;
@@ -215,7 +213,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         *)  
         let* treated,imports = SetM.fold_left_map (
           fun treated (i : import ) -> 
-            E.throw_if (List.mem_assoc i.mname compiling)
+            E.throw_if
             (
               let msg = 
               if i.mname = slmd.md.name then 
@@ -223,7 +221,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
               else 
               "dependency cycle : "  ^ (String.concat " -> " ((List.split compiling |> fst |> List.rev) @ [slmd.md.name;i.mname]))
               in Error.make i.loc msg
-            )  >>          
+            )  (List.mem_assoc i.mname compiling) >>          
             let mir_name = i.mname ^ C.mir_file_ext in
             let source = i.mname ^ C.sail_file_ext in
             
@@ -242,8 +240,9 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
               return (treated,import m)
             | None, Some m -> (* mir but no source -> use mir *)
               let mir :'a SailModule.t = In_channel.with_open_bin m Marshal.from_channel in
-              E.throw_if (mir.md.version <> C.sailor_version) 
+              E.throw_if 
               (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version C.sailor_version)
+              (mir.md.version <> C.sailor_version) 
               >> 
               return (treated,import m)
             | None,None -> (* nothing to work with *)
@@ -267,8 +266,8 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       (* if mir file exists, check hash, if same hash, no need to compile *)
       if Sys.file_exists mir_file && (List.length force_comp = 0) then
         let mir : 'a SailModule.t = In_channel.with_open_bin mir_file Marshal.from_channel in
-        E.throw_if (mir.md.version <> C.sailor_version) 
-                  (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version C.sailor_version)
+        E.throw_if (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version C.sailor_version)
+                  (mir.md.version <> C.sailor_version) 
         >>
         if not @@ Digest.equal mir.md.hash slmd.md.hash then
           process_imports_and_compile () 
@@ -289,7 +288,13 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
     `Error(false, "compilation aborted") 
     
   with
-  | e -> `Error (false,Printexc.to_string e)
+  | e ->
+      let msg = 
+        if (Printexc.backtrace_status () |> not) then (
+          Logs.warn (fun m -> m "backtrace recording is not turned on, only the exception name will be printed. To print the backtrace, run with 'OCAMLRUNPARAM=b'");
+          Printexc.to_string e)
+        else Printexc.get_backtrace () in 
+     `Error (false,msg)
 
 let jit_arg =
   let doc = "execute using the LLVM JIT compiler" in 
@@ -322,9 +327,13 @@ let as_lib =
   Arg.flag info |> Arg.value
 
   
+let clang_args = 
+  let doc = "extra args to pass to clang" in 
+  Arg.(value & opt string ""  & info  ["clang-args"] ~doc)
+
 let cmd =
-  let doc = "SaiLOR, the SaIL cOmpileR v" in
+  let doc = "SaiLOR, the SaIL cOmpileR" in
   let info = Cmd.info "sailor" ~doc ~version:C.sailor_version in
-  Cmd.v info Term.(ret (const sailor $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ dump_decl_arg $ setup_log_term $ force_comp $ extra_paths $ as_lib))
+  Cmd.v info Term.(ret (const sailor $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ dump_decl_arg $ setup_log_term $ force_comp $ extra_paths $ as_lib $ clang_args))
 
 let () = Cmd.eval cmd |> exit

@@ -171,7 +171,7 @@ let buildLoop (location : loc) (cfg : cfg) : cfg ESC.t =
     blocks = BlockMap.(singleton inputLbl inputBlock |> add outputLbl outputBlock |> union disjoint goto.blocks)
   }
 
-let buildInvoke (l : loc) (origin:import) (id : loc * string) (target : string option) (el : expression list) : cfg ESC.t =
+let buildInvoke (l : loc) (origin:import) (id : l_str) (target : string option) (el : expression list) : cfg ESC.t =
   let* env = match target with 
   | None -> ESC.get_env 
   | Some tid -> ESC.update_var l tid assign_var >> ESC.get_env 

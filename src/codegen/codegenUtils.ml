@@ -20,14 +20,14 @@ let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
   | LChar c -> const_int (i8_type llvm.c) (Char.code c)
   | LString s -> build_global_stringptr  s ".str" llvm.b
 
-let ty_of_compound_type (t:sailtype) env : sailtype  =
+let ty_of_alias(t:sailtype) env : sailtype  =
   match t with
-  | CompoundType  {origin=Some (_,mname); name=(_,name);_} -> 
+  | CompoundType  {origin=Some (_,mname); name=(_,name);decl_ty=Some T ();_} -> 
     begin
     match DeclEnv.find_decl name (Specific (mname,Type)) env with 
     | Some {ty=Some t';_} -> t'
     | Some {ty=None;_} -> t
-    | None -> failwith @@ Fmt.str "type '%s' not found in %s" (string_of_sailtype (Some t)) mname
+    | None -> failwith @@ Fmt.str "ty_of_alias :  '%s' not found in %s" (string_of_sailtype (Some t)) mname
     end
   | _ ->  t
 

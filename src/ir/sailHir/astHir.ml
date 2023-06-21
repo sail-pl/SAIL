@@ -32,9 +32,9 @@ type ('info,'import) expression = {info: 'info ; exp: ('info,'import) _expressio
   | BinOp of binOp * ('info,'import)  expression * ('info,'import) expression
   | Ref of bool * ('info,'import) expression
   | ArrayStatic of ('info,'import) expression list
-  | StructAlloc of (loc * string) * ('info,'import) expression FieldMap.t
-  | EnumAlloc of (loc * string) * ('info,'import) expression list 
-  | MethodCall of (loc * string) * 'import * ('info,'import) expression list
+  | StructAlloc of l_str * ('info,'import) expression dict
+  | EnumAlloc of l_str * ('info,'import) expression list 
+  | MethodCall of l_str * 'import * ('info,'import) expression list
 
   
 
@@ -49,7 +49,7 @@ type ('info,'import,'exp) statement = {info: 'info; stmt: ('info,'import,'exp) _
   | Loop of ('info,'import,'exp) statement
   | Break
   | Case of 'exp * (string * string list * ('info,'import,'exp) statement) list
-  | Invoke of string option * 'import * (loc * string) * 'exp list
+  | Invoke of string option * 'import * l_str * 'exp list
   | Return of 'exp option
   | Run of (loc*string) * 'exp list
   | Emit of string

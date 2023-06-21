@@ -121,6 +121,15 @@ module MonadFunctions (M : Monad) = struct
           let* () = f x in 
           iter f next 
 
+      let rec iter2 (f : 'a -> 'b -> unit M.t ) (s1 : 'a Seq.t) (s2 : 'b Seq.t) : unit M.t =
+        match s1 () with
+        | Nil -> return ()
+        | Cons (x, xs) ->
+            match s2 () with
+            | Nil -> return ()
+            | Cons (y, ys) ->
+                f x y >> iter2 f xs ys
+
     let rec fold_left (f : 'a -> 'b -> 'a M.t) (acc : 'a) (s : 'b Seq.t) : 'a M.t =
       match s () with
       | Nil -> return acc
@@ -157,7 +166,7 @@ module MonadFunctions (M : Monad) = struct
       let iter(f : MMap.key -> 'a -> unit M.t) (m : 'a MMap.t) : unit M.t = 
         let rec aux (l : (MMap.key * 'a) Seq.t) : unit M.t =
           match l () with
-          | Seq.Nil -> M.pure ()
+          | Seq.Nil -> return ()
           | Seq.Cons ((k, a), v) -> f k a >> aux v
         in  
         aux (MMap.to_seq m) 
@@ -188,8 +197,14 @@ module MonadFunctions (M : Monad) = struct
           
     let rec iter (f : 'a -> unit M.t)  (l : 'a list) : unit M.t = 
         match l with 
-        | [] -> M.pure ()
+        | [] -> return ()
         | h::t -> f h >> iter f t
+
+    let rec iter2 f l1 l2 =
+      match (l1, l2) with
+        ([], []) -> return ()
+      | (a1::l1, a2::l2) -> let* () = f a1 a2 in iter2 f l1 l2
+      | (_, _) -> invalid_arg "ListM.iter2"
 
     let rec fold_left (f : 'a -> 'b -> 'a M.t) (x : 'a) (l : 'b list) : 'a M.t = 
       match l with 

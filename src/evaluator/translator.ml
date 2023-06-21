@@ -93,8 +93,7 @@ let removeCalls (p : SailModule.moduleSignature list) (e : expression) : Interme
         let _ = write c in
           return (Intermediate.Path (Intermediate.StructField(p0,f)))
     | StructAlloc ((_,x), fel) -> 
-        let l = FieldMap.fold (fun x a y -> (x,a)::y) fel [] in    
-        let* l = ListM.map (pairMap2 aux) l in
+        let* l = ListM.map (pairMap2 aux) fel in
         let m = List.fold_left (fun x (y,e) -> FieldMap.add y e x) FieldMap.empty l in
         return (Intermediate.StructAlloc(x,m)) 
     | EnumAlloc ((_,x),el) ->

@@ -88,7 +88,7 @@ module Pass =  Pass.MakeFunctionPass(V)
         | ArrayStatic el -> 
           let+ el = ListM.map aux el in {info;exp=ArrayStatic el}
         | StructAlloc (id, m) ->
-          let+ m = MapM.map (fun _ -> aux) m in {info; exp=StructAlloc (id, m)}
+          let+ m = ListM.map (pairMap2 aux) m in {info; exp=StructAlloc (id, m)}
         | EnumAlloc (id, el) ->
           let+ el = ListM.map aux el in  {info;exp=EnumAlloc (id, el)}
         | MethodCall ((l_id,id), mod_loc, el) ->

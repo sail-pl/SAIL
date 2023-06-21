@@ -29,9 +29,9 @@ struct
         let+ () = ESC.update_var (fst lt) id assign_var in buildExp lt (Variable id)
       | Deref e -> rexpr e 
       | ArrayRead (e1, e2) -> let+ e1' = lexpr e1 and* e2' = rexpr e2 in buildExp lt (ArrayRead(e1',e2'))
-      | StructRead _ | StructAlloc _ | EnumAlloc _ | Ref _ -> 
-        let+ () = ESC.error @@ Error.make (fst lt) "todo" in buildExp lt (Variable(""))
-      | _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
+      | StructRead (e,field) -> let+ e = lexpr e in buildExp lt (StructRead (e,field))
+      | Ref _ -> ESC.error @@ Error.make (fst lt) "todo"
+      |  _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
   and rexpr (e : Thir.expression) : expression ESC.t = 
     let lt = e.info in 
     let open IrHir.AstHir in
@@ -41,14 +41,22 @@ struct
       | Literal l -> buildExp lt (Literal l) |> ESC.pure
       | Deref e -> lexpr e 
       | ArrayRead (array_exp,idx) -> let+ arr = rexpr array_exp and* idx' = rexpr idx in buildExp lt (ArrayRead(arr,idx'))
-      | StructRead _ -> let+ () = ESC.error @@ Error.make (fst lt) "todo" in buildExp lt (Variable(""))
       | UnOp (o, e) -> let+ e' = rexpr e in buildExp lt (UnOp (o, e'))
       | BinOp (o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in buildExp lt (BinOp(o, e1', e2'))
       | Ref (b, e) -> let+ e' = rexpr e in buildExp lt (Ref(b, e'))
       | ArrayStatic el -> let+ el' = ListM.map rexpr el in buildExp lt (ArrayStatic el')
-      | MethodCall _ -> ESC.error @@ Error.make (fst lt) @@ "no method call should be present at this point" 
-      | _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
+      | StructRead (struct_exp,field)  -> 
+        let+ exp = rexpr struct_exp in 
+         buildExp lt (StructRead (exp,field))  
       
+      | StructAlloc (id, fields) -> 
+        let+ fields = ListM.map (pairMap2 (rexpr)) fields in 
+        buildExp lt (StructAlloc(id,fields))
+      | MethodCall _ 
+      | _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
+
+
+
       open MonadFunctions(E)
       open MonadSyntax(E)     
 
@@ -147,8 +155,8 @@ struct
         ([],cfg)
         
       | Invoke (target, ({mname;_} as ml), (l,id), el) -> 
-        let* (_,realname,_) = ESC.throw_if_none (SailModule.DeclEnv.find_decl id (Specific (mname,Method)) (snd env))
-                                                (Error.make loc @@ Fmt.str "Compiler Error : function '%s' must exist" id) 
+        let* (_,realname,_) = ESC.throw_if_none (Error.make loc @@ Fmt.str "Compiler Error : function '%s' must exist" id) 
+                                                (SailModule.DeclEnv.find_decl id (Specific (mname,Method)) (snd env))
         in
         let* el' = ListM.map rexpr el in
         let+ invoke = buildInvoke loc {ml with mname} (l,realname) target el' in

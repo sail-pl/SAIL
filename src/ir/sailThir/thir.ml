@@ -27,8 +27,8 @@ struct
   let rec aux (e:Hir.expression) : expression ES.t = 
     let loc = e.info in  match e.exp with
     | Variable id -> 
-      let* v = ES.get_var id in 
-      let+ (_,(_,t)) = ES.throw_if_none v (Error.make loc @@ Printf.sprintf "unknown variable %s" id) in
+      let+ (_,(_,t)) = ES.get_var id >>=
+                       ES.throw_if_none (Error.make loc @@ Printf.sprintf "unknown variable %s" id) in
       buildExp (loc,t) @@ Variable id
 
     | Deref e -> let* e = lower_rexp generics e in
@@ -47,13 +47,30 @@ struct
             (* can do a simple oob check if the type is an int literal *)
             match idx.exp with
             | Literal (LInt n) ->
-              ES.throw_if (n < 0 || n >= size) 
-              (Error.make (fst idx.info) @@ Printf.sprintf "index out of bounds : must be between 0 and %i (got %i)" (size - 1) n)
+              ES.throw_if (Error.make (fst idx.info) @@ Printf.sprintf "index out of bounds : must be between 0 and %i (got %i)" (size - 1) n)
+                          (n < 0 || n >= size) 
             | _ -> return ()
           end >> return @@ buildExp (loc,t) @@ ArrayRead (array_exp,idx)
         | _ ->  ES.throw (Error.make loc "not an array !")
       end
-    | StructRead _ | StructAlloc _ | EnumAlloc _ -> ES.throw (Error.make e.info "todo")
+    | StructRead (e,field) ->  
+      let* self = ES.get >>| fun (_,e) -> THIREnv.D.get_name e in
+      let* e = lower_rexp generics e in 
+      let+ t = 
+      begin
+        match e.info with
+        | l, CompoundType {name=_,name;decl_ty=Some S ();_} ->
+           let* (_,strct) = ES.get_decl name (Specific (self,Struct)) >>= ES.throw_if_none (Error.make l "something wrong") in
+           let+  _,t,_ = List.assoc_opt field strct.fields 
+                        |> ES.throw_if_none (Error.make l @@ Fmt.str "field '%s' is not part of structure '%s'" field name) 
+          in t
+
+        | l,t -> 
+          let* str = string_of_sailtype_thir (Some t) in 
+          ES.throw (Error.make l @@ Fmt.str "expected a structure but got type '%s'" str)
+      end in
+      buildExp (loc,t) (StructRead (e,field))
+
     | _ -> ES.throw (Error.make loc "not a lvalue !")
 
     in aux e
@@ -61,8 +78,7 @@ struct
   let rec aux (e:Hir.expression) : expression ES.t = 
     let loc = e.info in match e.exp with
     | Variable id -> 
-      let* v = ES.get_var id in 
-      let+ (_,(_,t)) = ES.throw_if_none v (Error.make loc @@ Printf.sprintf "unknown variable %s" id) in
+      let+ (_,(_,t)) = ES.get_var id >>= ES.throw_if_none (Error.make loc @@ Printf.sprintf "unknown variable %s" id) in
       buildExp (loc,t) @@ Variable id
     | Literal li -> let t = sailtype_of_literal li in return @@ buildExp (loc,t) @@ Literal li
     | UnOp (op,e) -> let+ e = aux e in buildExp e.info @@ UnOp (op,e)
@@ -81,7 +97,7 @@ struct
       let first_t = snd first_t.info in
       let* el = ListM.map (
         fun e -> let+ e = aux e in
-        let+ _ = matchArgParam e.info first_t [] [] in e
+        matchArgParam e.info first_t [] [] >> return e
       ) el in 
       let+ el = ListM.sequence el in
       let t = ArrayType (first_t, List.length el) in 
@@ -90,15 +106,39 @@ struct
     | MethodCall ((l,name) as lid,source,el) -> 
       let* (el: expression list) = ListM.map (lower_rexp generics) el in 
       let* mod_loc,(_,_realname,m) = find_function_source e.info None lid source el in
-      let+ ret = ES.throw_if_none m.ret  (Error.make e.info "methods in expressions should return a value") in
+      let+ ret = ES.throw_if_none (Error.make e.info "methods in expressions should return a value") m.ret in
       buildExp (loc,ret) (MethodCall ((l,name),mod_loc,el)) 
 
 
     | ArrayRead _ -> lower_lexp generics e  (* todo : some checking *)
+    | StructRead _ -> lower_lexp generics e (* todo : some checking *)
     | Deref _ -> lower_lexp generics e  (* todo : some checking *)
-    | StructAlloc _ 
-    | EnumAlloc _ -> ES.throw (Error.make loc "enum alloc is not a rvalue !")
-    | StructRead _ ->   ES.throw (Error.make loc "todo struct read")
+    | StructAlloc (name,fields) -> 
+      let* (l,strct) = ES.(get_decl (snd name) (Self Struct) >>= throw_if_none (Error.make (fst name) "unknown struct")) in
+      
+      let struct_fields = List.to_seq strct.fields in 
+
+      let fields = FieldMap.(merge (
+        fun n f1 f2 -> match f1,f2 with 
+        | Some _, Some e -> Some(let+ e = lower_rexp generics e in (n,e))
+        | None,None -> None 
+        | None, Some (e:Hir.expression)  -> Some (ES.throw @@ Error.make e.info @@ Fmt.str "no field '%s' in struct '%s'" n (snd name))
+        | Some (l,_,_), None -> Some (ES.throw @@ Error.make l @@ Fmt.str "missing field '%s' from struct '%s'" n (snd name))
+      ) (struct_fields |> of_seq) (fields |> List.to_seq |> of_seq ) |> to_seq) in
+      
+      ES.throw_if (Error.make (fst name) "missing fields ") Seq.(length fields < Seq.length struct_fields) >>
+
+      let* fields = SeqM.sequence (Seq.map snd fields) in
+
+      SeqM.iter2 (fun (_,(e:expression)) (_name2,(_,t,_)) -> matchArgParam e.info t [] [] >> return ()) 
+      fields
+      struct_fields >>
+      
+      let+ self = ES.get >>| fun (_,e) -> THIREnv.D.get_name e in
+      let ty = CompoundType {origin=Some (l,self);decl_ty=Some (S ()); name; generic_instances=[]} in 
+      buildExp (loc,ty) (StructAlloc (name, List.of_seq fields))
+
+    | EnumAlloc _ -> ES.throw (Error.make loc "todo enum alloc ")
   in aux e
 
 

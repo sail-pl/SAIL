@@ -9,11 +9,11 @@ open MakeOrderedFunctions(ImportCmp)
 open Monad.MonadSyntax(E)
 
 module Declarations = struct
+  include SailModule.Declarations
   type process_decl = unit
   type method_decl = {defn : IrMir.Mir.Pass.out_body method_defn ; llval :  llvalue ; extern : bool}
-  type struct_decl = unit
+  type struct_decl = {defn : struct_proto; ty : lltype}
   type enum_decl = unit
-  type type_decl = SailModule.Declarations.type_decl
 end
 
 module DeclEnv = DeclarationsEnv (Declarations)
@@ -39,18 +39,26 @@ let getLLVMType (t : sailtype) (env:DeclEnv.t) (llc: llcontext)  (_llm: llmodule
   | String -> i8_type llc |> pointer_type
   | ArrayType (t,s) -> array_type (aux t) s
   | CompoundType {name=(_,name); _} when name = "_value" -> i64_type llc (* for extern functions *)
-  | CompoundType  {origin=Some (_,mname); name=(_,name); _} -> 
+  | CompoundType  {origin=Some (_,mname); name=(_,name); decl_ty=Some f;_} -> 
     (* only looking at type alias for now *)
     begin
-    match DeclEnv.find_decl name (Specific (mname,Type)) env with 
-    | Some {ty=Some t;_} -> aux t 
-    | Some {ty=None;_} -> i64_type llc
-    | None -> failwith @@ Fmt.str "type '%s' not found in %s" (string_of_sailtype (Some t)) mname
+    match DeclEnv.find_decl name (Specific (mname,Filter [f])) env with 
+    | Some (T tdef) -> 
+      begin
+        match tdef with
+        | {ty=Some t;_} -> aux t 
+        | {ty=None;_} -> i64_type llc
+      end
+    | Some (E _enum) -> failwith "todo enum"
+    | Some (S {ty;_}) -> ty
+    | Some _ -> failwith "something is broken"
+    | None -> failwith @@ Fmt.str "getLLVMType : type '%s' not found in %s" (string_of_sailtype (Some t)) mname
+
     end
 
   | Box t | RefType (t,_) -> aux t |> pointer_type
   | GenericType _ -> failwith "there should be no generic type, was degenerifyType used ? " 
-  | CompoundType {origin=None;_} -> failwith "compound type with no origin"
+  | CompoundType {origin=None;_} | CompoundType {decl_ty=None;_} -> failwith "compound type with no origin or decl_ty"
   in
   aux t
 
@@ -71,7 +79,7 @@ let get_declarations (sm: IrMir.Mir.Pass.out_body SailModule.t) llc llm : DeclEn
 
   let valueify_method_sig (m:method_sig) : method_sig =
     let open Monad.MonadOperator(MonadOption.M) in
-    let value = fun pos -> CompoundType{origin=None;name=(pos,"_value");generic_instances=[]} in
+    let value = fun pos -> CompoundType{origin=None;name=(pos,"_value");generic_instances=[];decl_ty=None} in
     let rtype = m.rtype in (* keep the current type *)
     let params = List.map (fun (p:param) -> {p with ty=(value p.loc)}) m.params in
     {m with params; rtype}
@@ -97,14 +105,27 @@ let get_declarations (sm: IrMir.Mir.Pass.out_body SailModule.t) llc llm : DeclEn
     ) curr_env methods
   in
 
+  let module SEnv = MakeFromSequencable(SailModule.DeclEnv.StructSeq) in 
   let module TEnv = MakeFromSequencable(SailModule.DeclEnv.TypeSeq) in
 
   (* load types *)
   let* env = TEnv.fold (fun acc (id,d) -> DeclEnv.add_decl id d Type acc)  
           (DeclEnv.empty |> DeclEnv.set_name sm.md.name) 
             SailModule.DeclEnv.(get_own_decls sm.declEnv |> get_decls Type)  
-            (* let env =  (DeclEnv.empty |> DeclEnv.set_name sm.md.name)   *)
   in
+
+  (* load structs *)
+  let* env = SEnv.fold (fun acc (name,(_,s)) -> 
+    let _,f_types = List.split s.fields in
+    let elts = List.map (fun (_,t,_) -> getLLVMType t env llc llm ) f_types |> Array.of_list in
+    let struct_type =  name |> named_struct_type llc in
+    struct_set_body struct_type elts false;
+    DeclEnv.add_decl name {defn=s; ty=struct_type} Struct acc
+    )  env SailModule.DeclEnv.(get_own_decls sm.declEnv |> get_decls Struct)
+  in
+
+  (* todo : enums *)
+
   let sorted_imports = (sm.imports |> ImportSet.elements |> List.sort (fun i1 i2 -> Int.compare i1.proc_order i2.proc_order)) in 
 
   (* Logs.debug (fun m -> m "import processing order : %s" (List.map (fun (i:import) -> Fmt.str "%i:%s" i.proc_order i.mname) sorted_imports |> String.concat " " )); *)
@@ -125,8 +146,6 @@ let get_declarations (sm: IrMir.Mir.Pass.out_body SailModule.t) llc llm : DeclEn
   
   (* convert own methods *)
   methods_to_proto decls sm.methods false
-  (* todo : enums & structs *)
-
 
 
 

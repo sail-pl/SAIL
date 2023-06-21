@@ -29,6 +29,8 @@ module Make(MonoidSeq : Monad.Monoid) = struct
     let get_decl id ty = ECS.bind ECS.get (fun e -> HIREnv.get_decl id ty e |> ECS.pure) |> lift
     let fresh = ECS.fresh |> lift
     let throw e = ECS.throw e |> lift 
+    let throw_if e b = ECS.throw_if e b |> lift 
+
     let log e = ECS.log e |> lift 
     let get_env = ECS.get |> lift
   end
