@@ -2,6 +2,7 @@ open TypesCommon
 module E = Error.Logger
 open Monad
 open MonadSyntax(E)
+open MonadOperator(E)
 
 module type Declarations = sig
   type process_decl
@@ -9,7 +10,6 @@ module type Declarations = sig
   type struct_decl
   type enum_decl
   type type_decl
-
   (* val string_of_process : process_decl -> string
   val string_of_method : method_decl -> string
   val string_of_enum : enum_decl -> string
@@ -25,12 +25,15 @@ end
 
   type 'a container
 
+  type decls = (method_decl, process_decl,struct_decl,enum_decl,type_decl) decl_sum
+
   type _ decl_ty = 
     | Method : method_decl decl_ty
     | Process : process_decl decl_ty
     | Struct : struct_decl decl_ty
     | Enum : enum_decl decl_ty
     | Type : type_decl decl_ty
+    | Filter : unit_decl list -> decls decl_ty
 
   type ('a,_) search_type = 
   | All : 'a decl_ty -> ('a,(import * 'a) list) search_type
@@ -78,6 +81,8 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
   open D
   open MonadOperator(E)
 
+  type decls = (method_decl, process_decl,struct_decl,enum_decl,type_decl) decl_sum
+
   type 'a container = 'a FieldMap.t
 
   type _ decl_ty = 
@@ -86,6 +91,7 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
     | Struct : struct_decl decl_ty
     | Enum : enum_decl decl_ty
     | Type : type_decl decl_ty
+    | Filter : unit_decl list -> decls decl_ty
 
   type ('a,_) search_type = 
     | All : 'a decl_ty -> ('a,(import * 'a) list) search_type
@@ -116,7 +122,7 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
       processes = FieldMap.empty;
       structs = FieldMap.empty;
       enums = FieldMap.empty;
-      types = FieldMap.empty
+      types = FieldMap.empty;
     } ; 
 
     imports = [];
@@ -137,8 +143,15 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
   | Struct -> fun env -> env.structs
   | Enum -> fun env -> env.enums
   | Type -> fun env -> env.types
-
-
+  | Filter decls -> fun env -> Seq.(
+    let get d f e = if (List.mem d decls) then map f e else empty in
+    Seq.empty
+    |> append (get (M ()) (fun (id,d) -> id,M d) (FieldMap.to_seq env.methods))
+    |> append (get (P ()) (fun (id,d) -> id,P d) (FieldMap.to_seq env.processes)) 
+    |> append (get (S ()) (fun (id,d) -> id,S d) (FieldMap.to_seq env.structs))
+    |> append (get (E ()) (fun (id,d) -> id,E d) (FieldMap.to_seq env.enums))
+    |> append (get (T ()) (fun (id,d) -> id,T d) (FieldMap.to_seq env.types))
+    |> FieldMap.of_seq)
 
 
   let update_decls (type d) (f: d FieldMap.t -> d FieldMap.t) (ty: d decl_ty) (env:env) : env =
@@ -149,6 +162,7 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
     | Struct -> {env with structs= res}
     | Type -> {env with types= res}
     | Enum -> {env with enums=res}
+    | Filter _ -> failwith "Filter shouldn't be used in update_decls"
 
   let update_decl (type d) (id: string) (decl : d) (ty : d update_type) (env:t) : t = match ty with
     | Self ty ->  {env with self=update_decls (FieldMap.update id (function Some _d -> Some decl | None -> None)) ty env.self}
@@ -158,7 +172,7 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
   let overwrite_decls (type d) (field: d container) = update_decls (fun _ -> field) 
 
   let add_decl (type d) id (decl:d) (ty: d decl_ty) (env:t) : t E.t = 
-    E.throw_if (FieldMap.mem id (get_decls  ty env.self)) (Error.make dummy_pos @@ Fmt.str "declaration %s already exists" id) >>
+    E.throw_if (Error.make dummy_pos @@ Fmt.str "duplicate declarations for '%s'" id) (FieldMap.mem id (get_decls  ty env.self))  >>
     return {env with self=update_decls (FieldMap.add id decl) ty env.self}
 
 
@@ -215,8 +229,9 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
     if m = env.name  then
       return (FieldMap.iter f (get_decls d env.self))
     else
-    let+ env = E.throw_if_none (List.find_opt (fun ({mname;_},_) -> mname = m) env.imports)
-                               (Error.make dummy_pos "can't happen") in
+    let+ env = E.throw_if_none (Error.make dummy_pos "can't happen")
+                               (List.find_opt (fun ({mname;_},_) -> mname = m) env.imports)
+                                in
           FieldMap.iter f (get_decls d (snd env) )
 
   | Self d -> return (FieldMap.iter f (get_decls d env.self ))
@@ -243,6 +258,7 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
           let of_seq : seq_ty Seq.t -> T.t container = of_seq
   end
 
+      
   module MethodSeq = MakeSequencable(struct type t = D.method_decl end)
   module TypeSeq = MakeSequencable(struct type t = D.type_decl end)
   module EnumSeq = MakeSequencable(struct type t = D.enum_decl end)
@@ -258,34 +274,53 @@ module type Variable = sig
   val to_var : string -> bool -> sailtype -> t 
 end
  
-module VariableEnv (V : Variable) = struct
+
+module type VariableEnvType = functor (V : Variable) -> sig
   type variable = loc * V.t
   type frame = variable FieldMap.t
-  type t = frame list
-  let empty : t = [FieldMap.empty]
+  type t = {stack:frame list}
+  val empty : t
+  val new_frame : t -> t
+  val string_of_env : t -> string
+  val get_var : string -> t -> variable option
+  val declare_var : string -> variable -> t -> t E.t
+  val update_var : loc -> (variable  -> variable E.t) -> string -> t -> t E.t
+  val pop_frame : t -> t
+
+  val init_env : param list -> t E.t
+end
+
+
+
+module VariableEnv : VariableEnvType = functor (V : Variable) -> struct
+  type variable = loc * V.t
+  type frame = variable FieldMap.t
+  type t = {stack:frame list}
+  let empty : t = let c = FieldMap.empty in {stack=[c]}
+  
   let push_frame env s = s :: env
 
-  let pop_frame env = List.tl env
+  let pop_frame env =  {stack=List.tl env.stack}
 
-  let new_frame e =
+  let new_frame (e:t) =
     let c = FieldMap.empty in
-    push_frame e c
+    {stack=push_frame e.stack c}
 
-  let current_frame = function [] -> failwith "environnement is empty !" | (h::t) ->  h,t
+  let current_frame : frame list -> frame * frame list = function [] -> failwith "environnement is empty !" | (h::t) ->  h,t
 
-  let print_env (e:t) =
-    let rec aux (env:t) : string = 
-      let c,env = current_frame env in
+  let string_of_env (e:t) =
+    let rec aux (env:frame list) : string = 
+      let c,stack = current_frame env in
       let p =
         FieldMap.fold 
           (fun n (_,v) -> let s = Printf.sprintf "(%s:%s) " n (V.string_of_var v) in fun n  ->  s ^ n) c "]"
       in let c = "\t[ " ^ p  in
-      match env with
+      match stack with
       | [] -> c ^ "\n"
-      | _ -> c ^ "\n"  ^ aux env
+      | _ -> c ^ "\n"  ^ aux stack
     in 
     try
-    Printf.sprintf "env : \n{\n %s }" (aux e)
+    Printf.sprintf "env : \n{\n %s }" (aux e.stack)
     with _ -> failwith "problem with printing env (env empty?)"
 
     let get_var name e   = 
@@ -295,15 +330,15 @@ module VariableEnv (V : Variable) = struct
       | Some v -> Some v
       | None  when env = [] -> None
       | _ -> aux env
-      in aux e
+      in aux e.stack
 
-  let declare_var name (l,_ as v:variable) (e:t): frame list E.t =
-    let current,env = current_frame e in
+  let declare_var name (l,_ as v:variable) (e:t): t E.t =
+    let current,stack = current_frame e.stack in
     match FieldMap.find_opt name current with 
     | None -> 
       let upd_frame = FieldMap.add name v current in
-      push_frame env upd_frame |> E.pure
-    | Some _ -> let+ () = E.throw @@ Error.make l @@ Printf.sprintf "variable %s already declared !" name in e
+      let stack = push_frame stack upd_frame in {stack} |> E.pure
+    | Some _ -> E.throw (Error.make l @@ Printf.sprintf "variable %s already declared !" name) >> return e
 
 
     let init_env (args:param list) : t E.t =
@@ -315,14 +350,16 @@ module VariableEnv (V : Variable) = struct
       ) args
       env
 
-    let update_var (e:t) l (f:variable -> variable E.t ) name : t E.t =
-      let rec aux env  = 
-        let current,env = current_frame env in
+    let update_var l (f:variable -> variable E.t ) name (e:t) : t E.t =
+      let rec aux (stack: frame list)  = 
+        let current,stack = current_frame stack in
         match FieldMap.find_opt name current with 
-        | Some v -> let+ v' = f v in FieldMap.add name v' current :: env
-        | None  when env = [] -> let+ () = E.throw @@ Error.make l @@ Printf.sprintf "variable %s not found" name in e
-        | _ -> let+ e = aux env in current :: e
-        in aux e 
+        | Some v -> let+ v' = f v in FieldMap.add name v' current :: stack
+        | None  when stack = [] -> E.throw (Error.make l @@ Printf.sprintf "variable %s not found" name) >> return e.stack
+        | _ -> let+ e = aux stack in current :: e
+      in 
+      let+ stack = aux (e.stack) in 
+      {stack}
   
 
 end
@@ -349,7 +386,6 @@ module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
   let get_env (env,_) = env
 
   let empty g : t = VE.empty,g
-
 
   let get_start_env (decls:D.t) (args:param list) : t E.t =
     let+ venv = VE.init_env args in

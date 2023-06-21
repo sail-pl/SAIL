@@ -75,19 +75,19 @@ let levenshtein_distance s t =
 
 module type Logger = sig
   include MonadTransformer
-  val catch : 'a t -> (error -> 'a t) -> 'a t
+  val catch :  (error -> 'a t) -> 'a t -> 'a t
 
-  val get_error : 'a t -> (error -> unit) -> 'a t
+  val get_error : (error -> unit) -> 'a t -> 'a t
   val throw : error -> 'a t
   val log : error -> unit t
   val recover : 'a -> 'a t -> 'a t
   val fail :  'a t -> 'a t
-  val log_if : bool -> error -> unit t
-  val throw_if : bool -> error -> unit t
-  val throw_if_none : 'a option -> error -> 'a t
-  val throw_if_some : 'a option -> ('a -> error) -> unit t
+  val log_if : error -> bool ->  unit t
+  val throw_if : error -> bool ->  unit t
+  val throw_if_none : error -> 'a option -> 'a t
+  val throw_if_some :  ('a -> error) -> 'a option -> unit t
 
-  val get_warnings : 'a t -> (error list -> unit) -> 'a t
+  val get_warnings : (error list -> unit) -> 'a t -> 'a t
 
 
 end
@@ -124,14 +124,14 @@ end
 
   let throw (e:error) : 'a t = (Error e,[]) |> M.pure
 
-  let catch (x : 'a t) (f:error -> 'a t) : 'a t = 
+  let catch (f:error -> 'a t) (x : 'a t) : 'a t = 
   let* v,l = x in 
   match v with
   | Error err -> let+ x,l2 = f err in x,l@l2
   | Ok x ->  (Ok x,l) |> M.pure 
 
 
-  let get_error (x : 'a t) (f:error -> unit) : 'a t = 
+  let get_error  (f:error -> unit) (x : 'a t) : 'a t = 
     let* v,l = x in 
     match v with
     | Error err -> f err; ((Error err),l) |> M.pure 
@@ -154,21 +154,21 @@ end
     | Ok x,[] -> Ok x,[]
     | Ok _,h::t -> Error h,t
 
-  let log_if b e = if b then log e else pure ()
-  let throw_if b e = if b then throw e else pure ()
+  let log_if e b = if b then log e else pure ()
+  let throw_if e b = if b then throw e else pure ()
 
-  let throw_if_none (x:'a option) (e: error) : 'a t = 
+  let throw_if_none  (e: error) (x:'a option) : 'a t = 
     match x with
     | None -> throw e
     | Some r -> pure r
 
-  let throw_if_some (x:'a option) (f: 'a -> error) : unit t = 
+  let throw_if_some  (f: 'a -> error) (x:'a option) : unit t = 
     match x with
     | Some r -> throw (f r)
     | None -> pure ()
 
 
-  let get_warnings (x : 'a t) (f : error list -> unit) : 'a t =
+  let get_warnings  (f : error list -> unit) (x : 'a t) : 'a t =
     let+ v,l = x in f l; (v,l) 
 
 end

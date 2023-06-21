@@ -14,30 +14,37 @@ let get_type (e:AstMir.expression) = snd e.info
 
 let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : llvalue = 
   match x.exp with
-  | Variable x -> let _,v = SailEnv.get_var x env |> Option.get |> snd in v
+  | Variable x -> let _,v = match (SailEnv.get_var x env) with Some (_,n) -> n | None -> failwith @@ Fmt.str "var '%s' not found" x |> snd in v
   | Deref x -> eval_r env llvm x
   | ArrayRead (array_exp, index_exp) -> 
     let array_val = eval_l env llvm array_exp in
     let index = eval_r env llvm index_exp in
     let llvm_array = build_in_bounds_gep array_val [|(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
     llvm_array
-  | StructRead _ -> failwith "struct assign unimplemented"
-  | StructAlloc _ -> failwith "struct allocation unimplemented"
-  | EnumAlloc _ -> failwith "enum allocation unimplemented"
+  | StructRead (struct_exp,field) -> 
+    let st = eval_l env llvm struct_exp in
+    let st_type_name = match struct_name (type_of st |> subtypes).(0) with
+        | None -> failwith "problem with structure type"
+        | Some name -> name
+    in
+    let fields = (SailEnv.get_decl st_type_name (Self Struct) env |> Option.get).defn.fields  in
+    let _,_,idx = List.assoc field fields in 
+      build_struct_gep st idx "" llvm.b
   | _  -> failwith "problem with thir"
 
 and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue = 
   let ty = get_type x in
   match x.exp with
   | Variable _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
+  | StructRead _ -> let v = eval_l env llvm x in build_load v "" llvm.b    
+  | ArrayRead _ -> let v = eval_l env llvm x in build_load v "" llvm.b    
+
   | Literal l ->  getLLVMLiteral l llvm
-  | UnOp (op,e) -> let l = eval_r env llvm e in unary op (ty_of_compound_type ty (snd env),l) llvm.b
+  | UnOp (op,e) -> let l = eval_r env llvm e in unary op (ty_of_alias ty (snd env),l) llvm.b
   | BinOp (op,e1, e2) -> 
       let l1 = eval_r env llvm e1
       and l2 = eval_r env llvm e2
-      in binary op (ty_of_compound_type ty (snd env)) l1 l2 llvm.b
-  | StructRead _ -> failwith "struct read undefined"
-  | ArrayRead _ -> let v = eval_l env llvm x in build_load v "" llvm.b    
+      in binary op (ty_of_alias ty (snd env)) l1 l2 llvm.b  
   | Ref (_,e) -> eval_l env llvm e
   | Deref e -> let v = eval_l env llvm e in build_load v "" llvm.b
   | ArrayStatic elements -> 
@@ -53,6 +60,15 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue =
     set_global_constant true array;
     build_load array "" llvm.b
     end
+  | StructAlloc ((_,name),fields) -> 
+    let _,fieldlist = fields |> List.split in
+    let strct = match type_by_name llvm.m name with
+    | Some s -> s
+    | None -> "unknown structure : " ^ name |> failwith 
+    in
+    let values = List.map (eval_r env llvm) fieldlist |> Array.of_list in
+    const_named_struct strct values
+  | EnumAlloc _ -> failwith "enum allocation unimplemented"
   | _ -> failwith "problem with thir"
 and construct_call (name:string) (origin:import) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
   let args_type,llargs = List.map (fun arg -> get_type arg,eval_r env llvm arg) args |> List.split
@@ -74,7 +90,7 @@ and construct_call (name:string) (origin:import) (args:AstMir.expression list) (
     if ext then 
       List.map2 (fun t v -> 
       let builder =
-        match ty_of_compound_type t (snd env) with
+        match ty_of_alias t (snd env) with
         | Bool | Int | Char -> build_zext
         | Float -> build_bitcast
         | _ -> build_ptrtoint
@@ -90,7 +106,7 @@ open AstMir
   
 let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env :SailEnv.t) : unit = 
   let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t E.t=
-    let _ = mut in (* todo manage mutable types *)
+  let _ = mut in (* todo manage mutable types *)
     let entry_b = entry_block proto |> instr_begin |> builder_at llvm.c in
     let v =  
       match exp with
@@ -166,12 +182,14 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
 
     | Some _ -> llvm_bbs (* already treated, nothing to do *)
   in
-  (let+ env = ListM.fold_left (fun e (d:declaration) -> declare_var d.mut d.id d.varType None e) env decls
-  in
-  let init_bb = insertion_block llvm.b
-  and llvm_bbs = aux cfg.input BlockMap.empty env in
-  position_at_end init_bb llvm.b;
-  build_br (BlockMap.find cfg.input llvm_bbs) llvm.b) |> ignore
+  (
+    let+ env = ListM.fold_left (fun e (d:declaration) -> declare_var d.mut d.id d.varType None e) env decls
+    in
+    let init_bb = insertion_block llvm.b
+    and llvm_bbs = aux cfg.input BlockMap.empty env in
+    position_at_end init_bb llvm.b;
+    build_br (BlockMap.find cfg.input llvm_bbs) llvm.b
+  ) |> ignore
 
 let methodToIR (llc:llcontext) (llm:llmodule) (decl:Declarations.method_decl) (env:SailEnv.t) (name : string) : llvalue =
   match Either.find_right decl.defn.m_body with 

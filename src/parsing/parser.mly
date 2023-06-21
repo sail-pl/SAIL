@@ -162,7 +162,7 @@ let expression :=
     | ~ = delimited ("[", separated_list(",", expression), "]") ; <ArrayStatic>
     | id=located(ID) ; l = brace_del_sep_list(",", id_colon(expression)) ;
         {
-        let m = List.fold_left (fun x (y,(_,z)) -> FieldMap.add y z x) FieldMap.empty l
+        let m = List.fold_left (fun l (y,(_,z)) -> (y,z)::l) [] l
         in 
         StructAlloc(id, m)
         }
@@ -282,8 +282,8 @@ let sailtype :=
 | TYPE_CHAR ; {Char}
 | TYPE_STRING ; {String}
 | ARRAY ; "<" ; ~ = sailtype ; ";" ; ~ = INT ; ">" ; <ArrayType>
-| mloc = module_loc ; name = located(ID) ; generic_instances = instance ; {CompoundType {origin=Some mloc; name; generic_instances} }
-| name = located(ID) ; generic_instances = instance ; {CompoundType {origin=None; name; generic_instances}}
+| mloc = module_loc ; name = located(ID) ; generic_instances = instance ; {CompoundType {origin=Some mloc; name; generic_instances; decl_ty=None} }
+| name = located(ID) ; generic_instances = instance ; {CompoundType {origin=None; name; generic_instances; decl_ty=None}}
 | ~ = UID ; <GenericType>
 | REF ; b = mut ; t = sailtype ; {RefType(t,b)}
 

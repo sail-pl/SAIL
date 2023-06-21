@@ -12,8 +12,8 @@ struct
   type out_body  = in_body
 
   let method_of_main_process (m: in_body SailModule.t) : out_body method_defn E.Logger.t = 
-    let+ p = E.Logger.throw_if_none (List.find_opt (fun p -> p.p_name = "Main") m.processes)
-                                    (E.make dummy_pos @@ "module '" ^ m.md.name ^ "' : no Main process found") 
+    let+ p = E.Logger.throw_if_none (E.make dummy_pos @@ "module '" ^ m.md.name ^ "' : no Main process found") 
+                                    (List.find_opt (fun p -> p.p_name = "Main") m.processes)
     in
     let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = fst p.p_interface; variadic=false; rtype=Some Int} in
     let m_body = 

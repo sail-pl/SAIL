@@ -28,6 +28,20 @@ let dummy_pos : loc = Lexing.dummy_pos,Lexing.dummy_pos
 
 type 'a dict = (string * 'a) list
 
+type l_str = loc * string
+
+type ('m,'p,'s,'e,'t) decl_sum = M of 'm | P of 'p | S of 's | E of 'e | T of 't 
+
+
+type unit_decl = (unit,unit,unit,unit,unit) decl_sum
+
+let unit_decl_of_decl : (_,_,_,_,_) decl_sum -> unit_decl = function
+| M _ ->  M ()
+| P _ -> P ()
+| S _ -> S ()
+| E _ ->  E ()
+| T _ -> T ()
+
 type sailtype =
   | Bool 
   | Int 
@@ -36,8 +50,9 @@ type sailtype =
   | String
   | ArrayType of sailtype * int
   | CompoundType of {
-      origin : (loc * string) option; 
-      name : loc * string ; 
+      origin : l_str option;
+      decl_ty : unit_decl option; 
+      name : l_str ; 
       generic_instances : sailtype list
     }
   | Box of sailtype
@@ -147,7 +162,7 @@ type enum_proto =
 type struct_proto = 
 {
   generics : string list;
-  fields : (loc * sailtype) dict
+  fields : (loc * sailtype * int) dict
 }
 
 type function_proto = 
@@ -177,7 +192,7 @@ let defn_to_proto (type proto) (decl: proto decl) : proto = match decl with
   and generics = d.p_generics
   and variadic = false in
   {ret;args;generics;variadic}
-| Struct d -> {generics=d.s_generics;fields=d.s_fields}
+| Struct d -> {generics=d.s_generics;fields=List.mapi (fun i (n,(l,t)) -> n,(l,t,i)) d.s_fields}
 | Enum d -> {generics=d.e_generics;injections=d.e_injections}
 
 type import =

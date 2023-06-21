@@ -24,9 +24,9 @@ module ES = struct
   let throw e = E.throw e |> lift
   let log e = E.log e |> lift
   let log_if b e = E.log_if b e |> lift
-  let throw_if b e = E.throw_if b e |> lift
+  let throw_if e b = E.throw_if e b |> lift
 
-  let throw_if_none opt e = E.throw_if_none opt e |> lift
+  let throw_if_none e opt  = E.throw_if_none e opt  |> lift
 
 
   let run e = E.bind e (fun (e,(_,s)) -> E.pure (e,s))

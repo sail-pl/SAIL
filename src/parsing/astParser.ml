@@ -34,9 +34,9 @@ type expression = loc * expression_ and expression_ =
   | BinOp of binOp * expression * expression
   | Ref of bool * expression
   | ArrayStatic of expression list
-  | StructAlloc of (loc * string) * expression FieldMap.t
-  | EnumAlloc of (loc * string) * expression list 
-  | MethodCall of (loc * string) option *  (loc * string) * expression list
+  | StructAlloc of l_str * expression dict
+  | EnumAlloc of l_str * expression list 
+  | MethodCall of l_str option *  l_str * expression list
 
   
   type pattern =
@@ -78,22 +78,29 @@ module E = Error.Logger
 let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t E.t =
   let open SailModule in
   let open Monad.MonadSyntax(E) in
+  let open Monad.MonadOperator(E) in
   let open Monad.MonadFunctions(E) in
+
+  let rethrow where = E.catch (fun e -> E.throw {e with where}) in
+
   let rec aux = function
     | [] -> return (let e = DeclEnv.empty in DeclEnv.set_name md.name e,[],[])
     | d::l ->
       let* (e,m,p) = aux l in
         match d with
           | Type t -> 
-            let+ env = DeclEnv.add_decl t.name t Type e
+            let+ env = DeclEnv.add_decl t.name t Type e |> rethrow t.loc
             in (env,m,p)
 
           | Struct d -> 
-            let+ env = DeclEnv.add_decl d.s_name (d.s_pos, defn_to_proto (Struct d)) Struct e
+            let fields = List.sort_uniq (fun (s1,_) (s2,_) -> String.compare s1 s2) d.s_fields in
+            E.throw_if (Error.make d.s_pos "duplicate fields" )
+            (List.(length fields <> length d.s_fields)) >>
+            let+ env = DeclEnv.add_decl d.s_name (d.s_pos, defn_to_proto (Struct d)) Struct e |> rethrow d.s_pos
             in (env,m,p)
 
           | Enum d -> 
-            let+ env = DeclEnv.add_decl d.e_name (d.e_pos, defn_to_proto (Enum d)) Enum e
+            let+ env = DeclEnv.add_decl d.e_name (d.e_pos, defn_to_proto (Enum d)) Enum e |> rethrow d.e_pos
             in (env,m,p)
 
           | Method d -> 

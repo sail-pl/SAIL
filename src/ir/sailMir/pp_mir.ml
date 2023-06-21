@@ -21,7 +21,7 @@ let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit
       let pp_field pf (x, y) = Format.fprintf pf "%s:%a" x ppPrintExpression y in
       Format.fprintf pf "%s{%a}" (snd id)
         (Format.pp_print_list ~pp_sep:pp_comma pp_field)
-        (Common.TypesCommon.FieldMap.bindings m)
+        m
     | EnumAlloc (id,el) ->  
       Format.fprintf pf "[%s(%a)]" (snd id)
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
@@ -60,7 +60,7 @@ let ppPrintFrame (pf : Format.formatter) (f : VE.frame) =
 
 let ppPrintBasicBlock (pf : Format.formatter) (lbl : label) (bb : basicBlock) : unit = 
   let pp_env pf bb = 
-    Format.fprintf pf "%a" (Format.pp_print_list ~pp_sep:pp_force_newline ppPrintFrame) bb.env in
+    Format.fprintf pf "%a" (Format.pp_print_list ~pp_sep:pp_force_newline ppPrintFrame) bb.env.stack in
 
   let pp_preds pf bb = 
     Format.fprintf pf "%a\n" ppPrintPredecessors bb.predecessors in
