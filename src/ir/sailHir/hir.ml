@@ -104,29 +104,34 @@ struct
     | Loop c -> let+ c = aux c in 
       buildStmt (Loop c)
 
-    | For {var;values;body} ->  
-      let open AstParser in 
-      let arr_id = "_for_arr_" ^ var in 
-      let i_id = "_for_i_" ^ var in 
-      let arr_length = List.length values in 
+    | For {var;iterable;body} ->  
+      begin
+      match iterable with 
+      | _,ArrayStatic el ->
+        let open AstParser in 
+        let arr_id = "_for_arr_" ^ var in 
+        let i_id = "_for_i_" ^ var in 
+        let arr_length = List.length el in 
 
-      let tab_decl = info,DeclVar (false, arr_id, Some (ArrayType (Int,arr_length)), Some (info, ArrayStatic values)) in
-      let var_decl = info,DeclVar (true, var, Some Int, None) in 
-      let i_decl = info,DeclVar (true, i_id, Some Int, Some (info,(Literal (LInt 0)))) in 
+        let tab_decl = info,DeclVar (false, arr_id, Some (ArrayType (Int,arr_length)), Some iterable) in
+        let var_decl = info,DeclVar (true, var, Some Int, None) in 
+        let i_decl = info,DeclVar (true, i_id, Some Int, Some (info,(Literal (LInt 0)))) in 
 
-      let tab = info,Variable arr_id in 
-      let var = info,Variable var in
-      let i = info,Variable i_id in
-      
-      let cond = info,BinOp (Lt, i, (info,Literal (LInt arr_length))) in 
-      let incr = info,Assign (i,(info,BinOp (Plus, i, (info, Literal (LInt 1))))) in
-      let init = info,Seq ((info,Seq (tab_decl,var_decl)), i_decl) in 
-      let vari = info, Assign (var,(info,ArrayRead(tab,i))) in 
+        let tab = info,Variable arr_id in 
+        let var = info,Variable var in
+        let i = info,Variable i_id in
+        
+        let cond = info,BinOp (Lt, i, (info,Literal (LInt arr_length))) in 
+        let incr = info,Assign (i,(info,BinOp (Plus, i, (info, Literal (LInt 1))))) in
+        let init = info,Seq ((info,Seq (tab_decl,var_decl)), i_decl) in 
+        let vari = info, Assign (var,(info,ArrayRead(tab,i))) in 
 
-      let body = info,Seq((info,Seq(vari,body)),incr) in
-      let _while = info,While (cond,body) in 
-      let _for = info,Seq(init,_while) in 
-      aux _for
+        let body = info,Seq((info,Seq(vari,body)),incr) in
+        let _while = info,While (cond,body) in 
+        let _for = info,Seq(init,_while) in 
+        aux _for
+      | loc,_ -> ECS.throw (Error.make loc "for loop only allows a static array expression at the moment")
+      end
 
     | Break () -> return {info; stmt=Break}
  (*   | Case(loc, e, cases) -> Case (loc, e, List.map (fun (p,c) -> (p, aux c)) cases) *)

@@ -99,7 +99,7 @@ let defn :=
 | METHOD ; name=ID ; generics=generic ; LPAREN ; params=separated_list(COMMA, mutable_var(sailtype)) ; RPAREN ; rtype=returnType ; body = block ; 
     {Method [{m_proto={pos=$loc;name; generics; params; variadic=false; rtype=rtype }; m_body = Either.right body}]}
 
-| PROCESS ; name = UID ; generics=generic ; interface=delimited("(",interface,")") ; body =block ;
+| PROCESS ; name = UID ; generics=generic ; interface=parenthesized(interface) ; body =block ;
     {Process ({p_pos=$loc;p_name=name; p_generics=generics; p_interface=interface; p_body=body})}
 
 | EXTERN ; lib=STRING? ; protos =  delimited("{", separated_list(";", extern_sig), "}") ;
@@ -125,7 +125,7 @@ let module_loc :=
 
 let enum_elt :=
 | id = UID ; {(id, [])}
-| ~ = UID ; ~ = delimited("(", separated_list(",", sailtype), ")") ; <>
+| ~ = UID ; ~ = parenthesized(separated_list(",", sailtype)) ; <>
 
 
 let generic := {[]} | delimited("<", separated_list(",", UID), ">")
@@ -167,9 +167,9 @@ let expression :=
         StructAlloc(id, m)
         }
     | id = located(UID) ; {EnumAlloc(id, [])}
-    | ~ = located(UID) ; ~ = delimited ("(", separated_list(",", expression), ")") ; <EnumAlloc>
-    | m = module_loc ; id = located(ID) ; args = delimited ("(", separated_list (",", expression), ")") ; {MethodCall(Some m, id, args)}
-    | id = located(ID) ; args = delimited ("(", separated_list (",", expression), ")") ; {MethodCall(None, id, args)}
+    | ~ = located(UID) ; ~ = parenthesized (separated_list(",", expression)) ; <EnumAlloc>
+    | m = module_loc ; id = located(ID) ; args = parenthesized(separated_list (",", expression)) ; {MethodCall(Some m, id, args)}
+    | id = located(ID) ; args = parenthesized(separated_list (",", expression)) ; {MethodCall(None, id, args)}
 )
 
 
@@ -186,6 +186,8 @@ let literal :=
 | ~ = CHAR ; <LChar>
 | ~ = STRING ; <LString>
 
+
+let parenthesized(e) == delimited("(",e,")")
 
 let binOp ==
 | "+" ; {Plus} 
@@ -209,8 +211,12 @@ let block := located (
 )
 
 
-let parenthesized_exp == delimited("(", expression, ")")
+let parenthesized_exp == parenthesized(expression)
 
+
+let iterable_or_range ==
+|  rl = INT ; "," ; rr = INT ; {ArrayStatic (List.init (rr - rl) (fun i -> dummy_pos,Literal (LInt (i + rl))))}
+| e = expression ; {snd e}
 
 let block_or_statement(b) ==
     | WHILE ; ~ = parenthesized_exp ; ~ = b ; <While>
@@ -219,7 +225,7 @@ let block_or_statement(b) ==
     | IF ; e = parenthesized_exp ; s1 = single_statement ; ELSE ; s2 = b ; {If(e, s1, Some s2)}
     | WATCHING ; ~ = ID ; s = b ; <Watching>
     | WHEN ; ~ = ID ; ~ = block ; <When>
-    | FOR ; var = ID; IN ; "("  ; rl = INT ; "," ; rr = INT ; ")" ; s = b ; { For {var;values=List.init (rr - rl) (fun i -> dummy_pos,Literal (LInt (i + rl))); body=s} }
+    | FOR ; var = ID; IN ; iterable=parenthesized(located(iterable_or_range)) ; body = b ; { For {var;iterable; body} }
 
 
 let single_statement := 
@@ -231,10 +237,10 @@ let single_statement :=
     | SIGNAL ; ~ = ID ; <DeclSignal>
     | l = expression ; "=" ; e = expression ; <Assign>
     | CASE ; ~ = parenthesized_exp ; ~ = brace_del_sep_list(",", case) ; <Case>
-    | m = module_loc ; l = located(ID) ; args = delimited("(", separated_list(",", expression), ")") ; {Invoke ((Some m), l, args)}
-    | l = located(ID) ; args = delimited("(", separated_list(",", expression), ")") ; {Invoke (None, l, args)}
+    | m = module_loc ; l = located(ID) ; args = parenthesized(separated_list(",", expression)) ; {Invoke ((Some m), l, args)}
+    | l = located(ID) ; args = parenthesized(separated_list(",", expression)) ; {Invoke (None, l, args)}
     | RETURN ; ~ = expression? ; <Return>
-    | ~ = located(UID) ; ~ = delimited("(", separated_list(",", expression ), ")") ; <Run>
+    | ~ = located(UID) ; ~ = parenthesized(separated_list(",", expression )) ; <Run>
     | EMIT ; ~ = ID ; <Emit>
     | AWAIT ; ~ = ID ; <Await>
     | BREAK ; <Break>
