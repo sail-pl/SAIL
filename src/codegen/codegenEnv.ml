@@ -79,7 +79,7 @@ let get_declarations (sm: IrMir.Mir.Pass.out_body SailModule.t) llc llm : DeclEn
 
   let methods_to_proto curr_env methods is_import = 
     ListM.fold_left ( fun d m -> 
-      Logs.debug (fun x -> x "processing method %s is import : %b" m.m_proto.name is_import);
+      (* Logs.debug (fun x -> x "processing method %s is import : %b" m.m_proto.name is_import); *)
       let extern,proto = 
         if (Either.is_left m.m_body) then (* extern method, all parameters must be of type value *)
           true,valueify_method_sig m.m_proto
@@ -106,6 +106,8 @@ let get_declarations (sm: IrMir.Mir.Pass.out_body SailModule.t) llc llm : DeclEn
             (* let env =  (DeclEnv.empty |> DeclEnv.set_name sm.md.name)   *)
   in
   let sorted_imports = (sm.imports |> ImportSet.elements |> List.sort (fun i1 i2 -> Int.compare i1.proc_order i2.proc_order)) in 
+
+  (* Logs.debug (fun m -> m "import processing order : %s" (List.map (fun (i:import) -> Fmt.str "%i:%s" i.proc_order i.mname) sorted_imports |> String.concat " " )); *)
   let* decls = 
     ListM.fold_left  (fun (e:DeclEnv.t) (i:import)  -> 
       let (sm: 'a SailModule.t) = 
@@ -119,9 +121,9 @@ let get_declarations (sm: IrMir.Mir.Pass.out_body SailModule.t) llc llm : DeclEn
     ) env sorted_imports
   in
 
-  (* convert own methods *)
   (* Logs.debug (fun m -> m "%s" (DeclEnv.string_of_env decls)); *)
   
+  (* convert own methods *)
   methods_to_proto decls sm.methods false
   (* todo : enums & structs *)
 

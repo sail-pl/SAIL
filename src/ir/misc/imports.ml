@@ -33,7 +33,18 @@ module Pass = Pass.Make( struct
       ) FieldSet.empty m.methods 
     in
     (* the imports of my imports are my imports and same goes for the libs *)
-    let libs,imports =  List.fold_left (fun (libs,imports) (_,(i:'a SailModule.t)) -> FieldSet.union libs i.md.libs,ImportSet.union i.imports imports) (libs,m.imports) imports in
+    let libs,imports =  List.fold_left (
+      fun (libs,imports) (_,(i:'a SailModule.t)) -> 
+        FieldSet.union libs i.md.libs , ImportSet.union i.imports imports
+      ) (libs,ImportSet.empty) imports in
+
+      (* we add our imports last *)
+      (* 
+        fixme : the way this works is not correct : it relies on recompiling every dependencies and giving them an order based on how deep the imports are from the original module
+        if an other module requires the same dependency and does not recompile them, the compilation order from the previous one will still be there...
+      *)
+
+      let imports = ImportSet.(diff m.imports imports  |> union imports ) in 
     
     {m with methods ; imports; md={m.md with libs}}
 

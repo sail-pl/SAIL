@@ -74,6 +74,7 @@ let link ?(is_lib = false) (llm:llmodule) (module_name : string) (imports: strin
   let libs = List.map (fun l -> "-l " ^ l) libs |> String.concat " "  in 
   if Target.has_asm_backend target then
     begin
+      Logs.info (fun m -> m "emitting object file...");
       TargetMachine.emit_to_file llm ObjectFile (module_name ^ C.object_file_ext) machine;
       if not is_lib then 
         begin
@@ -151,10 +152,13 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
     (* |> (Fun.flip Error.Logger.get_error (fun e -> Error.print_errors [e])) *)
 
     in
-    Out_channel.with_open_bin (m.md.name ^ C.mir_file_ext) (fun f -> Marshal.to_channel f m []);
     (* Out_channel.with_open_text (m.md.name ^ ".mir.debug") (fun f -> Format.fprintf (Format.formatter_of_out_channel f) "%a" Pp_mir.ppPrintModule m); *)
     
     let+ llm = moduleToIR m dump_decl in
+
+    (* only generate mir file if codegen succeeds *)
+    Out_channel.with_open_bin (m.md.name ^ C.mir_file_ext) (fun f -> Marshal.to_channel f m []);
+
     let tm = init_llvm llm in
 
     if not noopt && not is_lib then 
