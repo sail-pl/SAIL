@@ -53,6 +53,9 @@
 %token MUT
 %token ARRAY
 %token SELF
+%token LOOP
+%token FOR
+%token IN
 %token EOF
 
 %left AND OR
@@ -208,6 +211,17 @@ let block := located (
 
 let parenthesized_exp == delimited("(", expression, ")")
 
+
+let block_or_statement(b) ==
+    | WHILE ; ~ = parenthesized_exp ; ~ = b ; <While>
+    | LOOP ; ~ = b ; <Loop>
+    | IF ; e = parenthesized_exp ; s1 = b ; {If(e, s1, None)}
+    | IF ; e = parenthesized_exp ; s1 = single_statement ; ELSE ; s2 = b ; {If(e, s1, Some s2)}
+    | WATCHING ; ~ = ID ; s = b ; <Watching>
+    | WHEN ; ~ = ID ; ~ = block ; <When>
+    | FOR ; var = ID; IN ; "("  ; rl = INT ; "," ; rr = INT ; ")" ; s = b ; { For {var;values=List.init (rr - rl) (fun i -> dummy_pos,Literal (LInt (i + rl))); body=s} }
+
+
 let single_statement := 
 | located (
     | VAR ; b = mut ; id = ID ; ":" ; typ=sailtype ; {DeclVar(b,id,Some typ,None)}
@@ -216,9 +230,6 @@ let single_statement :=
     | VAR ; b = mut ; id = ID ; {DeclVar(b,id,None,None)}
     | SIGNAL ; ~ = ID ; <DeclSignal>
     | l = expression ; "=" ; e = expression ; <Assign>
-    | IF ; e = parenthesized_exp; s1 = single_statement ; {If(e, s1, None)}
-    | IF ; e = parenthesized_exp ; s1 = single_statement ; ELSE ; s2 = single_statement ; {If(e, s1, Some s2)}
-    | WHILE ; ~ = parenthesized_exp ; ~ = single_statement ; <While>
     | CASE ; ~ = parenthesized_exp ; ~ = brace_del_sep_list(",", case) ; <Case>
     | m = module_loc ; l = located(ID) ; args = delimited("(", separated_list(",", expression), ")") ; {Invoke ((Some m), l, args)}
     | l = located(ID) ; args = delimited("(", separated_list(",", expression), ")") ; {Invoke (None, l, args)}
@@ -226,22 +237,13 @@ let single_statement :=
     | ~ = located(UID) ; ~ = delimited("(", separated_list(",", expression ), ")") ; <Run>
     | EMIT ; ~ = ID ; <Emit>
     | AWAIT ; ~ = ID ; <Await>
-    | WATCHING ; ~ = ID ; ~ = single_statement ; <Watching>
-    | WHEN ; ~ = ID ; ~ = single_statement ;  <When>
     | BREAK ; <Break>
+    | block_or_statement(single_statement)
     )
 | block
 
 
-let left :=
-| block
-| located (
-    | IF ; e = parenthesized_exp ; s1 = block ; {If(e, s1, None)}
-    | IF ; e = parenthesized_exp ; s1 = single_statement ; ELSE ; s2 = block ; {If(e, s1, Some s2)}
-    | WHILE ; ~ = parenthesized_exp ; ~ = block ; <While>
-    | WATCHING ; ~ = ID ; s = block ; <Watching>
-    | WHEN ; ~ = ID ; ~ = block ; <When>
-)
+let left := block | located (block_or_statement(block))
 
 
 let statement_seq := 

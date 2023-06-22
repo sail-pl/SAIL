@@ -151,10 +151,9 @@ struct
         | Some s -> let+ s = aux s in buildStmt (If(cond_exp, res, Some s))
         end
 
-      | While(e,c) -> 
-        let* e = lower_rexp decl.generics e in
-        let+ t = aux c in
-        buildStmt (While(e,t))
+      | Loop c -> 
+        let+ c = aux c in
+        buildStmt (Loop c)
 
       | Break -> return (buildStmt Break)
 

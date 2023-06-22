@@ -144,9 +144,9 @@ module Pass =  Pass.MakeFunctionPass(V)
             let+ (e, s) = lower_expression e and* c1 = aux c1 in 
             buildSeqStmt s (If (e, c1, None))
             
-        | While (e, c) -> 
-          let+ e,s = lower_expression e and* c = aux c in
-          buildSeqStmt s (While (e,c))
+        | Loop c -> 
+          let+ c = aux c in
+          buildStmt (Loop c)
     
         | Break -> return {info; stmt=Break}
         | Case (e, _cases) ->  let+ e,s = lower_expression e in

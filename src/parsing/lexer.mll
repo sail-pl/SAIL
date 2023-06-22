@@ -113,6 +113,9 @@ rule read_token = parse
   | "mut" {MUT}
   | "array" {ARRAY}
   | "self" {SELF}
+  | "loop" {LOOP}
+  | "for" {FOR}
+  | "in" {IN}
   | uid { UID (Lexing.lexeme lexbuf) }
   | whitespace { read_token lexbuf }
   | "//" { read_single_line_comment lexbuf }

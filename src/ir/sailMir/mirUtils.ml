@@ -108,9 +108,9 @@ let buildIfThen (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t =
   {
     input = inputLbl;
     output = outputLbl;
-    blocks = BlockMap.singleton inputLbl inputBlock 
-              |> BlockMap.add outputLbl outputBlock 
-              |> BlockMap.union disjoint goto.blocks
+    blocks = BlockMap.(singleton inputLbl inputBlock 
+              |> add outputLbl outputBlock 
+              |> union disjoint goto.blocks)
   }
 
 
@@ -126,10 +126,10 @@ let buildIfThenElse (location : loc) (e : expression) (cfgTrue : cfg) (cfgFalse 
   {
     input = inputLbl;
     output = outputLbl;
-    blocks = BlockMap.singleton inputLbl inputBlock 
-              |> BlockMap.add outputLbl outputBlock 
-              |> BlockMap.union disjoint gotoT.blocks
-              |> BlockMap.union disjoint gotoF.blocks
+    blocks = BlockMap.(singleton inputLbl inputBlock 
+              |> add outputLbl outputBlock 
+              |> union disjoint gotoT.blocks
+              |> union disjoint gotoF.blocks)
   }
 
 
@@ -144,33 +144,31 @@ let buildSwitch (e : expression) (blocks : (int * cfg) list) (cfg : cfg): cfg ES
   {
     input = input;
     output = output;
-    blocks = ( BlockMap.singleton input bb1 
-                |> BlockMap.add output bb2  
-                |> List.fold_left (fun r bb -> BlockMap.union disjoint bb.blocks r)
-              ) gotos  
+    blocks = BlockMap.(singleton input bb1  
+              |> add output bb2 
+              |> List.fold_left (fun r bb -> BlockMap.union disjoint bb.blocks r)
+            ) gotos  
   }
 
-let buildLoop (location : loc) (e : expression) (cfg : cfg) : cfg ESC.t = 
+let buildLoop (location : loc) (cfg : cfg) : cfg ESC.t = 
   let* env =  ESC.get_env in 
-  let* inputLbl = ESC.fresh and* headLbl = ESC.fresh  and* outputLbl =  ESC.fresh in 
-  let inputBlock = {assignments = []; predecessors = LabelSet.empty; env; location; terminator = Some (Goto headLbl)}
-  and headBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl] ; env; location; terminator = Some (SwitchInt (e, [(0,outputLbl)], cfg.input))} in
-
+  let* inputLbl = ESC.fresh and* outputLbl =  ESC.fresh in 
+  
+  (* all break terminators within the body go to outputLbl *)
   let bm1,bm2 = BlockMap.partition (fun _ {terminator;_} -> terminator = Some Break) cfg.blocks in
   let preds,bm1 = BlockMap.fold (fun l bb (lbls,bbs) -> l::lbls,BlockMap.add l {bb with terminator = Some (Goto outputLbl)} bbs ) bm1 ([],BlockMap.empty) in 
 
-  let outputBlock = {assignments = []; predecessors = LabelSet.of_list (headLbl::preds); env; location; terminator = None} in
+  let inputBlock = {assignments = []; predecessors = LabelSet.empty; env; location; terminator = Some (Goto cfg.input)} in
+  let outputBlock = {assignments = []; predecessors = LabelSet.of_list preds; env; location; terminator = None} in
   let cfg =  {cfg with blocks=BlockMap.union assert_disjoint bm1 bm2} in 
 
+  (* make the loop *)
+  let+ goto = addGoto cfg.input cfg >>| addPredecessors [cfg.input] in
 
-  let+ goto =  addGoto headLbl cfg >>| addPredecessors [headLbl] in
   {
     input = inputLbl;
-    output = outputLbl; (* false jumps here *)
-    blocks = BlockMap.singleton inputLbl inputBlock  
-              |> BlockMap.add outputLbl outputBlock 
-              |> BlockMap.add headLbl headBlock 
-              |> BlockMap.union disjoint goto.blocks
+    output = outputLbl;
+    blocks = BlockMap.(singleton inputLbl inputBlock |> add outputLbl outputBlock |> union disjoint goto.blocks)
   }
 
 let buildInvoke (l : loc) (origin:import) (id : loc * string) (target : string option) (el : expression list) : cfg ESC.t =
@@ -190,8 +188,7 @@ let buildInvoke (l : loc) (origin:import) (id : loc * string) (target : string o
   {
     input = invokeLbl;
     output = returnLbl;
-    blocks = BlockMap.singleton invokeLbl invokeBlock 
-              |> BlockMap.add returnLbl returnBlock 
+    blocks = BlockMap.(singleton invokeLbl invokeBlock |> add returnLbl returnBlock)
   } 
 
 let buildReturn (location : loc) (e : expression option) : cfg ESC.t =

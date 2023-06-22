@@ -98,11 +98,35 @@ struct
         
     | While (e, c) -> 
       let+ e,s = lower_expression e and* c = aux c in
-      buildSeqStmt s (While (e,c))
+      let c = buildStmt (If (e,c,Some (buildStmt Break))) in 
+      buildSeqStmt s (Loop c)
 
     | Loop c -> let+ c = aux c in 
-      let e = {info; exp=Literal(LBool true)} in
-      {info;stmt=While (e , c)}
+      buildStmt (Loop c)
+
+    | For {var;values;body} ->  
+      let open AstParser in 
+      let arr_id = "_for_arr_" ^ var in 
+      let i_id = "_for_i_" ^ var in 
+      let arr_length = List.length values in 
+
+      let tab_decl = info,DeclVar (false, arr_id, Some (ArrayType (Int,arr_length)), Some (info, ArrayStatic values)) in
+      let var_decl = info,DeclVar (true, var, Some Int, None) in 
+      let i_decl = info,DeclVar (true, i_id, Some Int, Some (info,(Literal (LInt 0)))) in 
+
+      let tab = info,Variable arr_id in 
+      let var = info,Variable var in
+      let i = info,Variable i_id in
+      
+      let cond = info,BinOp (Lt, i, (info,Literal (LInt arr_length))) in 
+      let incr = info,Assign (i,(info,BinOp (Plus, i, (info, Literal (LInt 1))))) in
+      let init = info,Seq ((info,Seq (tab_decl,var_decl)), i_decl) in 
+      let vari = info, Assign (var,(info,ArrayRead(tab,i))) in 
+
+      let body = info,Seq((info,Seq(vari,body)),incr) in
+      let _while = info,While (cond,body) in 
+      let _for = info,Seq(init,_while) in 
+      aux _for
 
     | Break () -> return {info; stmt=Break}
  (*   | Case(loc, e, cases) -> Case (loc, e, List.map (fun (p,c) -> (p, aux c)) cases) *)

@@ -58,6 +58,7 @@ type statement = loc * statement_ and statement_ =
   | Return of expression option
   | Run of (loc*string) * expression list
   | Loop of statement
+  | For of {var: string; values : expression list; body : statement}
   | Emit of string
   | Await of string
   | When of string * statement

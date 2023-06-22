@@ -46,6 +46,7 @@ struct
       | BinOp (o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in buildExp lt (BinOp(o, e1', e2'))
       | Ref (b, e) -> let+ e' = rexpr e in buildExp lt (Ref(b, e'))
       | ArrayStatic el -> let+ el' = ListM.map rexpr el in buildExp lt (ArrayStatic el')
+      | MethodCall _ -> ESC.error @@ Error.make (fst lt) @@ "no method call should be present at this point" 
       | _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
       
       open MonadFunctions(E)
@@ -134,10 +135,9 @@ struct
         let+ ite = buildIfThenElse loc e' cfg1 cfg2 in
         (d1@d2, ite) 
 
-      | While (e, s) ->  
-        let* e' = rexpr e in
+      | Loop s ->  
         let* d, cfg = aux s in 
-        let+ l = buildLoop loc e' cfg in
+        let+ l = buildLoop loc cfg in
         (d, l)
 
       | Break -> 

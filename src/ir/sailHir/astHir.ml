@@ -46,7 +46,7 @@ type ('info,'import,'exp) statement = {info: 'info; stmt: ('info,'import,'exp) _
   | Seq of ('info,'import,'exp) statement * ('info,'import,'exp) statement
   | Par of ('info,'import,'exp) statement * ('info,'import,'exp) statement
   | If of 'exp * ('info,'import,'exp) statement * ('info,'import,'exp) statement option
-  | While of 'exp * ('info,'import,'exp) statement
+  | Loop of ('info,'import,'exp) statement
   | Break
   | Case of 'exp * (string * string list * ('info,'import,'exp) statement) list
   | Invoke of string option * 'import * (loc * string) * 'exp list
