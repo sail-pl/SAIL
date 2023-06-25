@@ -68,14 +68,14 @@ let add_passes (pm : [`Module] PassManager.t) : unit  =
   Llvm_ipo.add_function_inlining pm
 
 
-let link ?(is_lib = false) (llm:llmodule) (module_name : string) (imports: string list) (libs : string list) (target, machine) clang_args : int =
-  let mname = module_name ^ C.object_file_ext in 
-  let objfiles = String.concat " " (mname::imports) in 
+let link ?(is_lib = false) (llm:llmodule) (module_name : string) (basepath:string) (imports: string list) (libs : string list) (target, machine) clang_args : int =
+  let f = Filename.(concat basepath module_name ^ C.object_file_ext) in
+  let objfiles = String.concat " " (f::imports) in 
   let libs = List.map (fun l -> "-l " ^ l) libs |> String.concat " "  in 
   if Target.has_asm_backend target then
     begin
       Logs.info (fun m -> m "emitting object file...");
-      TargetMachine.emit_to_file llm ObjectFile (module_name ^ C.object_file_ext) machine;
+      TargetMachine.emit_to_file llm ObjectFile f machine;
       if not is_lib then 
         begin
         if (Option.is_none (lookup_function "main" llm)) then failwith ("no Main process found for module '" ^ module_name ^  "', can't compile as executable");
@@ -112,11 +112,12 @@ let execute (llm:llmodule) =
   Llvm_executionengine.dispose ee (* implicitely disposes the module *)
 
 
-let find_file_opt ?(maxdepth = 4) ?(paths = ["."]) (f:string)  : string option = (* recursively find the file *)
+let find_file_opt ?(maxdepth = 4) ?(paths = [Filename.current_dir_name]) (f:string)  : string option = (* recursively find the file *)
   let open Sys in 
   let open Filename in
   let rec aux dir depth = 
-    if depth > maxdepth then None else
+    if depth >= maxdepth then None 
+    else
       let dirs,files = readdir dir |> Array.to_list |> List.map (concat dir) |> List.partition is_directory 
       in
       match List.find_opt (fun f' -> String.equal f (basename f')) files with
@@ -130,7 +131,7 @@ let find_file_opt ?(maxdepth = 4) ?(paths = ["."]) (f:string)  : string option =
   List.fold_left (
     fun r dir -> match r with 
     | Some f -> Some f
-    | None ->  aux dir maxdepth
+    | None ->  aux dir 0
     ) None paths
 
 
@@ -139,7 +140,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
   enable_pretty_stacktrace ();
   install_fatal_error_handler error_handler;
 
-  let compile sail_module is_lib : AstMir.mir_function SailModule.t E.t =
+  let compile sail_module basepath is_lib : AstMir.mir_function SailModule.t E.t =
     let* m = return sail_module 
     |> Hir.Pass.transform 
     |> Thir.Pass.transform 
@@ -150,12 +151,12 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
     |> Monomorphization.Pass.transform
 
     in
-    Out_channel.with_open_text (m.md.name ^ ".mir.debug") (fun f -> Format.fprintf (Format.formatter_of_out_channel f) "%a" Pp_mir.ppPrintModule m);
+    (* Out_channel.with_open_text Filename.(concat basepath m.md.name ^ ".mir.debug") (fun f -> Format.fprintf (Format.formatter_of_out_channel f) "%a" Pp_mir.ppPrintModule m); *)
     
     let+ llm = moduleToIR m dump_decl in
 
     (* only generate mir file if codegen succeeds *)
-    Out_channel.with_open_bin (m.md.name ^ C.mir_file_ext) (fun f -> Marshal.to_channel f m []);
+    Out_channel.with_open_bin Filename.(concat basepath m.md.name ^ C.mir_file_ext) (fun f -> Marshal.to_channel f m []);
 
     let tm = init_llvm llm in
 
@@ -175,7 +176,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       begin
         let libs,object_files = List.partition Filename.(fun e -> extension e <> C.object_file_ext) (FieldSet.elements m.md.libs) in 
         let imports = object_files @ List.map (fun i -> i.dir ^ i.mname ^ C.object_file_ext) @@ ImportSet.elements m.imports in
-        let ret = link llm sail_module.md.name imports libs tm ~is_lib clang_args in
+        let ret = link llm (sail_module.md.name) basepath imports libs tm ~is_lib clang_args in
         if ret <> 0 then
           (Fmt.str "clang couldn't execute properly (error %i)" ret |> failwith);
       end;
@@ -185,6 +186,8 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
 
   let rec process_file f (treated: string list) (compiling: (string*loc) list) ~is_lib : (string list * 'a SailModule.t) E.t = 
     let mname = Filename.(basename f |> remove_extension) in 
+    let basepath = Filename.(dirname f) in 
+
     if List.mem mname treated then
      (Logs.debug (fun m -> m "skipping module '%s'" mname); 
       return (treated,SailModule.emptyModule))
@@ -227,7 +230,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
             
             let import = fun m -> {i with dir=Filename.(dirname m ^ dir_sep); proc_order=(List.length compiling)} in 
 
-            match find_file_opt source ~paths:("."::paths),find_file_opt mir_name with
+            match find_file_opt source ~paths:(Filename.current_dir_name::paths),find_file_opt mir_name with
             | Some s,Some m 
               when In_channel.with_open_bin m 
               (fun f -> 
@@ -257,7 +260,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         in 
         let declEnv = add_imports_decls slmd.declEnv imports in
         (* SailModule.DeclEnv.print_declarations declEnv; *)
-        let+ sm = compile {slmd with imports ; declEnv} is_lib in
+        let+ sm = compile {slmd with imports ; declEnv} basepath is_lib in
         Logs.info (fun m -> m "======= done processing module '%s' =======\n" slmd.md.name);
         treated,sm
       in
