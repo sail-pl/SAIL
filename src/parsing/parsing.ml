@@ -24,7 +24,7 @@ let fastParse filename : (string * AstParser.statement SailModule.t Error.Logger
   let text, lexbuf = L.read filename in
   let hash = Digest.string text in
 
-  let name =  Filename.chop_extension (Filename.basename filename) in
+  let name =  Filename.(basename filename |> chop_extension) in
   match Parser.sailModule read_token lexbuf with
   | v -> Result.ok (text,(v {name;hash;libs=FieldSet.empty;version=Constants.sailor_version}))
 

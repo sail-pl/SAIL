@@ -11,11 +11,11 @@
   $ saili cooperate3.sl
   B
   $ saili cooperate4.sl
+  $ saili counter.sl
+  0
   $ saili counter2.sl
   P1 : 0
   P2 : 0
-  $ saili counter.sl
-  0
   $ saili decl1.sl
   3
   $ saili decl2.sl
@@ -33,9 +33,9 @@
   $ saili helloworld.sl
   Hello World
   $ saili lr_values.sl
-  $ saili min2.sl
-  3
   $ saili min.sl
+  3
+  $ saili min2.sl
   3
   $ saili mutable1.sl
   3
@@ -49,9 +49,9 @@
   3
   $ saili testFieldAssign.sl
   12
+  $ saili testInnerGenericity.sl
   $ saili testInnerGenericity2.sl
   3
-  $ saili testInnerGenericity.sl
   $ saili testMove1.sl
   $ saili testReturnVal.sl
   1
