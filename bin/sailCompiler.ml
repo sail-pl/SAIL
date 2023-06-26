@@ -21,24 +21,23 @@ open Monad.MonadFunctions(E)
 open Monad.MonadOperator(E) 
 open MakeOrderedFunctions(ImportCmp) 
 
-let moduleToIR (m:Mir.Pass.out_body SailModule.t) (dump_decl:bool) : llmodule E.t = 
-  let llc = global_context () in
+let moduleToIR (m:Mir.Pass.out_body SailModule.t) (dump_decl:bool) (verify_ir:bool) : llmodule E.t = 
+  let llc = create_context () in
   let llm = create_module llc m.md.name in
-
   let* decls = get_declarations m llc llm in
 
   if dump_decl then failwith "not done yet";
 
   let env = SailEnv.empty decls in
 
-  DeclEnv.iter_decls (fun name m -> methodToIR llc llm m env name |> Llvm_analysis.assert_valid_function) (Self Method) decls >>
-  match Llvm_analysis.verify_module llm with 
-  | None -> return llm 
-  | Some reason -> E.throw @@ Error.make dummy_pos (Fmt.str "LLVM : %s" reason)
+  DeclEnv.iter_decls (fun name m -> let func = methodToIR llc llm m env name in if verify_ir then Llvm_analysis.assert_valid_function func) (Self Method) decls >>= fun () ->
+  if verify_ir then 
+    match Llvm_analysis.verify_module llm with 
+    | None -> return llm 
+    | Some reason -> E.throw @@ Error.make dummy_pos (Fmt.str "LLVM : %s" reason)
+  else return llm
 
     
-  
-
 
 let init_llvm (llm : llmodule) : (Target.t * TargetMachine.t) =
   Llvm_all_backends.initialize (); 
@@ -136,7 +135,7 @@ let find_file_opt ?(maxdepth = 4) ?(paths = [Filename.current_dir_name]) (f:stri
 
 
 
-let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () (force_comp:bool list) (paths:string list) (is_lib : bool) (clang_args: string) = 
+let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () (force_comp:bool list) (paths:string list) (is_lib : bool)  (clang_args: string) (verify_ir:bool) = 
   enable_pretty_stacktrace ();
   install_fatal_error_handler error_handler;
 
@@ -153,7 +152,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
     in
     (* Out_channel.with_open_text Filename.(concat basepath m.md.name ^ ".mir.debug") (fun f -> Format.fprintf (Format.formatter_of_out_channel f) "%a" Pp_mir.ppPrintModule m); *)
     
-    let+ llm = moduleToIR m dump_decl in
+    let+ llm = moduleToIR m dump_decl verify_ir in
 
     (* only generate mir file if codegen succeeds *)
     Out_channel.with_open_bin Filename.(concat basepath m.md.name ^ C.mir_file_ext) (fun f -> Marshal.to_channel f m []);
@@ -170,7 +169,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       end
     ;
 
-    if intermediate then print_module (m.md.name ^ C.llvm_ir_ext) llm;
+    if intermediate then print_module Filename.(concat basepath m.md.name ^ C.llvm_ir_ext) llm;
 
     if not (intermediate || jit) then
       begin
@@ -216,7 +215,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         *)  
         let* treated,imports = SetM.fold_left_map (
           fun treated (i : import ) -> 
-            E.throw_if
+            let* () = E.throw_if
             (
               let msg = 
               if i.mname = slmd.md.name then 
@@ -224,7 +223,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
               else 
               "dependency cycle : "  ^ (String.concat " -> " ((List.split compiling |> fst |> List.rev) @ [slmd.md.name;i.mname]))
               in Error.make i.loc msg
-            )  (List.mem_assoc i.mname compiling) >>          
+            )  (List.mem_assoc i.mname compiling) in         
             let mir_name = i.mname ^ C.mir_file_ext in
             let source = i.mname ^ C.sail_file_ext in
             
@@ -246,8 +245,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
               E.throw_if 
               (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version C.sailor_version)
               (mir.md.version <> C.sailor_version) 
-              >> 
-              return (treated,import m)
+              >>| fun () -> treated,import m
             | None,None -> (* nothing to work with *)
               E.throw @@ Error.make i.loc "import not found"
             | Some s, _ -> (* source but no mir or mir not up-to-date -> compile *)
@@ -269,9 +267,9 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       (* if mir file exists, check hash, if same hash, no need to compile *)
       if Sys.file_exists mir_file && (List.length force_comp = 0) then
         let mir : 'a SailModule.t = In_channel.with_open_bin mir_file Marshal.from_channel in
-        E.throw_if (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version C.sailor_version)
+        let* () = E.throw_if (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version C.sailor_version)
                   (mir.md.version <> C.sailor_version) 
-        >>
+        in
         if not @@ Digest.equal mir.md.hash slmd.md.hash then
           process_imports_and_compile () 
         else 
@@ -312,8 +310,8 @@ let noopt_arg =
 
 let dump_decl_arg =
   let doc = "dump the declarations" in 
-  let info = Arg.info ["D"; "dump_decl"] ~doc in
-  Arg.flag info |> Arg.value
+  let i = Arg.info ["D"; "dump_decl"] ~doc in
+  Arg.(value & flag i)
 
 let extra_paths =
   let doc = "add folders to look for modules" in 
@@ -321,13 +319,19 @@ let extra_paths =
 
 let force_comp =
   let doc = "force compilation. Repeat twice to also recursively recompile imports" in 
-  let info = Arg.info ["f"; "force"] ~doc in
-  Arg.flag_all info |> Arg.value
+  let i = Arg.info ["f"; "force"] ~doc in
+  Arg.(value & flag_all i)
   
 let as_lib =
   let doc = "only generate object file" in 
-  let info = Arg.info ["as-lib"] ~doc in
-  Arg.flag info |> Arg.value
+  let i = Arg.info ["as-lib"] ~doc in
+  Arg.(value & flag i)
+
+let verify_ir =
+  let doc = "assert generated LLVM IR is correct" in 
+  let i = Arg.info ["verify_ir"] ~doc in
+  Arg.(value & opt bool true i)
+  
 
   
 let clang_args = 
@@ -337,6 +341,6 @@ let clang_args =
 let cmd =
   let doc = "SaiLOR, the SaIL cOmpileR" in
   let info = Cmd.info "sailor" ~doc ~version:C.sailor_version in
-  Cmd.v info Term.(ret (const sailor $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ dump_decl_arg $ setup_log_term $ force_comp $ extra_paths $ as_lib $ clang_args))
+  Cmd.v info Term.(ret (const sailor $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ dump_decl_arg $ setup_log_term $ force_comp $ extra_paths $ as_lib $ clang_args $ verify_ir))
 
 let () = Cmd.eval cmd |> exit

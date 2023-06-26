@@ -32,7 +32,7 @@ struct
       | Deref e -> 
         let+ e = aux e in {info;exp=Deref e}
       | StructRead (e, id) ->
-        let+ e = aux e in {info; exp=StructRead (e, id)}
+        let+ e = aux e in {info; exp=StructRead (None, e, id)}
       | ArrayRead (e1, e2) ->
         let* e1 = aux e1 in 
         let+ e2 = aux e2 in 
@@ -48,11 +48,11 @@ struct
         let+ e = aux e in {info;exp=Ref(b, e)}
       | ArrayStatic el -> 
         let+ el = ListM.map aux el in {info;exp=ArrayStatic el}
-      | StructAlloc (id, m) ->
+      | StructAlloc (origin,id, m) ->
         let m' = List.sort_uniq (fun (id1,_) (id2,_) -> String.compare id1 id2) m in
-        ECSW.throw_if (Error.make info "duplicate fields") List.(length m <> length m') >> 
+        let* () = ECSW.throw_if (Error.make info "duplicate fields") List.(length m <> length m') in
         let+ m' = ListM.map (pairMap2 aux) m' in
-        {info; exp=StructAlloc (id, m')}
+        {info; exp=StructAlloc (origin, id, m')}
 
       | EnumAlloc (id, el) ->
         let+ el = ListM.map aux el in  {info;exp=EnumAlloc (id, el)}
@@ -76,10 +76,9 @@ struct
         | None -> return None 
         | Some t ->       
           let* (ve,d) = ECS.get in 
-          let* t',d' = (follow_type t d) |> EC.lift |> ECS.lift 
-          in 
-          ECS.update (fun _ -> E.pure (ve,d') |> EC.lift ) >>
-          return (Some t')
+          let* t',d' = (follow_type t d) |> EC.lift |> ECS.lift in 
+          let+ () = ECS.update (fun _ -> E.pure (ve,d') |> EC.lift ) in
+          Some t'
       in 
       begin match e with 
         | Some e -> let+ (e, s) = lower_expression e in
@@ -156,10 +155,10 @@ struct
     | Block c -> let+ c = aux c in buildStmt (Block c)
     
     | Run (l_id,id as lid, el) -> 
-      ECS.log_if (Error.make l_id "a process cannot call itself (yet)") (id = c.name) >> 
+      let* () = ECS.log_if (Error.make l_id "a process cannot call itself (yet)") (id = c.name) in
       let* m = ECS.get_decl id (Self Process) and* env = ECS.get in
-      ECS.log_if (let hint = get_hint id env in (Error.make l_id "unknown process" ~hint)) (m = None)  >>
-      ECS.log_if (Error.make l_id "this is a process but methods cannot call processes") (c.bt = BMethod) >>
+      let* () = ECS.log_if (let hint = get_hint id env in (Error.make l_id "unknown process" ~hint)) (m = None) in
+      let* () = ECS.log_if (Error.make l_id "this is a process but methods cannot call processes") (c.bt = BMethod) in
       let+ el,s = ListM.map lower_expression el in 
       buildSeqStmt s (Run(lid, el))
 
@@ -190,6 +189,7 @@ struct
       let open MonadOperator(ES) in
       let module F = MonadFunctions(ES) in
       let module TEnv = F.MakeFromSequencable(SM.DeclEnv.TypeSeq) in
+      let module SEnv = F.MakeFromSequencable(SM.DeclEnv.StructSeq) in
       (* let module MEnv = F.MakeFromSequencable(SM.DeclEnv.MethodSeq) in
       let module PEnv = F.MakeFromSequencable(SM.DeclEnv.ProcessSeq) in *)
       let open SM.DeclEnv in
@@ -199,6 +199,7 @@ struct
       
         let* env = ES.get_env in 
 
+        let* () = 
         TEnv.iter (
           fun (id,({ty; _} as def))  -> 
             let* ty = match ty with 
@@ -206,11 +207,25 @@ struct
             | Some t -> 
               let* env = ES.get_env in 
               let* t,env = (follow_type t env) |> ES.S.lift in
-              ES.set_env env >> return (Some t)
+              let+ () = ES.set_env env in Some t
             in
             ES.update_env (update_decl id {def with ty} (Self Type))
-        ) (get_own_decls env |> get_decls Type) >>
+        ) (get_own_decls env |> get_decls Type) in
 
+        let* env = ES.get_env in 
+        
+        let* () = SEnv.iter (
+          fun (id,(l,{fields; generics}))  -> 
+            let* fields = F.ListM.map (
+              fun (name,(l,t,n)) -> 
+                let* env = ES.get_env in 
+                let* t,env = (follow_type t env) |> ES.S.lift in
+                let+ () = ES.set_env env in name,(l,t,n)
+            ) fields
+            in
+            ES.update_env (update_decl id (l,{fields;generics}) (Self Struct))
+        ) (get_own_decls env |> get_decls Struct)
+        in
 
         let* methods = F.ListM.map (
           fun ({m_proto;m_body} as m) -> 
@@ -219,18 +234,18 @@ struct
             | Some t -> 
               let* env = ES.get_env in 
               let* t,env = (follow_type t env) |> ES.S.lift in
-              ES.set_env env >> return (Some t)
+              let+ () = ES.set_env env in Some t
             in
             let* params = F.ListM.map (
               fun (({ty;_}:param) as p) -> 
                 let* env = ES.get_env in 
                 let* ty,env = (follow_type ty env) |> ES.S.lift in
-                ES.set_env env >> return {p with ty}
+                let+ () = ES.set_env env in {p with ty}
             ) m_proto.params in
             let m = {m with m_proto={m_proto with params; rtype}} in 
             let true_name = (match m_body with Left (sname,_) -> sname | Right _ -> m_proto.name) in
-            ES.update_env (update_decl m_proto.name (m_proto.pos,true_name, defn_to_proto (Method m)) (Self Method)) 
-            >> return m
+            let+ () = ES.update_env (update_decl m_proto.name ((m_proto.pos,true_name), defn_to_proto (Method m)) (Self Method)) 
+            in m
         ) sm.methods in
 
         let* processes = F.ListM.map (
@@ -239,23 +254,16 @@ struct
               fun (({ty;_}:param) as p) -> 
                 let* env = ES.get_env in 
                 let* ty,env = (follow_type ty env) |> ES.S.lift in
-                ES.set_env env >> return {p with ty}
+                let+ () = ES.set_env env in {p with ty}
             ) p in
           let p = {pr with p_interface=p,s} in
-          ES.update_env (update_decl p_name (p_pos, defn_to_proto (Process p)) (Self Process)) 
-          >> return p
+          let+ () = ES.update_env (update_decl p_name (p_pos, defn_to_proto (Process p)) (Self Process)) 
+          in p
         ) sm.processes in 
 
-        (* at this point, all types must have an origin *)
+        (* at this point, all types must have an origin *)        
         let+ declEnv = ES.get_env in   
         (* Logs.debug (fun m -> m "%s" @@ string_of_declarations declEnv); *)
-
-
-      
-
-
-
-
         {sm with methods; processes; declEnv}
       ) sm.declEnv |> fst in
       sm

@@ -113,14 +113,3 @@ sailModule: METHOD ID LPAREN WHILE
 
 expected method arguments (missing right parenthesis ?)
 
-sailModule: EXTERN LBRACE RBRACE WHILE
-##
-## Ends in an error in state: 278.
-##
-## list(defn) -> defn . list(defn) [ EOF ]
-##
-## The known suffix of the stack is as follows:
-## defn
-##
-
-incorrect declaration type. Possibilities are method,process,enum,struct

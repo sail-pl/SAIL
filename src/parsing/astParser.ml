@@ -27,14 +27,14 @@ open TypesCommon
 type expression = loc * expression_ and expression_ = 
   Variable of string 
   | Deref of expression 
-  | StructRead of expression * string
+  | StructRead of expression * l_str
   | ArrayRead of expression * expression  
   | Literal of literal
   | UnOp of unOp * expression
   | BinOp of binOp * expression * expression
   | Ref of bool * expression
   | ArrayStatic of expression list
-  | StructAlloc of l_str * expression dict
+  | StructAlloc of l_str option * l_str * expression dict
   | EnumAlloc of l_str * expression list 
   | MethodCall of l_str option *  l_str * expression list
 
@@ -54,9 +54,9 @@ type statement = loc * statement_ and statement_ =
   | While of expression * statement
   | Break of unit
   | Case of expression * (pattern * statement) list
-  | Invoke of  (loc*string) option *  (loc*string) * expression list
+  | Invoke of  l_str option *  l_str * expression list
   | Return of expression option
-  | Run of (loc*string) * expression list
+  | Run of l_str * expression list
   | Loop of statement
   | For of {var: string; iterable : expression; body : statement}
   | Emit of string
@@ -93,10 +93,10 @@ let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t
             in (env,m,p)
 
           | Struct d -> 
-            let fields = List.sort_uniq (fun (s1,_) (s2,_) -> String.compare s1 s2) d.s_fields in
+            let s_fields = List.sort_uniq (fun (s1,_) (s2,_) -> String.compare s1 s2) d.s_fields in
             E.throw_if (Error.make d.s_pos "duplicate fields" )
-            (List.(length fields <> length d.s_fields)) >>
-            let+ env = DeclEnv.add_decl d.s_name (d.s_pos, defn_to_proto (Struct d)) Struct e |> rethrow d.s_pos
+            (List.(length s_fields <> length d.s_fields)) >>= fun () -> 
+            let+ env = DeclEnv.add_decl d.s_name (d.s_pos, defn_to_proto (Struct {d with s_fields})) Struct e |> rethrow d.s_pos
             in (env,m,p)
 
           | Enum d -> 
@@ -107,7 +107,7 @@ let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t
             let+ env,funs = 
             ListM.fold_left (fun (e,f) d -> 
               let true_name = (match d.m_body with Left (sname,_) -> sname | Right _ -> d.m_proto.name) in
-              let+ env =  DeclEnv.add_decl d.m_proto.name (d.m_proto.pos,true_name,defn_to_proto (Method d)) Method e
+              let+ env =  DeclEnv.add_decl d.m_proto.name ((d.m_proto.pos,true_name),defn_to_proto (Method d)) Method e
               in (env,d::f)
               ) (e,m) d in (env,funs,p)
 

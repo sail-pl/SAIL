@@ -12,7 +12,7 @@ module LabelSet = Set.Make(Int)
 
 type terminator = 
 | Goto of label
-| Invoke of {id : string; origin:import; target: string option; params : expression list; next:label}
+| Invoke of {id : string; origin:l_str; target: string option; params : expression list; next:label}
 | Return of expression option
 | SwitchInt of expression * (int * label) list * label
 | Break 

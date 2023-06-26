@@ -3,7 +3,7 @@ open Common
 open TypesCommon
 open CodegenEnv
 
-type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; }
+type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; layout : Llvm_target.DataLayout.t}
 let mangle_method_name (name:string) (mname:string) (args: sailtype list ) : string =
   let back = List.fold_left (fun s t -> s ^ string_of_sailtype (Some t) ^ "_"  ) "" args in
   let front = "_" ^ mname ^ "_" ^ name ^ "_" in
@@ -89,7 +89,14 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : llbuilder -> llva
 let toLLVMArgs (args: param list ) (env:DeclEnv.t) (llvm:llvm_args) : (bool * sailtype * llvalue) array = 
   let llvalue_list = List.map (
     fun {id;mut;ty=t;_} -> 
-      let ty = getLLVMType t env llvm.c llvm.m in 
+      let ty = getLLVMType env t llvm.c llvm.m in 
       mut,t,build_alloca ty id llvm.b
   ) args in
   Array.of_list llvalue_list
+
+
+let get_memcpy_intrinsic llvm = 
+  let args_type = [|i8_type llvm.c |> pointer_type; i8_type llvm.c |> pointer_type ; i64_type llvm.c; i1_type llvm.c|] in
+
+  let f = declare_function "llvm.memcpy.p0i8.p0i8.i64" (function_type (void_type llvm.c) args_type ) llvm.m in
+  f

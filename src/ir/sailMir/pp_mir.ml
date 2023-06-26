@@ -7,7 +7,7 @@ let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit
   match e.exp with 
     | Variable s -> fprintf pf "%s" s
     | Deref e -> fprintf pf "*%a" ppPrintExpression e 
-    | StructRead (e, s) -> fprintf pf "%a.%s" ppPrintExpression e s
+    | StructRead (_,e, (_,s)) -> fprintf pf "%a.%s" ppPrintExpression e s
     | ArrayRead (e1, e2) -> fprintf pf "%a[%a]" ppPrintExpression e1 ppPrintExpression e2
     | Literal (l) -> fprintf pf "%a" PpCommon.pp_literal l 
     | UnOp (o, e) -> fprintf pf "%a %a" pp_unop o ppPrintExpression e
@@ -17,7 +17,7 @@ let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit
     | ArrayStatic el ->  
       Format.fprintf pf "[%a]"
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    |StructAlloc  (id, m) ->
+    |StructAlloc  (_,id, m) ->
       let pp_field pf (x, y) = Format.fprintf pf "%s:%a" x ppPrintExpression y in
       Format.fprintf pf "%s{%a}" (snd id)
         (Format.pp_print_list ~pp_sep:pp_comma pp_field)
@@ -41,7 +41,7 @@ let ppPrintAssignement (pf : Format.formatter) (a : assignment) : unit =
 let ppPrintTerminator (pf : Format.formatter) (t : terminator) : unit = 
   match t with 
     | Goto lbl -> fprintf pf "\t\tgoto %d;" lbl 
-    | Invoke {id; params;next;origin;target} -> fprintf pf "\t\t%a%s(%a) -> %d" (Format.pp_print_option  (fun fmt id -> fprintf fmt "%s = %s::" id origin.mname)) target id (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) params next
+    | Invoke {id; params;next;origin=(_,mname);target} -> fprintf pf "\t\t%a%s(%a) -> %d" (Format.pp_print_option  (fun fmt id -> fprintf fmt "%s = %s::" id mname)) target id (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) params next
     | Return None -> fprintf pf "\t\treturn;"
     | Return (Some e) ->  fprintf pf "\t\treturn %a;" ppPrintExpression e 
     | SwitchInt (e, cases, default) -> 

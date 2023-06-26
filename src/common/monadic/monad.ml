@@ -63,19 +63,22 @@ end
 module MonadIdentity : Monad with type 'a t = 'a = struct
   type 'a t = 'a
   let pure x = x
-
   let fmap f x = f x
-
   let apply = fmap
-
   let bind x f = f x
 end
 
 module MonadOperator (M : Monad) = struct
   let (<*>) = M.apply
+  let (<$>) = M.fmap
+  let (<&>) = fun x f -> M.fmap f x
   let (>>=) = M.bind
   let (>>|) x f = x >>= fun x -> f x |> M.pure
-  let (>>) x y = x >>= fun _ -> y
+  (* let (>>) x (lazy y) = x >>= fun _ -> y *)
+  (* 
+  requires lazy, otherwise y is evaluated even if the behaviour of bind doesn't execute its right argument 
+    however lazy values are not handled by coq_of_ocaml...
+  *)
 end
 
 module MonadSyntax (M : Monad ) = struct 
@@ -128,7 +131,7 @@ module MonadFunctions (M : Monad) = struct
             match s2 () with
             | Nil -> return ()
             | Cons (y, ys) ->
-                f x y >> iter2 f xs ys
+                f x y >>= (fun () -> iter2 f xs ys)
 
     let rec fold_left (f : 'a -> 'b -> 'a M.t) (acc : 'a) (s : 'b Seq.t) : 'a M.t =
       match s () with
@@ -167,7 +170,7 @@ module MonadFunctions (M : Monad) = struct
         let rec aux (l : (MMap.key * 'a) Seq.t) : unit M.t =
           match l () with
           | Seq.Nil -> return ()
-          | Seq.Cons ((k, a), v) -> f k a >> aux v
+          | Seq.Cons ((k, a), v) -> f k a >>= (fun () ->aux v)
         in  
         aux (MMap.to_seq m) 
     end
@@ -198,7 +201,7 @@ module MonadFunctions (M : Monad) = struct
     let rec iter (f : 'a -> unit M.t)  (l : 'a list) : unit M.t = 
         match l with 
         | [] -> return ()
-        | h::t -> f h >> iter f t
+        | h::t -> f h >>= (fun () -> iter f t)
 
     let rec iter2 f l1 l2 =
       match (l1, l2) with

@@ -21,23 +21,37 @@ let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : llvalue
     let index = eval_r env llvm index_exp in
     let llvm_array = build_in_bounds_gep array_val [|(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
     llvm_array
-  | StructRead (struct_exp,field) -> 
+  | StructRead ((_,mname),struct_exp,(_,field)) -> 
     let st = eval_l env llvm struct_exp in
     let st_type_name = match struct_name (type_of st |> subtypes).(0) with
         | None -> failwith "problem with structure type"
-        | Some name -> name
+        | Some name -> String.split_on_char '.' name |> (List.nth |> Fun.flip) 1
     in
-    let fields = (SailEnv.get_decl st_type_name (Self Struct) env |> Option.get).defn.fields  in
+    let fields = (SailEnv.get_decl st_type_name (Specific (mname,Struct)) env |> Option.get).defn.fields  in
     let _,_,idx = List.assoc field fields in 
-      build_struct_gep st idx "" llvm.b
-  | _  -> failwith "problem with thir"
+    build_struct_gep st idx "" llvm.b
+  
+  | StructAlloc (_,(_,name),fields) -> 
+    let _,fieldlist = fields |> List.split in
+    let strct_ty = match type_by_name llvm.m ("struct." ^ name) with
+    | Some s -> s
+    | None -> "unknown structure : " ^ ("struct." ^ name) |> failwith 
+    in
+    let struct_v = build_alloca strct_ty "" llvm.b in 
+    List.iteri ( fun i f ->
+      let v = eval_r env llvm f in
+      let v_f = build_struct_gep struct_v i "" llvm.b in
+      build_store v v_f llvm.b |> ignore
+      ) fieldlist; 
+    struct_v
+
+  | _ -> failwith "unexpected rvalue for codegen"
+
 
 and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue = 
   let ty = get_type x in
   match x.exp with
-  | Variable _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
-  | StructRead _ -> let v = eval_l env llvm x in build_load v "" llvm.b    
-  | ArrayRead _ -> let v = eval_l env llvm x in build_load v "" llvm.b    
+  | Variable _ | StructRead _ | ArrayRead _ | StructAlloc _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
 
   | Literal l ->  getLLVMLiteral l llvm
   | UnOp (op,e) -> let l = eval_r env llvm e in unary op (ty_of_alias ty (snd env),l) llvm.b
@@ -60,26 +74,21 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue =
     set_global_constant true array;
     build_load array "" llvm.b
     end
-  | StructAlloc ((_,name),fields) -> 
-    let _,fieldlist = fields |> List.split in
-    let strct = match type_by_name llvm.m name with
-    | Some s -> s
-    | None -> "unknown structure : " ^ name |> failwith 
-    in
-    let values = List.map (eval_r env llvm) fieldlist |> Array.of_list in
-    const_named_struct strct values
+
   | EnumAlloc _ -> failwith "enum allocation unimplemented"
+
   | _ -> failwith "problem with thir"
-and construct_call (name:string) (origin:import) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
+
+and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
   let args_type,llargs = List.map (fun arg -> get_type arg,eval_r env llvm arg) args |> List.split
   in
   (* let mname = mangle_method_name name origin.mname args_type in  *)
-  let mname = "_" ^ origin.mname ^ "_" ^ name in 
+  let mangled_name = "_" ^ mname ^ "_" ^ name in 
   Logs.debug (fun m -> m "constructing call to %s" name);
-  let llval,ext = match SailEnv.get_decl mname (Self Method) env with 
+  let llval,ext = match SailEnv.get_decl mangled_name (Specific (mname,Method)) env with 
     | None ->   
       begin
-      match SailEnv.get_decl name (Self Method) env with 
+      match SailEnv.get_decl name (Specific (mname,Method)) env with 
       | Some {llval;extern;_} -> llval,extern
       | None ->  Printf.sprintf "implementation of %s not found" name |> failwith
       end
@@ -113,17 +122,17 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
       | Some e -> 
           let t = get_type e 
           and v = eval_r env llvm e in
-          let x = build_alloca (getLLVMType t (snd env) llvm.c llvm.m) name entry_b in 
+          let x = build_alloca (getLLVMType (snd env) t llvm.c llvm.m) name entry_b in 
           build_store v x llvm.b |> ignore; x  
       | None ->
-        let t' = getLLVMType ty (snd env) llvm.c llvm.m in
+        let t' = getLLVMType (snd env) ty llvm.c llvm.m in
         build_alloca t' name entry_b
     in
-    SailEnv.declare_var name  (dummy_pos,(mut,v)) env
+    SailEnv.declare_var name (dummy_pos,(mut,v)) env
 
   and assign_var (target:expression) (exp:expression) (env:SailEnv.t) = 
-    let lvalue = eval_l env llvm target 
-    and rvalue = eval_r env llvm exp in
+    let lvalue = eval_l env llvm target in
+    let rvalue = eval_r env llvm exp in 
     build_store rvalue lvalue llvm.b |> ignore
     in
 
@@ -197,7 +206,7 @@ let methodToIR (llc:llcontext) (llm:llmodule) (decl:Declarations.method_decl) (e
   | Some b -> 
     Logs.info (fun m -> m "codegen of %s" name);
     let builder = builder llc in
-    let llvm = {b=builder; c=llc ; m = llm} in
+    let llvm = {b=builder; c=llc ; m = llm; layout=Llvm_target.DataLayout.of_string (data_layout llm)} in
 
     if block_begin decl.llval <> At_end decl.llval then failwith ("redefinition of function " ^  name);
 
