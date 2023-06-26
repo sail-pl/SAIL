@@ -29,7 +29,7 @@ struct
         let+ () = ESC.update_var (fst lt) id assign_var in buildExp lt (Variable id)
       | Deref e -> rexpr e 
       | ArrayRead (e1, e2) -> let+ e1' = lexpr e1 and* e2' = rexpr e2 in buildExp lt (ArrayRead(e1',e2'))
-      | StructRead (e,field) -> let+ e = lexpr e in buildExp lt (StructRead (e,field))
+      | StructRead (origin,e,field) -> let+ e = lexpr e in buildExp lt (StructRead (origin,e,field))
       | Ref _ -> ESC.error @@ Error.make (fst lt) "todo"
       |  _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
   and rexpr (e : Thir.expression) : expression ESC.t = 
@@ -45,13 +45,13 @@ struct
       | BinOp (o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in buildExp lt (BinOp(o, e1', e2'))
       | Ref (b, e) -> let+ e' = rexpr e in buildExp lt (Ref(b, e'))
       | ArrayStatic el -> let+ el' = ListM.map rexpr el in buildExp lt (ArrayStatic el')
-      | StructRead (struct_exp,field)  -> 
+      | StructRead (origin,struct_exp,field)  -> 
         let+ exp = rexpr struct_exp in 
-         buildExp lt (StructRead (exp,field))  
+         buildExp lt (StructRead (origin,exp,field))  
       
-      | StructAlloc (id, fields) -> 
+      | StructAlloc (origin,id, fields) -> 
         let+ fields = ListM.map (pairMap2 (rexpr)) fields in 
-        buildExp lt (StructAlloc(id,fields))
+        buildExp lt (StructAlloc(origin,id,fields))
       | MethodCall _ 
       | _ ->  ESC.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
 
@@ -110,7 +110,7 @@ struct
           let+ curr_lbl = ESC.get in
           get_scoped_var name (curr_lbl + 1)
         in
-        ESC.declare_var loc id {ty;mut;name} >>
+        let* () = ESC.declare_var loc id {ty;mut;name} in
         let target = IrHir.AstHir.buildExp (loc,ty) (Variable id) in
         let+ bn = assignBasicBlock loc {location=loc; target; expression }  in
         [{location=loc; mut; id=id; varType=ty}],bn
@@ -154,12 +154,12 @@ struct
         let+ cfg = singleBlock bb in
         ([],cfg)
         
-      | Invoke (target, ({mname;_} as ml), (l,id), el) -> 
-        let* (_,realname,_) = ESC.throw_if_none (Error.make loc @@ Fmt.str "Compiler Error : function '%s' must exist" id) 
-                                                (SailModule.DeclEnv.find_decl id (Specific (mname,Method)) (snd env))
+      | Invoke (target, ((_,mname) as origin), (l,id), el) -> 
+        let* ((_,realname),_) = ESC.throw_if_none (Error.make loc @@ Fmt.str "Compiler Error : function '%s' must exist" id) 
+                                              (SailModule.DeclEnv.find_decl id (Specific (mname,Method)) (snd env))
         in
         let* el' = ListM.map rexpr el in
-        let+ invoke = buildInvoke loc {ml with mname} (l,realname) target el' in
+        let+ invoke = buildInvoke loc origin (l,realname) target el' in
         ([], invoke)
 
       | Return e ->

@@ -42,6 +42,14 @@ let unit_decl_of_decl : (_,_,_,_,_) decl_sum -> unit_decl = function
 | E _ ->  E ()
 | T _ -> T ()
 
+let string_of_decl : (_,_,_,_,_) decl_sum -> string = function
+| M _ ->  "method"
+| P _ -> "process"
+| S _ -> "struct"
+| E _ ->  "enum"
+| T _ -> "type"
+
+
 type sailtype =
   | Bool 
   | Int 

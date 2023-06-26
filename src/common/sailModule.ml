@@ -2,11 +2,10 @@ open TypesCommon
 
 module Declarations = struct
   type process_decl = loc * function_proto
-  type method_decl = loc * string * function_proto 
+  type method_decl = l_str * function_proto 
   type struct_decl = loc * struct_proto
   type enum_decl = loc * enum_proto
   type type_decl = ty_defn
-  type builtin_decl = method_sig
 end
 
 module DeclEnv = Env.DeclarationsEnv(Declarations)

@@ -70,8 +70,8 @@ module Pass =  Pass.MakeFunctionPass(V)
         | Variable id -> return {info; exp=Variable id}
         | Deref e -> 
           let+ e = aux e in {info;exp=Deref e}
-        | StructRead (e, id) ->
-          let+ e = aux e in {info; exp=StructRead (e, id)}
+        | StructRead (o,e, id) ->
+          let+ e = aux e in {info; exp=StructRead (o,e, id)}
         | ArrayRead (e1, e2) ->
           let* e1 = aux e1 in 
           let+ e2 = aux e2 in 
@@ -87,23 +87,23 @@ module Pass =  Pass.MakeFunctionPass(V)
           let+ e = aux e in {info;exp=Ref(b, e)}
         | ArrayStatic el -> 
           let+ el = ListM.map aux el in {info;exp=ArrayStatic el}
-        | StructAlloc (id, m) ->
-          let+ m = ListM.map (pairMap2 aux) m in {info; exp=StructAlloc (id, m)}
+        | StructAlloc (o,id, m) ->
+          let+ m = ListM.map (pairMap2 aux) m in {info; exp=StructAlloc (o,id, m)}
         | EnumAlloc (id, el) ->
           let+ el = ListM.map aux el in  {info;exp=EnumAlloc (id, el)}
-        | MethodCall ((l_id,id), mod_loc, el) ->
-          let* m = ECSW.get_decl id (Specific (mod_loc.mname,Method)) in 
+        | MethodCall ((l_id,id), ((_,mname) as origin), el) ->
+          let* m = ECSW.get_decl id (Specific (mname,Method)) in 
           match m with
-          | Some (_proto_loc,_,proto) -> 
+          | Some (_proto_loc,proto) -> 
             begin
             match proto.ret with 
             | Some rtype -> 
               let* n = ECSW.fresh in 
               let x = "__f" ^ string_of_int n in
               let* el = ListM.map aux el in
-              ECSW.write {info=loc; stmt=DeclVar (false, x, Some rtype, None)} >>
-              ECSW.write {info=loc; stmt=Invoke(Some x,mod_loc, (l_id,id), el)} >>
-              return {info;exp=Variable x}
+              let* () = ECSW.write {info=loc; stmt=DeclVar (false, x, Some rtype, None)} in
+              let+ () = ECSW.write {info=loc; stmt=Invoke(Some x,origin, (l_id,id), el)} in
+              {info;exp=Variable x}
                 
             | None -> ECSW.throw (Error.make loc "methods in expressions should return a value (problem with THIR)")
             end

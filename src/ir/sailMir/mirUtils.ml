@@ -171,10 +171,10 @@ let buildLoop (location : loc) (cfg : cfg) : cfg ESC.t =
     blocks = BlockMap.(singleton inputLbl inputBlock |> add outputLbl outputBlock |> union disjoint goto.blocks)
   }
 
-let buildInvoke (l : loc) (origin:import) (id : l_str) (target : string option) (el : expression list) : cfg ESC.t =
+let buildInvoke (l : loc) (origin:l_str) (id : l_str) (target : string option) (el : expression list) : cfg ESC.t =
   let* env = match target with 
   | None -> ESC.get_env 
-  | Some tid -> ESC.update_var l tid assign_var >> ESC.get_env 
+  | Some tid -> ESC.update_var l tid assign_var >>= fun () ->ESC.get_env
   in 
   let+ invokeLbl = ESC.fresh and* returnLbl = ESC.fresh in 
   let invokeBlock = 
@@ -258,7 +258,7 @@ let cfg_returns ({input;blocks;_} : cfg) : (loc option * basicBlock BlockMap.t) 
       begin
       match bb.terminator with
       | None -> (Some bb.location, blocks') |> E.pure
-      | Some Break -> E.log @@ Error.make bb.location "there should be no break at this point" >> aux input blocks'
+      | Some Break -> E.log @@ Error.make bb.location "there should be no break at this point" >>= fun () -> aux input blocks'
       | Some Return _ -> (None, blocks') |> E.pure
       | Some (Invoke {next;_}) -> aux next blocks'
       | Some (Goto lbl) -> aux lbl blocks'

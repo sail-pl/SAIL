@@ -56,6 +56,8 @@ end
   val find_decl : string -> ('a,'b) search_type -> t -> 'b
   val add_import_decls : (import * t) -> t -> t
   val get_imports : t -> import list
+  val replace_imports_with : t -> t -> t
+  val remove_imports : t -> t
   val find_closest: string -> t -> string list
   val write_declarations : 'a -> 'b -> unit
   val string_of_env : t -> string
@@ -65,6 +67,7 @@ end
   val get_own_decls : t -> env
   val get_decls :'d decl_ty ->  env -> 'd container
   val overwrite_decls : 'd container -> 'd decl_ty -> env -> env
+  val container_length : 'd container -> int
   val to_seq : 'a container -> (string * 'a) Seq.t
   val of_seq : (string * 'a) Seq.t -> 'a container
 
@@ -172,12 +175,14 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
   let overwrite_decls (type d) (field: d container) = update_decls (fun _ -> field) 
 
   let add_decl (type d) id (decl:d) (ty: d decl_ty) (env:t) : t E.t = 
-    E.throw_if (Error.make dummy_pos @@ Fmt.str "duplicate declarations for '%s'" id) (FieldMap.mem id (get_decls  ty env.self))  >>
-    return {env with self=update_decls (FieldMap.add id decl) ty env.self}
+    E.throw_if (Error.make dummy_pos @@ Fmt.str "duplicate declarations for '%s'" id) (FieldMap.mem id (get_decls  ty env.self))
+    >>= fun () -> return {env with self=update_decls (FieldMap.add id decl) ty env.self}
 
 
   let to_seq = FieldMap.to_seq
   let of_seq = FieldMap.of_seq
+
+  let container_length = FieldMap.cardinal
 
   let string_of_declarations env : string = 
     FieldMap.fold (fun n _ s -> Fmt.str  "process %s\n %s" n s) env.processes ""
@@ -220,7 +225,9 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
     let imports = (i,from.self)::_to.imports in
     {_to with imports}
 
+  let replace_imports_with (_with : t) (from : t) : t = {from with imports=_with.imports}
 
+  let remove_imports (e : t ) = {e with imports = []}
   let write_declarations _decls _filename = () (* todo *) 
 
   let iter_decls (type d) (type o) f (s:(d,o) search_type) (env:t) : unit E.t = match s with
@@ -338,7 +345,9 @@ module VariableEnv : VariableEnvType = functor (V : Variable) -> struct
     | None -> 
       let upd_frame = FieldMap.add name v current in
       let stack = push_frame stack upd_frame in {stack} |> E.pure
-    | Some _ -> E.throw (Error.make l @@ Printf.sprintf "variable %s already declared !" name) >> return e
+    | Some _ -> 
+      E.throw (Error.make l @@ Printf.sprintf "variable %s already declared !" name) 
+      >>| fun () -> e
 
 
     let init_env (args:param list) : t E.t =
@@ -355,7 +364,8 @@ module VariableEnv : VariableEnvType = functor (V : Variable) -> struct
         let current,stack = current_frame stack in
         match FieldMap.find_opt name current with 
         | Some v -> let+ v' = f v in FieldMap.add name v' current :: stack
-        | None  when stack = [] -> E.throw (Error.make l @@ Printf.sprintf "variable %s not found" name) >> return e.stack
+        | None  when stack = [] -> E.throw (Error.make l @@ Printf.sprintf "variable %s not found" name) 
+          >>| fun () -> e.stack
         | _ -> let+ e = aux stack in current :: e
       in 
       let+ stack = aux (e.stack) in 
