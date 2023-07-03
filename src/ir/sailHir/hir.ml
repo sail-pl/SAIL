@@ -197,7 +197,7 @@ struct
       (* resolving aliases *)
       let sm = (
       
-        let* env = ES.get_env in 
+        let* declEnv = ES.get_env in 
 
         let* () = 
         TEnv.iter (
@@ -210,7 +210,7 @@ struct
               let+ () = ES.set_env env in Some t
             in
             ES.update_env (update_decl id {def with ty} (Self Type))
-        ) (get_own_decls env |> get_decls Type) in
+        ) (get_own_decls declEnv |> get_decls Type) in
 
         let* env = ES.get_env in 
         
@@ -220,10 +220,12 @@ struct
               fun (name,(l,t,n)) -> 
                 let* env = ES.get_env in 
                 let* t,env = (follow_type t env) |> ES.S.lift in
-                let+ () = ES.set_env env in name,(l,t,n)
+                let+ () = ES.set_env env in 
+                name,(l,t,n)
             ) fields
             in
-            ES.update_env (update_decl id (l,{fields;generics}) (Self Struct))
+            let proto = l,{fields;generics} in 
+            ES.update_env (update_decl id proto (Self Struct))
         ) (get_own_decls env |> get_decls Struct)
         in
 
@@ -262,7 +264,11 @@ struct
         ) sm.processes in 
 
         (* at this point, all types must have an origin *)        
-        let+ declEnv = ES.get_env in   
+
+
+        let* declEnv = ES.get_env in   
+        let+ () = SEnv.iter (fun (id,proto) -> check_non_cyclic_struct id proto declEnv |> ES.S.lift) (get_own_decls declEnv |> get_decls Struct) in
+
         (* Logs.debug (fun m -> m "%s" @@ string_of_declarations declEnv); *)
         {sm with methods; processes; declEnv}
       ) sm.declEnv |> fst in

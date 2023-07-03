@@ -10,11 +10,13 @@ module M = HirMonad.Make( struct
   type t = statement
   let mempty : t = {info=dummy_pos; stmt=Skip}
   let mconcat : t -> t -> t = fun x y -> {info=dummy_pos; stmt=Seq (x,y)}
-  end)
+  end
+)
 
 open M
 open MonadSyntax(M.E)
 open MonadOperator(M.E)
+open MonadFunctions(M.E)
 module D = SailModule.DeclEnv
 
 let find_symbol_source ?(filt = [E (); S (); T ()] ) (loc,id: l_str) (import : l_str option) (env : D.t) : (l_str * D.decls)  E.t =
@@ -50,7 +52,6 @@ match import with
                   @@ Fmt.str "multiple definitions for declaration %s : \n\t%s" id 
                      (List.map (fun (i,def) -> match def with T def -> Fmt.str "from %s : %s" i.mname (string_of_sailtype (def.ty)) | _ -> "") choice |> String.concat "\n\t")
   end
-
 
 let follow_type ty env : (sailtype * D.t) E.t = 
   
@@ -95,3 +96,30 @@ let follow_type ty env : (sailtype * D.t) E.t =
   (* p only contains type_def from the current module *)
   let env = List.fold_left (fun env (td:ty_defn) -> D.update_decl td.name {td with ty=Some res} (Self Type) env) env p in 
   res,env
+
+let check_non_cyclic_struct (name:string) (l,proto) env : unit E.t = 
+  let rec aux id curr_loc (s:struct_proto) checked = 
+    let* () = E.throw_if 
+                (Error.make l
+                ~hint:(Some (Some curr_loc,"Hint : try boxing this type"))
+                @@ Fmt.str "circular structure declaration : %s" 
+                @@ String.concat " -> " (List.rev (id::checked))
+                
+                )
+                
+                (List.mem id checked) in 
+    let checked = id::checked in 
+    ListM.iter (
+      fun (_,(l,t,_)) -> match t with
+
+      | CompoundType {name=_,name;origin=Some (_,origin); decl_ty = Some S ();_} -> 
+        begin
+          match D.find_decl name (Specific (origin,(Filter [S ()]))) env with
+          | Some (S (_,d)) -> aux name l d checked
+          | _ -> failwith "invariant : all compound types must have a correct origin and type at this step"
+        end
+      | CompoundType {origin=None;decl_ty=None;_} -> E.throw (Error.make l "follow type not called")
+      | _ -> return ()
+    ) s.fields
+  in
+  aux name l proto []
