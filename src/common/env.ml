@@ -18,7 +18,7 @@ module type Declarations = sig
 end
 
 
- module type DeclEnvType = functor (D : Declarations) -> sig
+module type DeclEnvType = functor (D : Declarations) -> sig
   open D
 
   type t 
@@ -162,7 +162,7 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
 
   let update_decls (type d) (f: d FieldMap.t -> d FieldMap.t) (ty: d decl_ty) (env:env) : env =
     let res = f (get_decls ty env) in
-     match ty with
+    match ty with
     | Process -> {env with processes=res}
     | Method -> {env with methods= res}
     | Struct -> {env with structs= res}
@@ -201,10 +201,10 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
     |> FieldMap.fold (fun n _ s -> Fmt.str  "type %s\n %s" n s)  env.types
 
   let string_of_env env = 
-    Fmt.str "Declarations : \n %s \n There are %i imports : %s \n" 
+    Fmt.str "Declarations : \n %s \n There are %i imports : \n %s \n" 
     (string_of_declarations env.self) 
     (List.length env.imports) 
-    (String.concat " " (List.map (fun ({mname;_},_) -> mname) env.imports))
+    (String.concat "\n" (List.map (fun ({mname;_},e) -> Fmt.str "%s : \n\n %s"  mname (string_of_declarations e)) env.imports))
 
 
   let find_decl (type d) (type o) id (s:(d,o) search_type) (env:t) : o = 
@@ -246,7 +246,7 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
       return (FieldMap.iter f (get_decls d env.self))
     else
     let+ env = E.throw_if_none (Error.make dummy_pos "can't happen")
-                               (List.find_opt (fun ({mname;_},_) -> mname = m) env.imports)
+                              (List.find_opt (fun ({mname;_},_) -> mname = m) env.imports)
                                 in
           FieldMap.iter f (get_decls d (snd env) )
 
@@ -289,7 +289,7 @@ module type Variable = sig
 
   val to_var : string -> bool -> sailtype -> t 
 end
- 
+
 
 module type VariableEnvType = functor (V : Variable) -> sig
   type variable = loc * V.t
@@ -355,7 +355,7 @@ module VariableEnv : VariableEnvType = functor (V : Variable) -> struct
       let upd_frame = FieldMap.add name v current in
       let stack = push_frame stack upd_frame in {stack} |> E.pure
     | Some _ -> 
-      E.throw (Error.make l @@ Printf.sprintf "variable %s already declared !" name) 
+      E.throw (Error.make l @@ Printf.sprintf "variable %s already declared in current frame!" name) 
       >>| fun () -> e
 
 

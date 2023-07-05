@@ -1,5 +1,8 @@
-import print_utils
-process Main(){
+import test_utils
+process Main {
+Init:
+Loop:
+
 
     var x : box<int>;
     while (1 < 0)
@@ -9,5 +12,6 @@ process Main(){
     }
     // Error x is not initialized as we don't enter the loop
     // print_int(*x); print_newline()
-
+;
+    exit(0);
 }

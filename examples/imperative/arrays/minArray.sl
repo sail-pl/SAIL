@@ -1,5 +1,8 @@
-import print_utils
-process Main(){
+import test_utils
+process Main {
+Init:
+Loop:
+
     var mut a : array<int;10> = [6,57,23,2,5,6,7,10,13,5];
     var mut res : int = 0;
     var mut cpt : int = 1;
@@ -8,5 +11,6 @@ process Main(){
             res = cpt;
         cpt = cpt + 1
     }
-    print_int (a[res]); print_newline()
+    print_int (a[res]); print_newline();
+    exit(0);
 }

@@ -1,4 +1,9 @@
-import print_utils
-process Main(){
-    print_string("Hello World\n")
+import test_utils
+
+process Main {
+Init:
+Loop:
+
+    print_string("Hello World\n");
+    exit(0);
 }

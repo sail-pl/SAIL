@@ -1,5 +1,5 @@
-import print_utils
-process Main()
+import test_utils
+process Main
 {
     var mut x : int;
     x = 3;

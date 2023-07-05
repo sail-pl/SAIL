@@ -1,4 +1,4 @@
-import print_utils
+import test_utils
 enum option<A> {
 	None,
 	Some(A)
@@ -50,12 +50,16 @@ process N(var x : &mut list<int>, y : &mut int; signal s1, s2){
 	emit s2;
 }
 
-process Main(){
+process Main {
+Init:
+Loop:
+
 	var x : &mut list<int>;
 	var y : &mut int;
 	x = list {head : None};
 	y = 0;
 	signal s1;
 	signal s2;	
-	{M(x, y, s1, s2); || N(x, y, s1, s2);}
+	{M(x, y, s1, s2); || N(x, y, s1, s2);};
+    exit(0);
 }

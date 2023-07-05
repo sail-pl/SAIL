@@ -1,9 +1,9 @@
 open Common
 open TypesCommon
 open Monad
-open IrHir
 open IrThir
-open Pass
+open IrHir
+open SailParser
 
 module V = (
   struct 
@@ -43,18 +43,20 @@ module ECSW = struct
   let get_decl id ty = ECS.bind ECS.get (fun e -> THIREnv.get_decl id ty e |> ECS.pure) |> lift
 end
 
-let get_hint id env = 
-  MonadOption.M.bind (List.nth_opt (THIREnv.get_closest id env) 0) (fun id -> Some (None,Printf.sprintf "Did you mean %s ?" id))
+let get_hint id env = Option.bind (List.nth_opt (THIREnv.get_closest id env) 0) (fun id -> Some (None,Printf.sprintf "Did you mean %s ?" id))
 
 
 
 module Pass =  Pass.MakeFunctionPass(V)
 (
   struct 
-    let name = "Extract method call out of expressions"
+    let name = "Extract method call out of expressions (fixme : should be in hir but requires type inference)"
 
-    type in_body = IrThir.Thir.Pass.out_body
-    type out_body = in_body
+    type m_in = ThirUtils.statement
+    type m_out = m_in
+
+    type p_in = (HirUtils.statement,HirUtils.expression) AstParser.process_body
+    type p_out = p_in
 
     open MonadFunctions(ECSW)    
     open MakeOrderedFunctions(String)
@@ -91,7 +93,7 @@ module Pass =  Pass.MakeFunctionPass(V)
           let+ m = ListM.map (pairMap2 aux) m in {info; exp=StructAlloc (o,id, m)}
         | EnumAlloc (id, el) ->
           let+ el = ListM.map aux el in  {info;exp=EnumAlloc (id, el)}
-        | MethodCall ((l_id,id), ((_,mname) as origin), el) ->
+        | MethodCall ((l_id,id), ((_,mname) as origin), el) -> (* THIS IS THE PROBLEM : WE NEED TO KNOW THE RETURN TYPE !! *)
           let* m = ECSW.get_decl id (Specific (mname,Method)) in 
           match m with
           | Some (_proto_loc,proto) -> 
@@ -111,11 +113,10 @@ module Pass =  Pass.MakeFunctionPass(V)
         in aux e
   
 
-    let lower_function (f : in_body function_type) env _ : (out_body * THIREnv.D.t) E.t =
+    let lower_method (body,_proto : m_in * method_sig ) env _ : (m_out * THIREnv.D.t) E.t =
       let open MonadSyntax(ECS) in
       let open MonadOperator(ECS) in 
-
-      let rec aux (s : statement) : out_body ECS.t = 
+      let rec aux (s : statement) : statement ECS.t = 
         
         let buildSeq s1 s2 = {info=dummy_pos; stmt = Seq (s1, s2)} in 
         let buildStmt stmt = {info=dummy_pos;stmt} in
@@ -163,21 +164,14 @@ module Pass =  Pass.MakeFunctionPass(V)
               buildSeqStmt s (Return (Some e))
             end
         | Block c -> let+ c = aux c in buildStmt (Block c)
-        
-        | Run (lid, el) -> 
-          let+ el,s = ListM.map lower_expression el in 
-          buildSeqStmt s (Run(lid, el))
-        | DeclSignal s -> return @@ buildStmt (DeclSignal s)
-        | Emit s -> return @@ buildStmt (Emit s)
-        | Await s -> return @@ buildStmt @@ When (s, buildStmt Skip)
-        | When (s, c) -> let+ c = aux c in buildStmt (When (s, c))
-        | Watching (s, c) ->  let+ c = aux c in buildStmt (Watching (s, c))
-        | Par (c1, c2) ->  let+ c1 = aux c1 and* c2 = aux c2 in buildStmt (Par(c1,c2))
     
         in
-        ECS.run (aux f.body env) |> E.recover ({info=dummy_pos;stmt=Skip},snd env)
+        ECS.run (aux body env) |> E.recover ({info=dummy_pos;stmt=Skip},snd env)
 
-        let preprocess = Error.Logger.pure
+    let preprocess = Error.Logger.pure
+
+    let lower_process (c:p_in process_defn) env _ = E.pure (c.p_body,snd env)
+
   end
 )
 

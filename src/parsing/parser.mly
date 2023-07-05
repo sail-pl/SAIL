@@ -44,7 +44,13 @@
 %token METHOD PROCESS STRUCT ENUM 
 %token VAR SIGNAL 
 %token IF ELSE WHILE RETURN BREAK
-%token AWAIT EMIT WATCHING WHEN PAR "||"
+%token WHEN
+%token DLANGLE DRANGLE 
+
+// %token AWAIT EMIT WATCHING WHEN PAR "||"
+// %token PAR "||"
+%token P_LOCALS P_INIT P_LOOP
+%token WITH
 %token TRUE FALSE 
 %token PLUS "+" MINUS "-" MUL "*" DIV "/" REM "%"
 %token LE "<=" GE ">=" EQ "==" NEQ "!="
@@ -53,6 +59,7 @@
 %token REF "&"
 %token MUT
 %token ARRAY
+%token P_AND
 %token SELF
 %token LOOP
 %token FOR
@@ -68,13 +75,13 @@
 %nonassoc ")"
 %nonassoc ELSE
 
-%start <metadata -> statement SailModule.t E.t> sailModule
+%start <metadata -> (statement,(statement,expression) process_body) SailModule.methods_processes SailModule.t E.t> sailModule
 
 %% 
 
 let sailModule := i = import* ; l = defn* ; EOF ; {fun metadata -> mk_program metadata (ImportSet.of_list i) l}
 
-let defn ==
+let defn :=
 | TYPE ; name = ID ; ty = preceded("=",sailtype)? ; 
     {Type {name; loc = $loc; ty} }
 
@@ -84,11 +91,13 @@ let defn ==
 | ENUM ; e_name = ID ; e_generics = generic ; e_injections = brace_del_sep_list(",", enum_elt) ;
     {Enum {e_pos=$loc;e_name; e_generics; e_injections}}
 
-| METHOD ; name=ID ; generics=generic ; LPAREN ; params=separated_list(COMMA, mutable_var(sailtype)) ; RPAREN ; rtype=returnType ; body = block ; 
+| METHOD ; name=ID ; generics=generic ; LPAREN ; params=separated_list(",", mutable_var(sailtype)) ; RPAREN ; rtype=returnType ; body = block ; 
     {Method [{m_proto={pos=$loc;name; generics; params; variadic=false; rtype=rtype }; m_body = Either.right body}]}
 
-| PROCESS ; p_name = UID ; p_generics=generic ; p_interface=parenthesized(interface) ; p_body =block ;
-    {Process ({p_pos=$loc;p_name; p_generics; p_interface; p_body})}
+| PROCESS ; p_name = UID ; p_generics=generic ; p_interface = midrule(x = process_params(interface) ; {Option.value x ~default:([],[])}) ;  p_body = delimited("{", process_body, "}") ;
+    {
+        Process ({p_pos=$loc;p_name; p_generics; p_interface; p_body})
+    }
 
 | EXTERN ; lib=STRING? ; protos =  delimited("{", separated_nonempty_list_opt(";", extern_sig), "}") ;
     {let protos = List.map (
@@ -98,31 +107,54 @@ let defn ==
     ) protos in Method protos}
 
 
-let extern_sig == METHOD ; name=ID ; LPAREN ;  params=separated_list(COMMA, mutable_var(sailtype)) ; variadic=boption(VARARGS) ; RPAREN ; rtype=returnType ; ext_name=preceded("=",STRING)? ;
+let process_params(params) == ~ = delimited(DLANGLE,params,DRANGLE)? ; <>
+
+let process_body := 
+    decls = midrule(P_LOCALS ; ":" ; ~ = list(~ = ID ; ":" ;  ~ = sailtype ; <>) ; <>)? ; 
+    init  = midrule(P_INIT ; ":" ; statement?)? ; 
+    loop  = midrule(P_LOOP ; ":" ; separated_nonempty_list(WITH, pblock)?)? ; 
+    {
+        let decls = Option.value decls ~default:[] in
+        let init =  $loc,Option.(join init |> value ~default:($loc,Skip)) in
+        let loop = Option.(join loop |> value ~default:[]) in
+        let loop = List.(map (fun (bodies,cond) -> map (fun b -> b,cond) bodies) loop |> flatten) in 
+        {decls;init;loop} 
+    }
+
+let pblock := ~ = separated_nonempty_list(P_AND, pbody) ; ~ = midrule(WHEN ; ~= expression ; <>)?  ; <>
+
+let pbody := located (
+| ~ = statement ; <Statement>
+| ~ = midrule(~ = located(UID) ; ~ = midrule(x = process_params(separated_list(",", expression )) ; {Option.value x ~default:[]}) ; <Run>); <> 
+)
+
+
+
+let extern_sig := METHOD ; name=ID ; LPAREN ;  params=separated_list(",", mutable_var(sailtype)) ; variadic=boption(VARARGS) ; RPAREN ; rtype=returnType ; ext_name=preceded("=",STRING)? ;
         { (match ext_name with Some n -> n | None -> name),{pos=$loc; name; generics=[]; params; variadic; rtype=rtype} }
 
-let enum_elt ==  ~ = UID ; ~ = loption(parenthesized(separated_list(",", sailtype))) ; <>
+let enum_elt :=  ~ = UID ; ~ = loption(parenthesized(separated_list(",", sailtype))) ; <>
 
-let import == IMPORT ; mname = ID ; {{loc=$loc;mname;dir="";proc_order=1}}
+let import := IMPORT ; mname = ID ; {{loc=$loc;mname;dir="";proc_order=1}}
 
-let generic == loption(delimited("<", separated_list(",", UID), ">"))
+let generic := loption(delimited("<", separated_list(",", UID), ">"))
 
-let returnType == preceded(":", sailtype)? 
+let returnType := preceded(":", sailtype)? 
 
-let mutable_var(X) == (loc,id) = located(ID) ; COLON ; mut = mut ; ty =X ; { {id;mut;loc;ty} }
+let mutable_var(X) := (loc,id) = located(ID) ; ":" ; mut = mut ; ty =X ; { {id;mut;loc;ty} }
 
 let separated_nonempty_list_opt(separator, X) :=
-  x = X ; separator?  ; { [ x ] }
+| x = X ; separator?  ; { [ x ] }
 | x = X; separator; xs = separated_nonempty_list_opt(separator, X) ; { x :: xs }
 
 
-let interface ==
+let interface :=
 | {([],[])}
-| SIGNAL ; signals = separated_nonempty_list(",",ID); {([], signals)}
+| SIGNAL ; signals = separated_list(",",ID); {([], signals)}
 | VAR ; global = separated_nonempty_list(",",mutable_var(sailtype)) ; {(global, [])}
 | VAR ; ~ = separated_nonempty_list(",", mutable_var(sailtype)) ; ";" ; SIGNAL ; ~ = separated_nonempty_list(",",ID) ; <>
 
-let block == located (
+let block := located (
 | "{" ; "}" ; {Skip}
 | ~ = delimited("{",statement,"}") ; <Block>
 )
@@ -147,15 +179,14 @@ let expression :=
     | "*" ; ~ = expression ; %prec UNARY <Deref>
     | e1 = expression ; op =binOp ; e2 =expression ; { BinOp(op,e1,e2) }
     | ~ = delimited ("[", separated_list(",", expression), "]") ; <ArrayStatic>
-    | mloc  = ioption(module_loc) ; id=located(ID) ; l = brace_del_sep_list(",", id_colon(expression)) ;
-        { let m = List.fold_left (fun l (y,(_,z)) -> (y,z)::l) [] l in StructAlloc(mloc,id, m) }
+    | ~ = ioption(module_loc) ; ~ =located(ID) ; ~ = midrule(l = brace_del_sep_list(",", id_colon(expression)); {List.fold_left (fun l (y,(_,z)) -> (y,z)::l) [] l}) ; <StructAlloc>
     | ~ = located(UID) ; ~ = loption(parenthesized (separated_list(",", expression))) ; <EnumAlloc>
     | ~ = ioption(module_loc) ; ~ = located(ID) ; ~ = parenthesized(separated_list (",", expression)) ; <MethodCall>
 )
 
-let id_colon(X) == ~ =ID ; ":" ; ~ = located(X) ; <>
+let id_colon(X) := ~ =ID ; ":" ; ~ = located(X) ; <>
 
-let literal ==
+let literal :=
 | TRUE ; {LBool(true) }
 | FALSE ; {LBool(false)}
 | l = INT ; size = TYPE_INT?; {let size = match size with None -> 32 | Some s -> s in LInt {l;size}}
@@ -179,17 +210,17 @@ let binOp ==
 | OR ; {Or}
 
 
-let block_or_statement(b) ==
+let block_or_statement(b) :=
     | WHILE ; ~ = parenthesized(expression) ; ~ = b ; <While>
     | LOOP ; ~ = b ; <Loop>
-    | IF ; e = parenthesized(expression) ; s1 = b ; {If(e, s1, None)}
-    | IF ; e = parenthesized(expression) ; s1 = single_statement ; ELSE ; s2 = b ; {If(e, s1, Some s2)}
-    | WATCHING ; ~ = ID ; s = b ; <Watching>
-    | WHEN ; ~ = ID ; ~ = block ; <When>
+    | IF ; ~ = parenthesized(expression) ; ~ = b ; ~ = endrule({None}) ;  <If>
+    | IF ; ~ = parenthesized(expression) ; ~ = single_statement ; ELSE ; ~ = endrule(~ = b ; <Some>) ; <If>
+    // | WATCHING ; ~ = ID ; s = b ; <Watching>
+    // | WHEN ; ~ = ID ; ~ = block ; <When>
     | FOR ; var = ID; IN ; iterable=parenthesized(located(iterable_or_range)) ; body = b ; { For {var;iterable; body} }
 
 
-let iterable_or_range ==
+let iterable_or_range :=
 |  rl = INT ; "," ; rr = INT ; {
     let rl = Z.to_int rl in 
     let rr = Z.to_int rr in 
@@ -200,47 +231,43 @@ let iterable_or_range ==
 
 let single_statement := 
 | located (
-    | VAR ; ~ = mut ; ~ = ID ; ~ = preceded(":", sailtype)? ; ~ = preceded("=",expression)? ; <DeclVar>
-    | SIGNAL ; ~ = ID ; <DeclSignal>
+    | vardecl
+    // | SIGNAL ; ~ = ID ; <DeclSignal>
     | l = expression ; "=" ; e = expression ; <Assign>
     | CASE ; ~ = parenthesized(expression) ; ~ = brace_del_sep_list(",", case) ; <Case>
     | ~ = ioption(module_loc) ; ~ = located(ID) ; ~ = parenthesized(separated_list(",", expression)) ; <Invoke>
     | RETURN ; ~ = expression? ; <Return>
-    | ~ = located(UID) ; ~ = parenthesized(separated_list(",", expression )) ; <Run>
-    | EMIT ; ~ = ID ; <Emit>
-    | AWAIT ; ~ = ID ; <Await>
+    // | EMIT ; ~ = ID ; <Emit>
+    // | AWAIT ; ~ = ID ; <Await>''
     | BREAK ; <Break>
     | block_or_statement(single_statement)
     )
 | block
 
+let vardecl := VAR ; ~ = mut ; ~ = ID ; ~ = preceded(":", sailtype)? ; ~ = preceded("=",expression)? ; <DeclVar>
 
-let brace_del_sep_list(sep,x) == delimited("{", separated_nonempty_list_opt(sep, x), "}") 
+let brace_del_sep_list(sep,x) := delimited("{", separated_nonempty_list(sep, x), "}") 
 
-let located(x) == ~ = x ; { ($loc,x) }
+let located(x) := ~ = x ; { ($loc,x) }
 
-let case == separated_pair(pattern, ":", statement)
+let case := separated_pair(pattern, ":", statement)
 
-let mut == boption(MUT)
+let mut := boption(MUT)
 
-let module_loc ==  ~ = located(ID); DCOLON ; <> | x = located(SELF) ; DCOLON; { (fst x),Constants.sail_module_self}
+let module_loc :=  ~ = located(ID); "::" ; <> | x = located(SELF) ; "::" ; { (fst x),Constants.sail_module_self}
 
 let parenthesized(e) == delimited("(",e,")")
 
 
-let statement_seq := 
+let statement := 
 | single_statement
 | terminated(single_statement, ";")
 | located (
-    | ~ = left ; ~ = statement_seq ; <Seq>
-    | ~ = single_statement ; ";" ; ~ = statement_seq ; <Seq>
+    | ~ = left ; ~ = statement ; <Seq>
+    | ~ = single_statement ; ";" ; ~ = statement ; <Seq>
 )
 
-let left == block | located (block_or_statement(block))
-
-let statement := 
-| statement_seq
-| located(  ~ = statement_seq ; "||" ; ~ = statement ; <Par>)
+let left := block | located (block_or_statement(block))
 
 
 let pattern :=
@@ -255,10 +282,10 @@ let sailtype :=
 | TYPE_FLOAT ; {Float}
 | TYPE_CHAR ; {Char}
 | TYPE_STRING ; {String}
-| ARRAY ; "<" ; ty = sailtype ; ";" ; size = INT ; ">" ; {let size = Z.to_int size in ArrayType (ty,size) }
+| ARRAY ; "<" ; ~ = sailtype ; ";" ; ~ = midrule(size = INT ; {Z.to_int size}) ; ">" ; <ArrayType>
 | mloc = ioption(module_loc) ; name = located(ID) ; generic_instances = instance ; {CompoundType {origin=mloc; name; generic_instances; decl_ty=None} }
 | ~ = UID ; <GenericType>
 | REF ; b = mut ; t = sailtype ; {RefType(t,b)}
 
 
-let instance == loption(delimited("<", separated_list(",", sailtype), ">"))
+let instance := loption(delimited("<", separated_list(",", sailtype), ">"))

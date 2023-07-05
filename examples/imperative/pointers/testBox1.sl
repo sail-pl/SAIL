@@ -1,4 +1,4 @@
-import print_utils
+import test_utils
 struct s {
     x : int
 }
@@ -7,7 +7,10 @@ struct t {
     x : box<s>
 }
 
-process Main(){
+process Main {
+Init:
+Loop:
+
 
     var x : box<int> = box(42);
     *x = 18;
@@ -26,5 +29,6 @@ process Main(){
 
     var a : t = t { x: box(1)};
     *(a.x) = 18;
-    print_int(*(a.x))
+    print_int(*(a.x));
+    exit(0);
 }

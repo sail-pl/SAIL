@@ -1,0 +1,3 @@
+(library
+ (libraries common irMir mono)
+ (name misc))

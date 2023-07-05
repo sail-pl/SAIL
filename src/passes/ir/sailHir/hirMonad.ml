@@ -15,6 +15,8 @@ module Make(MonoidSeq : Monad.Monoid) = struct
     let fresh = EC.fresh |> lift
     let run e = let e = EC.run e in E.bind e (fun (e,(_,s)) -> E.pure (e,s) )
     let find_var id = bind get (fun e -> HIREnv.get_var id e |> pure)
+    let set_var loc id = update (fun e -> HIREnv.declare_var id (loc,()) e |> EC.lift)
+
     let throw e = E.throw e |> EC.lift |> lift 
     let throw_if_none b e = E.throw_if_none b e |> EC.lift |> lift
     let log e = E.log e |> EC.lift |> lift 
@@ -30,6 +32,8 @@ module Make(MonoidSeq : Monad.Monoid) = struct
     let fresh = ECS.fresh |> lift
     let throw e = ECS.throw e |> lift 
     let throw_if e b = ECS.throw_if e b |> lift 
+    let throw_if_none e b = ECS.throw_if_none e b |> lift 
+
 
     let log e = ECS.log e |> lift 
     let get_env = ECS.get |> lift

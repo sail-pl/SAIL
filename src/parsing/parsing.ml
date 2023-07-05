@@ -5,9 +5,9 @@ open Lexer
 open Lexing
 open Error
 open TypesCommon
+open AstParser
 module L = MenhirLib.LexerUtil
 module E = MenhirLib.ErrorReports
-
 
 let print_error_position lexbuf =
   let pos = lexbuf.lex_curr_p in
@@ -20,7 +20,7 @@ let print_error_position lexbuf =
 
 
 
-let fastParse filename : (string * AstParser.statement SailModule.t Error.Logger.t, string) Result.t =
+let fastParse filename : (string * (statement,(statement,expression) process_body) SailModule.methods_processes SailModule.t Error.Logger.t, string) Result.t =
   let text, lexbuf = L.read filename in
   let hash = Digest.string text in
 
@@ -48,9 +48,9 @@ let fastParse filename : (string * AstParser.statement SailModule.t Error.Logger
 module I = UnitActionsParser.MenhirInterpreter
 
 
- let env = function I.HandlingError env -> env | _ -> assert false
+let env = function I.HandlingError env -> env | _ -> assert false
 
- let state checkpoint : int =
+let state checkpoint : int =
   match I.top (env checkpoint) with
   | Some (I.Element (s, _, _, _)) -> I.number s
   | None -> 0
@@ -78,15 +78,15 @@ let fail text buffer (checkpoint : _ I.checkpoint) =
   
   
 let slowParse filename text = 
- let lexbuf = L.init filename (Lexing.from_string text) in
- let supplier = I.lexer_lexbuf_to_supplier read_token lexbuf in
- let buffer, supplier = E.wrap_supplier supplier in
- let checkpoint = UnitActionsParser.Incremental.sailModule lexbuf.lex_curr_p in
- I.loop_handle (fun _ -> assert false) (fail text buffer) supplier checkpoint
+  let lexbuf = L.init filename (Lexing.from_string text) in
+  let supplier = I.lexer_lexbuf_to_supplier read_token lexbuf in
+  let buffer, supplier = E.wrap_supplier supplier in
+  let checkpoint = UnitActionsParser.Incremental.sailModule lexbuf.lex_curr_p in
+  I.loop_handle (fun _ -> assert false) (fail text buffer) supplier checkpoint
 
 
 
-let parse_program filename : AstParser.statement SailModule.t Logger.t = 
+let parse_program filename : (statement, (statement,expression) process_body) SailModule.methods_processes SailModule.t Logger.t = 
   match fastParse filename with
   | Result.Ok (_,sm) -> sm
   | Result.Error txt -> slowParse filename txt

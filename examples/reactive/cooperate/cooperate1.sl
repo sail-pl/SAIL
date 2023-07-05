@@ -1,5 +1,8 @@
-import print_utils
-process Main(){
+import test_utils
+process Main {
+Init:
+Loop:
+
     signal s1;
     signal s2;
     {   
@@ -15,5 +18,6 @@ process Main(){
         print_string("P2b\n");
         signal s3;
         watching s2 { when s3 {}}
-    }
+    };
+    exit(0);
 }

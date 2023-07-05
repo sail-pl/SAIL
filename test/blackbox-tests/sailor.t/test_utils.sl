@@ -1,5 +1,6 @@
 extern "c" {
-	method printf(s : string ...) : int
+	method printf(s : string ...) : int;
+	method exit(status : int)
 }
 
 

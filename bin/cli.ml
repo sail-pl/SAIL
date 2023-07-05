@@ -36,7 +36,7 @@ let sailfile_conv =
 
 let sailfiles_arg = Arg.(non_empty & pos_all sailfile_conv [] & info [])
 
-type comp_mode = Library | Executable | Loop
+type comp_mode = Library | Executable
 
 
 let jit_arg =
@@ -68,8 +68,8 @@ let verify_ir =
   Arg.(value & opt bool true i)
   
 let mode_arg = 
-  let doc = "How to compile the current file : $(b,lib) to only generate the object file, $(b,exe) for an executable and $(b,loop) for arduino-like setup/loop." in
-  let mode = Arg.enum ["lib", Library; "exe", Executable; "loop", Loop] in
+  let doc = "How to compile the current file : $(b,lib) to only generate the object file, $(b,exe) for an executable." in
+  let mode = Arg.enum ["lib", Library; "exe", Executable] in
   Arg.(value & opt mode Executable & info ["m"; "mode"] ~doc)
 
 let clang_args = 

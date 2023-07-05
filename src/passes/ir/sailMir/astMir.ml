@@ -1,8 +1,9 @@
 open Common
 open TypesCommon
+open IrThir
 
-type expression = IrThir.Thir.expression
-type statement = IrThir.Thir.statement
+type expression = Thir.expression
+type statement = Thir.statement
 
 type declaration = {location : loc; mut : bool; id : string; varType : sailtype}
 type assignment = {location : loc; target : expression; expression : expression}

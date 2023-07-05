@@ -1,4 +1,5 @@
 open TypesCommon
+module E = Error.Logger
 
 module Declarations = struct
   type process_decl = loc * function_proto
@@ -12,31 +13,23 @@ module DeclEnv = Env.DeclarationsEnv(Declarations)
 
 module SailEnv = Env.VariableDeclEnv(Declarations) 
 
+
+type ('m,'p) methods_processes  = {methods : 'm method_defn list ; processes : 'p process_defn list; }
+
 type 'a t =
 {
   declEnv: DeclEnv.t;
-  methods : 'a method_defn list ;
-  processes : 'a process_defn list;
   builtins : method_sig list ;
+  body : 'a;
   imports : ImportSet.t;
   md : metadata;
 }
 
-type moduleSignature = unit t
-
-let signatureOfModule m =
-{
-  m with
-  methods = List.map (fun m -> {m with m_body=Either.right ()}) m.methods;
-  processes = List.map (fun p-> {p with p_body=()}) m.processes
-}
-
-let emptyModule = 
+let emptyModule empty_content = 
 {
   declEnv = DeclEnv.empty;
-  methods = [];
-  processes = [];
   builtins = [];
+  body = empty_content;
   imports = ImportSet.empty;
   md = {
     name = String.empty; 
@@ -54,14 +47,3 @@ let method_decl_of_defn (d : 'a method_defn) : Declarations.method_decl =
   and generics = d.m_proto.generics 
   and variadic = d.m_proto.variadic in
   ((pos,name),{ret;args;generics;variadic})
-  
-
-open Monad.MonadSyntax(Error.Logger)
-let method_of_process (m : 'a t) (name:string) : 'a method_defn Error.Logger.t = 
-  let+ p = Error.Logger.throw_if_none 
-      (Error.make dummy_pos @@ "module '" ^ m.md.name ^ "' : no '" ^ name ^ "' process found")
-      (List.find_opt (fun p -> p.p_name = name) m.processes) 
-  in
-  let m_proto = {pos=p.p_pos; name=String.lowercase_ascii p.p_name; generics = p.p_generics; params = fst p.p_interface; variadic=false; rtype=None} 
-  and m_body = Either.right p.p_body in
-  {m_proto;m_body}

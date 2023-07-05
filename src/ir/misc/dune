@@ -1,3 +1,0 @@
-(library
- (libraries irThir irMir common)
- (name irMisc))

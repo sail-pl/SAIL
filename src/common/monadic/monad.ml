@@ -74,11 +74,6 @@ module MonadOperator (M : Monad) = struct
   let (<&>) = fun x f -> M.fmap f x
   let (>>=) = M.bind
   let (>>|) x f = x >>= fun x -> f x |> M.pure
-  (* let (>>) x (lazy y) = x >>= fun _ -> y *)
-  (* 
-  requires lazy, otherwise y is evaluated even if the behaviour of bind doesn't execute its right argument 
-    however lazy values are not handled by coq_of_ocaml...
-  *)
 end
 
 module MonadSyntax (M : Monad ) = struct 
@@ -197,6 +192,12 @@ module MonadFunctions (M : Monad) = struct
       | [] -> return []
       | h::t -> let+ u = (f h) and* t = map f t in u::t
           
+
+    let rec map2 (f : 'a -> 'a -> 'b M.t) (l1 : 'a list) (l2 : 'a list): ('b list) M.t =
+      match l1,l2 with 
+      | [],[] -> return []
+      | h1::t1,h2::t2 -> let+ u = (f h1 h2) and* t = map2 f t1 t2 in u::t
+      | _ -> raise (Invalid_argument "ListM.fold_right2")
           
     let rec iter (f : 'a -> unit M.t)  (l : 'a list) : unit M.t = 
         match l with 
@@ -227,6 +228,12 @@ module MonadFunctions (M : Monad) = struct
       match l with 
         | [] -> return x
         | h :: t -> f h x >>= fold_right f t
+
+    let rec fold_right2 (f : 'a -> 'b -> 'c -> 'c M.t) (l1 : 'a list) (l2 : 'b list) (x : 'c) : 'c M.t = 
+      match l1,l2 with 
+        | [],[] -> return x
+        | h1 :: t1,h2 :: t2 -> f h1 h2 x >>= fold_right2 f t1 t2
+        | _ -> raise (Invalid_argument "ListM.fold_right2")
 
     let sequence (l : 'a M.t list) : 'a list M.t = map Fun.id l
   end

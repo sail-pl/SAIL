@@ -102,8 +102,7 @@ let rec string_of_sailtype (t : sailtype option) : string =
 
 type unOp = Neg | Not
 
-type binOp = Plus | Mul | Div | Minus | Rem
-           | Lt | Le | Gt | Ge | Eq | NEq | And | Or
+type binOp = Plus | Mul | Div | Minus | Rem | Lt | Le | Gt | Ge | Eq | NEq | And | Or
 
 
 
@@ -130,13 +129,16 @@ type enum_defn =
   e_injections :  (string * sailtype list) list;
 }
 
+
+
+
 type 'a process_defn = 
 {
   p_pos : loc;
   p_name : string;
   p_generics : string list;
   p_interface : param list * string list;
-  p_body : 'a
+  p_body : 'a;
 }
 
 type method_sig = 
@@ -154,6 +156,7 @@ type 'a method_defn =
   m_proto : method_sig;
   m_body : (string * string list,'a) Either.t
 }
+
 
 type ty_defn = {
       name: string;
