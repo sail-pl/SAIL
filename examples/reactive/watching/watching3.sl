@@ -1,5 +1,8 @@
-import print_utils
-process Main(){
+import test_utils
+process Main {
+Init:
+Loop:
+
     signal s1;
     {
         emit s1
@@ -9,5 +12,6 @@ process Main(){
         when s1 {print_string ("B\n")}
         ||
         signal s2; watching s2 {emit s2; signal s3; when s3 {}}; emit s1
-    }
+    };
+    exit(0);
 }

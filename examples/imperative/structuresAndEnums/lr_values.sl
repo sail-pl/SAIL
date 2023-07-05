@@ -1,4 +1,4 @@
-import print_utils
+import test_utils
 struct point {
     x : int,
     y : int,
@@ -13,4 +13,5 @@ process Main () {
  //   var b : &Point = &a;
  //   var c : Point = *b;
 //    var d : int = * (a.z);
+    exit(0);
 }

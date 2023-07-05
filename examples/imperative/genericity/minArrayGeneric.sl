@@ -1,4 +1,4 @@
-import print_utils
+import test_utils
 
 method getMin<T> (a : array<T;5>) : T {
 
@@ -17,11 +17,15 @@ method getMin<T> (a : array<T;5>) : T {
 
 
 
-process Main(){
+process Main {
+Init:
+Loop:
+
 	var a : array<int;5> = [6,57,23,2,5];
 	var c : array<float;5> = [1.5,2.1,6.2,0.1,6.5];
 	a[1] = 5;
 
 	printf("%i\n", getMin(a));
 	printf("%f\n", getMin(c));
+    exit(0);
 }

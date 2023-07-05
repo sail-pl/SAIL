@@ -1,4 +1,4 @@
-import print_utils
+import test_utils
 method sum(x : int , y : int) : int{
     return x + y
 }
@@ -8,7 +8,10 @@ method f(x : &int) {
     return
 }
 
-process Main(){
+process Main {
+Init:
+Loop:
+
     var x : int;
     var y : int;
     var z : int;
@@ -20,5 +23,6 @@ process Main(){
     print_int(*y);
     print_string(" ");
     print_int(z);
-    print_newline()
+    print_newline();
+    exit(0);
 }

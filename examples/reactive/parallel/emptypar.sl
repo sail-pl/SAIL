@@ -1,7 +1,10 @@
-import print_utils
+import test_utils
 // Parallel branches doing nothing
 
-process Main(){
+process Main {
+Init:
+Loop:
+
     {
         {
 
@@ -10,5 +13,6 @@ process Main(){
         {   
 
         }
-    }
+    };
+    exit(0);
 }

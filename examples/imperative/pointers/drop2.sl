@@ -1,5 +1,8 @@
-import print_utils
-process Main(){
+import test_utils
+process Main {
+Init:
+Loop:
+
 
     var x : box<int>;
     {
@@ -7,5 +10,6 @@ process Main(){
         x = y
         // Ok, the content of y was tagged as moved, no free here
     }
-    // OK, the pointer is freed once here
+    // OK, the pointer is freed once here;
+    exit(0);
 }

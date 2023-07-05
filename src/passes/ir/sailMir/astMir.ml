@@ -1,8 +1,9 @@
 open Common
 open TypesCommon
+open IrThir
 
-type expression = IrThir.Thir.expression
-type statement = IrThir.Thir.statement
+type expression = Thir.expression
+type statement = Thir.statement
 
 type declaration = {location : loc; mut : bool; id : string; varType : sailtype}
 type assignment = {location : loc; target : expression; expression : expression}
@@ -18,19 +19,13 @@ type terminator =
 | Break 
 
 
-type vtype = {
-    ty:sailtype;
-    mut:bool;
-    name:string;
-}
-
-module V : Common.Env.Variable with type t = vtype = 
+module V : Common.Env.Variable with type t = param = 
   struct 
 
-  type t = vtype
-  let string_of_var v = Printf.sprintf "{ty:%s}" (string_of_sailtype (Some v.ty))
+  type t = param
+  let string_of_var (v:t) = Printf.sprintf "{ty:%s}" (string_of_sailtype (Some v.ty))
 
-  let to_var name mut ty = {ty;mut;name}
+  let param_to_var = Fun.id
 end
 
 module VE = Common.Env.VariableEnv(V)

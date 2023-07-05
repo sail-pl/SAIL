@@ -70,6 +70,7 @@ rule read_token = parse
   | "]" { RSQBRACE}
   | "<" { LANGLE }
   | ">" { RANGLE }
+  (* | "|" { P_AND }  *)
   (* | "->" { ARROW } *)
   | "," { COMMA }
   | "." { DOT }
@@ -85,7 +86,13 @@ rule read_token = parse
   | "&"  {REF}
   | "and" { AND }
   | "or" { OR }
-  | "||" { PAR }
+  | "with" { WITH }
+  | "reads" { READS }
+  | "writes" { WRITES }
+  | "Par" { PAR }
+  | "Seq" { SEQ }
+  (* | "((" {P_LPAREN}
+  | "))" {P_RPAREN} *)
   | "!" { NOT }
   | "<=" {LE}
   | ">="  {GE}
@@ -93,10 +100,13 @@ rule read_token = parse
   | "==" { EQ }
   | "var" { VAR }
   | "case" {CASE}
-  | "signal" { SIGNAL}
+  (* | "signal" { SIGNAL} *)
   | "struct" { STRUCT }
   | "enum " { ENUM }
   | "process" { PROCESS }
+  | "Processes" {P_PROC_INIT}
+  | "Init" {P_INIT}
+  | "Run" {P_LOOP}
   | "method" { METHOD }
   | "extern" { EXTERN }
   | "import" { IMPORT }
@@ -108,10 +118,11 @@ rule read_token = parse
   | "if" { IF }
   | "else" { ELSE }
   | "return" { RETURN }
+  | "when" {WHEN}
+  (*
   | "await" { AWAIT }
   | "emit" { EMIT }
-  | "when" {WHEN}
-  | "watching" { WATCHING }
+  | "watching" { WATCHING } *)
   | "mut" {MUT}
   | "array" {ARRAY}
   | "self" {SELF}

@@ -1,3 +1,0 @@
-(library
-(libraries common sailParser irHir irThir irMir irMisc)
- (name ir))

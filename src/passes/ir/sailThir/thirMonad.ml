@@ -7,7 +7,7 @@ module V = (
   struct 
     type t = bool * sailtype
     let string_of_var (_,t) = string_of_sailtype (Some t)
-    let to_var _ (m:bool) (t:sailtype) = m,t
+    let param_to_var p = p.mut,p.ty
   end
 )
 

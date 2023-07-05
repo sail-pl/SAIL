@@ -11,8 +11,7 @@ let mangle_method_name (name:string) (mname:string) (args: sailtype list ) : str
   (* Logs.debug (fun m -> m "renamed %s to %s" name res); *)
   res
 
-
-let getLLVMLiteral (l:literal)  (llvm:llvm_args) : llvalue =
+let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
   match l with
   | LBool b -> const_int (i1_type llvm.c) (Bool.to_int b)
   | LInt i -> const_int_of_string (integer_type llvm.c i.size) (Z.to_string i.l) 10

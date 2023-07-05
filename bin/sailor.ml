@@ -1,9 +1,9 @@
 open Common
 open TypesCommon
+open SailParser
 module E = Error.Logger
 module Const  = Constants
 module C = Codegen
-module P = SailParser.Parsing
 
 (* llvm *)
 module L = Llvm
@@ -11,35 +11,36 @@ module T = Llvm_target
 
 
 (* passes *)
+module ProcessPass = ProcessPass.Process.Pass
 module Hir = IrHir.Hir.Pass
 module Thir = IrThir.Thir.Pass
 module Mir = IrMir.Mir.Pass
-module Imports = IrMisc.Imports.Pass
-module MCall = IrMisc.MethodCall.Pass
-module MProc = IrMisc.MainProcess.Pass
-module Mono = IrMisc.Monomorphization.Pass
-module SetupLoop = IrMisc.SetupLoop.Pass
-
+module Imports = Misc.Imports.Pass
+module MCall = Misc.MethodCall.Pass
+module Mono = Mono.Monomorphization.Pass
 
 (* error handling *)
 open Monad.UseMonad(E)
 
-let moduleToIR (m:Mir.out_body SailModule.t) (dump_decl:bool) (verify_ir:bool) : L.llmodule E.t =
-  let module Env = C.CodegenEnv in 
-  let llc = L.create_context () in
-  let llm = L.create_module llc m.md.name in
-  let* decls = Env.get_declarations m llc llm in
+let apply_passes (sail_module : Hir.in_body SailModule.t) (comp_mode : Cli.comp_mode) : Mono.out_body SailModule.t E.t =
+  let hir_debug =  fun m -> let+ m in Out_channel.with_open_text (sail_module.md.name ^ ".hir.debug") (fun f -> Format.(fprintf (formatter_of_out_channel f)) "%a" IrHir.Pp_hir.ppPrintModule m); m in
+  let mir_debug =  fun m -> let+ m in Out_channel.with_open_text (sail_module.md.name ^ ".mir.debug") (fun f -> Format.(fprintf (formatter_of_out_channel f)) "%a" IrMir.Pp_mir.ppPrintModule m); m in
 
-  if dump_decl then failwith "not done yet";
-
-  let env = C.CodegenEnv.SailEnv.empty decls in
-
-  Env.DeclEnv.iter_decls (fun name m -> let func = C.Codegen_.methodToIR llc llm m env name in if verify_ir then Llvm_analysis.assert_valid_function func) (Self Method) decls >>= fun () ->
-  if verify_ir then 
-    match Llvm_analysis.verify_module llm with 
-    | None -> return llm 
-    | Some reason -> E.throw @@ Error.make dummy_pos (Fmt.str "LLVM : %s" reason)
-  else return llm
+  let open Pass.Progression in 
+  let active_if cond p = if cond then p else Fun.id in 
+  let passes = Fun.id
+    @> Hir.transform 
+    @> active_if (comp_mode <> Library) ProcessPass.transform
+    @> active_if true hir_debug
+    @> Thir.transform 
+    @> Imports.transform 
+    @> MCall.transform 
+    @> Mir.transform
+    @> active_if false mir_debug
+    @> Mono.transform
+    @> finish 
+  in run passes (return sail_module)
+    
 
 
 let set_target (llm : Llvm.llmodule) (triple:string) : Llvm_target.Target.t * Llvm_target.TargetMachine.t =
@@ -135,42 +136,28 @@ let find_file_opt ?(maxdepth = 4) ?(paths = [Filename.current_dir_name]) (f:stri
     | None ->  aux dir 0
     ) None paths
 
+let unmarshal_sm file = In_channel.with_open_bin file @@ fun c -> (Marshal.from_channel c : Mono.out_body SailModule.t)
+let marshal_sm file m = Out_channel.with_open_bin file @@ fun c -> Marshal.to_channel c m []
 
 let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () (force_comp:bool list) (paths:string list) (comp_mode : Cli.comp_mode)  (clang_args: string) (verify_ir:bool) (target_triple:string) = 
-  Llvm.enable_pretty_stacktrace ();
-  Llvm.install_fatal_error_handler (fun err -> print_string @@ Fmt.str "LLVM ERROR : '%s'\n" err);
+  if Logs.level () = Some Logs.Debug then Printexc.record_backtrace true;
 
-  let apply_passes sail_module (comp_mode : Cli.comp_mode) : Mir.out_body SailModule.t E.t =
-    return sail_module 
-    |> Hir.transform 
-    |> (if comp_mode = Loop then SetupLoop.transform else Fun.id)
-    |> Thir.transform 
-    |> MCall.transform
-    |> Mir.transform 
-    |> Imports.transform
-    |> (if comp_mode <> Library then MProc.transform else Fun.id)
-    |> Mono.transform
-  in
-
-  let compile sail_module basepath (comp_mode : Cli.comp_mode) : Mir.out_body SailModule.t E.t =
-    let* m = apply_passes sail_module comp_mode in
-    (* Out_channel.with_open_text Filename.(concat basepath m.md.name ^ ".mir.debug") (fun f -> Format.fprintf (Format.formatter_of_out_channel f) "%a" Pp_mir.ppPrintModule m); *)
-    
-    let+ llm = moduleToIR m dump_decl verify_ir in
+  let compile sail_module basepath (comp_mode : Cli.comp_mode) : unit E.t =
+    let* m = apply_passes sail_module comp_mode in    
+    let+ llm = C.Codegen_.moduleToIR m dump_decl verify_ir in
 
     (* only generate mir file if codegen succeeds *)
-    Out_channel.with_open_bin Filename.(concat basepath m.md.name ^ Const.mir_file_ext) (fun f -> Marshal.to_channel f m []);
+    marshal_sm Filename.(concat basepath m.md.name ^ Const.mir_file_ext) m;
 
     let tm = set_target llm target_triple in
 
     if not noopt && comp_mode <> Library then 
-      begin
-        let open L.PassManager in
-        let pm = create () in add_opt_passes pm;
-        let res = run_module llm pm in
-        Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
-        dispose pm
-      end
+        L.PassManager.(
+          let pm = create () in add_opt_passes pm;
+          let res = run_module llm pm in
+          Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
+          dispose pm
+        )
     ;
 
     if intermediate then L.print_module Filename.(concat basepath m.md.name ^ Const.llvm_ir_ext) llm;
@@ -181,36 +168,37 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         let imports = object_files @ List.map (fun i -> i.dir ^ i.mname ^ Const.object_file_ext) @@ ImportSet.elements m.imports in
         let ret = link llm sail_module.md.name basepath imports libs tm ~is_lib:(comp_mode = Library) clang_args in
         if ret <> 0 then
-          (Fmt.str "clang couldn't execute properly (error %i)" ret |> failwith)
+          Fmt.(str_like stderr "clang couldn't execute properly (error %i)" ret) |> failwith
       end
     ;
 
-    if jit && comp_mode <> Library then execute llm else L.dispose_module llm;
-    m
+    if jit && comp_mode <> Library then execute llm else L.dispose_module llm
   in
 
-  let rec process_file f (treated: string list) (compiling: (string*loc) list) comp_mode : (string list * 'a SailModule.t) E.t = 
+  let rec process_file f (treated: string list) (compiling: (string*loc) list) comp_mode : string list E.t = 
     let mname = Filename.(basename f |> remove_extension) in 
     let basepath = Filename.(dirname f) in 
 
     if List.mem mname treated then
-     (Logs.debug (fun m -> m "skipping module '%s'" mname); 
-      return (treated,SailModule.emptyModule))
+    begin 
+      Logs.debug (fun m -> m "skipping module '%s'" mname); 
+      return treated
+    end
     else
       let treated = mname::treated in 
       let add_imports_decls (curr_env: SailModule.DeclEnv.t ) (imports : ImportSet.t) = 
         ImportSet.fold (fun i -> 
           let file = i.dir ^ i.mname ^ Const.mir_file_ext in 
           Logs.debug (fun m -> m "reading module '%s' from mir file %s" i.mname file); 
-          let slmd : Mir.out_body SailModule.t = In_channel.with_open_bin file  Marshal.from_channel in
+          let slmd = unmarshal_sm file in
           (* Logs.debug (fun m -> m "decls of import %s : \n %s" i.mname (SailModule.DeclEnv.string_of_env slmd.declEnv)); *)
           SailModule.DeclEnv.add_import_decls (i, slmd.declEnv)
         )
         imports curr_env 
     in
 
-      let* slmd = P.parse_program f in 
-      let process_imports_and_compile () : (string list * 'a SailModule.t) E.t =
+      let* slmd = Parsing.parse_program f in 
+      let process_imports_and_compile () : string list E.t =
         let open MakeOrderedFunctions(ImportCmp) in 
         Logs.info (fun m -> m "======= processing module '%s' =======" slmd.md.name );
         Logs.debug (fun m -> m "module hash : %s" (Digest.to_hex slmd.md.hash));
@@ -236,18 +224,13 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
             let import = fun m -> {i with dir=Filename.(dirname m ^ dir_sep); proc_order=(List.length compiling)} in 
 
             match find_file_opt source ~paths:(Filename.current_dir_name::paths),find_file_opt mir_name with
-            | Some s,Some m 
-              when In_channel.with_open_bin m 
-              (fun f -> 
-                let mir : 'a SailModule.t = Marshal.from_channel f in 
-                Digest.(equal mir.md.hash @@ file s) && 
-                List.length force_comp < 2 &&
-                mir.md.version = Const.sailor_version
-              )
-              -> (* mir up-to-date with source -> use mir *)
+            | Some s,Some m when let mir = unmarshal_sm m in 
+                                    Digest.(equal mir.md.hash @@ file s) && 
+                                    List.length force_comp < 2 && 
+                                    mir.md.version = Const.sailor_version -> (* mir up-to-date with source -> use mir *)
               return (treated,import m)
             | None, Some m -> (* mir but no source -> use mir *)
-              let mir :'a SailModule.t = In_channel.with_open_bin m Marshal.from_channel in
+              let mir = unmarshal_sm m in
               E.throw_if 
               (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version Const.sailor_version)
               (mir.md.version <> Const.sailor_version) 
@@ -256,55 +239,54 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
               E.throw @@ Error.make i.loc "import not found"
             | Some s, _ -> (* source but no mir or mir not up-to-date -> compile *)
               begin
-              let+ treated',_mir = process_file s treated ((slmd.md.name,i.loc)::compiling) Cli.Library
+              let+ treated = process_file s treated ((slmd.md.name,i.loc)::compiling) Cli.Library
               in 
-              treated',import s
+              treated,import s
               end 
           ) treated slmd.imports 
         in 
         let declEnv = add_imports_decls slmd.declEnv imports in
-        let+ sm = compile {slmd with imports ; declEnv} basepath comp_mode in
+        let+ _sm = compile {slmd with imports ; declEnv} basepath comp_mode in
         Logs.info (fun m -> m "======= done processing module '%s' =======\n" slmd.md.name);
-        treated,sm
+        treated
       in
 
       let mir_file = Filename.(dirname f ^ dir_sep ^ slmd.md.name ^ Const.mir_file_ext) in
       (* if mir file exists, check hash, if same hash, no need to compile *)
       if Sys.file_exists mir_file && (List.length force_comp = 0) then
-        let mir : 'a SailModule.t = In_channel.with_open_bin mir_file Marshal.from_channel in
+        let mir = unmarshal_sm mir_file in
         let* () = E.throw_if (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version Const.sailor_version)
                   (mir.md.version <> Const.sailor_version) 
         in
         if not @@ Digest.equal mir.md.hash slmd.md.hash then
-          process_imports_and_compile () 
+          process_imports_and_compile ()
         else 
           begin
             Logs.app (fun m -> m "'%s' is up-to-date, use '-f' to force compilation" slmd.md.name);
-            return (treated,mir)
+            return treated
           end
       else
-        process_imports_and_compile ()
-  in 
+        process_imports_and_compile () 
+      in 
 
   try
-    match ListM.fold_left (fun t f -> let+ t,_ = process_file f t [] comp_mode in f::t) [] files with
+    match ListM.fold_left (fun t f -> let+ t = process_file f t [] comp_mode in f::t) [] files with
     | Ok treated,_ -> Logs.debug (fun m -> m "files processed : %s " @@ String.concat " " treated) ; `Ok ()
     | Error e,errs -> 
       Error.print_errors (e::errs);
       `Error(false, "compilation aborted") 
   with
   | e ->
-      let msg = 
-        if (Printexc.backtrace_status () |> not) then (
-          Logs.warn (fun m -> m "backtrace recording is not turned on, only the exception name will be printed. To print the backtrace, run with 'OCAMLRUNPARAM=b'");
-          Printexc.to_string e)
-        else Printexc.get_backtrace () in 
-     `Error (false,msg)
+    let msg = 
+      if (Printexc.backtrace_status () |> not) then (
+        Logs.info (fun m -> m "backtrace recording is not turned on, only the exception name will be printed. To print the backtrace, run under verbose mode or with 'OCAMLRUNPARAM=b'");
+        Printexc.to_string e)
+      else Fmt.str "%s \n\n %s" (Printexc.to_string e) (Printexc.get_backtrace ()) in 
+    `Error (false,msg)
 
 
 let () = 
-  Llvm_all_backends.initialize (); (* init here to show targets from the cli *)
+  Llvm_all_backends.initialize ();
+  L.enable_pretty_stacktrace ();
+  L.install_fatal_error_handler (fun err -> Logs.err (fun m -> m "LLVM ERROR : '%s'\n" err));
   Cmdliner.Cmd.eval (Cli.cmd sailor) |> exit
-
-
-  
