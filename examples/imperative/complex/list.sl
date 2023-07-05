@@ -1,4 +1,4 @@
-import print_utils
+import test_utils
 enum option<A>{
     None,
     Some(A)
@@ -35,7 +35,10 @@ method fromTo(n : int, m : int) : list<int> {
     return list {head : node}    
 }
 
-process Main(){
+process Main {
+Init:
+Loop:
+
     var x : node<int> = node {elem:1, next:None};
     var y : node<int> = node {elem:2, next:Some(box(x))};
     var t : node<int> = node {elem:3, next:Some(box(y))};
@@ -45,5 +48,6 @@ process Main(){
     var l : list<int> = fromTo(0,10);
     var u : int = length(l);
     print_int(u);print_newline();
-    print_int(length(l));print_newline()
+    print_int(length(l));print_newline();
+    exit(0);
 }

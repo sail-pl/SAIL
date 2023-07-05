@@ -1,5 +1,8 @@
-import print_utils
-process Main(){
+import test_utils
+process Main {
+Init:
+Loop:
+
 
     var cpt : int = 0;
     signal s1;
@@ -9,5 +12,6 @@ process Main(){
         cpt = cpt + 1;
         emit s1;
         watching s1 {when s2 {}}
-    }
+    };
+    exit(0);
 }

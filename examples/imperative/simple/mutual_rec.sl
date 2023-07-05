@@ -1,4 +1,5 @@
-import print_utils
+import test_utils
+
 method a(x : int) : int {
  if (x <= 1) {
  	return 1
@@ -12,6 +13,9 @@ method b(x : int) : int {
 }
 
 
-process Main() {
-       print_int(a(12)); print_newline();
+process Main {
+    Init:
+    Loop:
+        print_int(a(12)); print_newline();
+        exit(0);
 }

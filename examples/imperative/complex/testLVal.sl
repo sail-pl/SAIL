@@ -1,4 +1,4 @@
-import print_utils
+import test_utils
 enum option<A>{
     None,
     Some(A)
@@ -13,7 +13,10 @@ struct node<A>{
     next : option<box<node<A>>>
 }
 
-process Main(){
+process Main {
+Init:
+Loop:
+
 
     var x : list<box<int>>;
     var n0 : node = node { elem : box(1), next : None };
@@ -37,5 +40,6 @@ process Main(){
         None : {}
     };
     var y : int = *a[0] + *a[1];
-    if (y == 5) print_string ("OK\n") else print_string ("KO\n")
+    if (y == 5) print_string ("OK\n") else print_string ("KO\n");
+    exit(0);
 }

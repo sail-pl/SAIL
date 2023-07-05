@@ -102,24 +102,24 @@ let ppPrintCfg (pf : Format.formatter) (cfg : cfg) : unit =
       Format.fprintf pf "%a" (fun x -> ppPrintBasicBlock x lbl) bb) 
       (BlockMap.bindings cfg.blocks)
 
-let ppPrintMethodSig (pf : Format.formatter) (s : Common.TypesCommon.method_sig) : unit = 
+let ppPrintMethodSig (pf : Format.formatter) (s : TypesCommon.method_sig) : unit = 
   match s.rtype with 
   None ->
     fprintf pf "%s(%a)" s.name (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) s.params
 | Some t -> 
     fprintf pf "%s(%a) -> %a" s.name (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) s.params pp_type t
 
-let ppPrintMethod (pf : Format.formatter) (m: (declaration list * cfg) Common.TypesCommon.method_defn) : unit = 
+let ppPrintMethod (pf : Format.formatter) (m: (declaration list * cfg) TypesCommon.method_defn) : unit = 
   match m.m_body with
   | Right (decls,cfg) ->  fprintf pf  "fn %a{\n%a\n%a}\n"  ppPrintMethodSig m.m_proto (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) decls ppPrintCfg cfg
   | Left _ -> fprintf pf "extern fn %a\n" ppPrintMethodSig m.m_proto
- 
-
-let ppPrintProcess (pf : Format.formatter) (p : (declaration list * cfg) Common.TypesCommon.process_defn) : unit = 
-  fprintf pf  "proc %s() {\n%a\n%a}\n" p.p_name (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) (fst p.p_body) ppPrintCfg (snd p.p_body)
 
 
-let ppPrintModule (pf : Format.formatter) (m : (declaration list * cfg) Common.SailModule.t ) : unit = 
-  fprintf pf "// Sail MIR Representation: %s\n%a \n%a" m.md.name 
-  (pp_print_list ppPrintMethod) m.methods
-  (pp_print_list ~pp_sep:pp_comma ppPrintProcess) m.processes
+(* let ppPrintProcess (pf : Format.formatter) (p : (declaration list * cfg) Common.TypesCommon.process_defn) : unit = 
+  fprintf pf  "proc %s() {\n%a\n%a}\n" p.p_name (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) (fst p.p_body) ppPrintCfg (snd p.p_body) *)
+
+
+let ppPrintModule (pf : Format.formatter) (m : (declaration list * cfg,_) SailModule.methods_processes SailModule.t ) : unit = 
+  fprintf pf "// Sail MIR Representation: %s\n%a" m.md.name 
+  (pp_print_list ppPrintMethod) m.body.methods
+  (* (pp_print_list ~pp_sep:pp_comma ppPrintProcess) m.body.processes *)

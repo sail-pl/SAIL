@@ -1,4 +1,4 @@
-import print_utils
+import test_utils
 process Main (){
     
     var x : int = 0;
@@ -7,5 +7,6 @@ process Main (){
         var y : box<int> = box(1);
         drop(y)
     }
-
+;
+    exit(0);
 }

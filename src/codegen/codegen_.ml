@@ -2,56 +2,50 @@ open CodegenUtils
 open CodegenEnv
 open Common
 open TypesCommon
-open Llvm
 open IrMir
-
+open Monad.UseMonad(E)
+module L = Llvm
 module E = Error.Logger
-
-open Common.Monad.MonadSyntax(E)
-open Common.Monad.MonadFunctions(E)
 
 let get_type (e:AstMir.expression) = snd e.info
 
-let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : llvalue = 
+let rec eval_l (env:SailEnv.t) (llvm:llvm_args) (x: AstMir.expression) : L.llvalue = 
   match x.exp with
   | Variable x -> let _,v = match (SailEnv.get_var x env) with Some (_,n) -> n | None -> failwith @@ Fmt.str "var '%s' not found" x |> snd in v
   | Deref x -> eval_r env llvm x
   | ArrayRead (array_exp, index_exp) -> 
     let array_val = eval_l env llvm array_exp in
     let index = eval_r env llvm index_exp in
-    let llvm_array = build_in_bounds_gep array_val [|(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
+    let llvm_array = L.build_in_bounds_gep array_val [|L.(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
     llvm_array
   | StructRead ((_,mname),struct_exp,(_,field)) -> 
     let st = eval_l env llvm struct_exp in
-    let st_type_name = match struct_name (type_of st |> subtypes).(0) with
-        | None -> failwith "problem with structure type"
-        | Some name -> String.split_on_char '.' name |> (List.nth |> Fun.flip) 1
-    in
+    let st_type_name = match snd struct_exp.info with CompoundType c -> snd c.name | _ -> failwith "problem with structure type" in 
     let fields = (SailEnv.get_decl st_type_name (Specific (mname,Struct)) env |> Option.get).defn.fields  in
     let _,_,idx = List.assoc field fields in 
-    build_struct_gep st idx "" llvm.b
+    L.build_struct_gep st idx "" llvm.b
   
   | StructAlloc (_,(_,name),fields) -> 
     let _,fieldlist = fields |> List.split in
-    let strct_ty = match type_by_name llvm.m ("struct." ^ name) with
+    let strct_ty = match L.type_by_name llvm.m ("struct." ^ name) with
     | Some s -> s
     | None -> "unknown structure : " ^ ("struct." ^ name) |> failwith 
     in
-    let struct_v = build_alloca strct_ty "" llvm.b in 
+    let struct_v = L.build_alloca strct_ty "" llvm.b in 
     List.iteri ( fun i f ->
       let v = eval_r env llvm f in
-      let v_f = build_struct_gep struct_v i "" llvm.b in
-      build_store v v_f llvm.b |> ignore
+      let v_f = L.build_struct_gep struct_v i "" llvm.b in
+      L.build_store v v_f llvm.b |> ignore
       ) fieldlist; 
     struct_v
 
   | _ -> failwith "unexpected rvalue for codegen"
 
 
-and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue = 
+and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : L.llvalue = 
   let ty = get_type x in
   match x.exp with
-  | Variable _ | StructRead _ | ArrayRead _ | StructAlloc _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
+  | Variable _ | StructRead _ | ArrayRead _ | StructAlloc _ ->  let v = eval_l env llvm x in L.build_load v "" llvm.b
 
   | Literal l -> getLLVMLiteral l llvm
   | UnOp (op,e) -> let l = eval_r env llvm e in unary op (ty_of_alias ty (snd env),l) llvm.b
@@ -60,26 +54,26 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue =
       and l2 = eval_r env llvm e2
       in binary op (ty_of_alias ty (snd env)) l1 l2 llvm.b  
   | Ref (_,e) -> eval_l env llvm e
-  | Deref e -> let v = eval_l env llvm e in build_load v "" llvm.b
+  | Deref e -> let v = eval_l env llvm e in L.build_load v "" llvm.b
   | ArrayStatic elements -> 
     begin
     let array_values = List.map (eval_r env llvm) elements in
-    let ty = List.hd array_values |> type_of in
+    let ty = List.hd array_values |> L.type_of in
     let array_values = Array.of_list array_values in
-    let array_type = array_type ty (List.length elements) in 
-    let array = const_array array_type array_values in
-    let array = define_global "const_array" array llvm.m in
-    set_linkage Linkage.Private array;
-    set_unnamed_addr true array;
-    set_global_constant true array;
-    build_load array "" llvm.b
+    let array_type = L.array_type ty (List.length elements) in 
+    let array = L.const_array array_type array_values in
+    let array = L.define_global "const_array" array llvm.m in
+    L.set_linkage L.Linkage.Private array;
+    L.set_unnamed_addr true array;
+    L.set_global_constant true array;
+    L.build_load array "" llvm.b
     end
 
   | EnumAlloc _ -> failwith "enum allocation unimplemented"
 
   | _ -> failwith "problem with thir"
 
-and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : llvalue = 
+and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list) (env:SailEnv.t) (llvm:llvm_args) : L.llvalue = 
   let args_type,llargs = List.map (fun arg -> get_type arg,eval_r env llvm arg) args |> List.split
   in
   (* let mname = mangle_method_name name origin.mname args_type in  *)
@@ -90,7 +84,7 @@ and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list)
       begin
       match SailEnv.get_decl name (Specific (mname,Method)) env with 
       | Some {llval;extern;_} -> llval,extern
-      | None ->  Printf.sprintf "implementation of %s not found" name |> failwith
+      | None ->  Printf.sprintf "implementation of %s not found" mangled_name |> failwith
       end
     | Some {llval;extern;_} -> llval,extern 
   in
@@ -100,63 +94,64 @@ and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list)
       List.map2 (fun t v -> 
       let builder =
         match ty_of_alias t (snd env) with
-        | Bool | Int _ | Char -> build_zext
-        | Float -> build_bitcast
-        | _ -> build_ptrtoint
+        | Bool | Int _ | Char -> L.build_zext
+        | Float -> L.build_bitcast
+        | CompoundType _ -> fun v _ _ _ -> v
+        | _ -> L.build_ptrtoint
         in
-      builder v (i64_type llvm.c) "" llvm.b
+      builder v (L.i64_type llvm.c) "" llvm.b
     ) args_type llargs
     else 
       llargs 
   in
-  build_call llval (Array.of_list args) "" llvm.b
+  L.build_call llval (Array.of_list args) "" llvm.b
   
 open AstMir
   
-let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env :SailEnv.t) : unit = 
+let cfgToIR (proto:L.llvalue) (decls,cfg: mir_function) (llvm:llvm_args) (env :SailEnv.t) : unit = 
   let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (env:SailEnv.t) : SailEnv.t E.t=
   let _ = mut in (* todo manage mutable types *)
-    let entry_b = entry_block proto |> instr_begin |> builder_at llvm.c in
+    let entry_b = L.(entry_block proto |> instr_begin |> builder_at llvm.c) in
     let v =  
       match exp with
       | Some e -> 
           let t = get_type e 
           and v = eval_r env llvm e in
-          let x = build_alloca (getLLVMType (snd env) t llvm.c llvm.m) name entry_b in 
-          build_store v x llvm.b |> ignore; x  
+          let x = L.build_alloca (getLLVMType (snd env) t llvm.c llvm.m) name entry_b in 
+          L.build_store v x llvm.b |> ignore; x  
       | None ->
         let t' = getLLVMType (snd env) ty llvm.c llvm.m in
-        build_alloca t' name entry_b
+        L.build_alloca t' name entry_b
     in
     SailEnv.declare_var name (dummy_pos,(mut,v)) env
 
   and assign_var (target:expression) (exp:expression) (env:SailEnv.t) = 
     let lvalue = eval_l env llvm target in
     let rvalue = eval_r env llvm exp in 
-    build_store rvalue lvalue llvm.b |> ignore
+    L.build_store rvalue lvalue llvm.b |> ignore
     in
 
-  let rec aux (lbl:label) (llvm_bbs : llbasicblock BlockMap.t) (env:SailEnv.t) : llbasicblock BlockMap.t = 
-    match BlockMap.find_opt lbl llvm_bbs with
-    | None -> 
+  let rec aux (lbl:label) (llvm_bbs : L.llbasicblock BlockMap.t) (env:SailEnv.t) : L.llbasicblock BlockMap.t = 
+    if BlockMap.mem lbl llvm_bbs then llvm_bbs (* already treated, nothing to do *)
+    else
       begin
         let bb = BlockMap.find lbl cfg.blocks
         and bb_name = (Printf.sprintf "lbl%i" lbl) in
-        let llvm_bb = append_block llvm.c bb_name proto in
+        let llvm_bb = L.append_block llvm.c bb_name proto in
         let llvm_bbs = BlockMap.add lbl llvm_bb llvm_bbs in
-        position_at_end llvm_bb llvm.b;
+        L.position_at_end llvm_bb llvm.b;
         List.iter (fun x -> assign_var x.target x.expression env) bb.assignments;
         match bb.terminator with
         | Some (Return e) ->  
             let ret = match e with
-              | Some r ->  let v = eval_r env llvm r in build_ret v
-              | None ->  build_ret_void
+              | Some r ->  let v = eval_r env llvm r in L.build_ret v
+              | None ->  L.build_ret_void
             in ret llvm.b |> ignore; llvm_bbs
 
         | Some (Goto lbl) -> 
           let llvm_bbs = aux lbl llvm_bbs env in
-          position_at_end llvm_bb llvm.b;
-          build_br (BlockMap.find lbl llvm_bbs) llvm.b |> ignore;
+          L.position_at_end llvm_bb llvm.b;
+          L.build_br (BlockMap.find lbl llvm_bbs) llvm.b |> ignore;
           llvm_bbs
           
 
@@ -164,54 +159,52 @@ let cfgToIR (proto:llvalue) (decls,cfg: Mir.Pass.out_body) (llvm:llvm_args) (env
           let c = construct_call  f.id f.origin f.params env llvm  in
           begin
             match f.target with
-            | Some id -> build_store c (let _,v = SailEnv.get_var id env |> Option.get |> snd in v) llvm.b |> ignore
+            | Some id -> L.build_store c (let _,v = SailEnv.get_var id env |> Option.get |> snd in v) llvm.b |> ignore
             | None -> ()
           end;
           let llvm_bbs = aux f.next llvm_bbs env in
-          position_at_end llvm_bb llvm.b;
-          build_br (BlockMap.find f.next llvm_bbs) llvm.b |> ignore;
+          L.position_at_end llvm_bb llvm.b;
+          L.build_br (BlockMap.find f.next llvm_bbs) llvm.b |> ignore;
           llvm_bbs
         | Some (SwitchInt (e,cases,default)) -> 
             let sw_val = eval_r env llvm e in
-            let sw_val = build_intcast sw_val (i32_type llvm.c) "" llvm.b (* for condition, expression val will be bool *)
+            let sw_val = L.build_intcast sw_val (L.i32_type llvm.c) "" llvm.b (* for condition, expression val will be bool *)
             and llvm_bbs = aux default llvm_bbs env in
-            position_at_end llvm_bb llvm.b;
-            let sw = build_switch sw_val (BlockMap.find default llvm_bbs) (List.length cases) llvm.b in
+            L.position_at_end llvm_bb llvm.b;
+            let sw = L.build_switch sw_val (BlockMap.find default llvm_bbs) (List.length cases) llvm.b in
             List.fold_left (
               fun bm (n,lbl) -> 
-                let n = const_int (i32_type llvm.c) n 
+                let n = L.const_int (L.i32_type llvm.c) n 
                 and bm = aux lbl bm env 
-                in add_case sw n (BlockMap.find lbl bm);
+                in L.add_case sw n (BlockMap.find lbl bm);
                 bm
             ) llvm_bbs cases
 
         | None -> failwith "no terminator : mir is broken" (* can't happen *)
         | Some Break -> failwith "no break should be there"
       end
-
-    | Some _ -> llvm_bbs (* already treated, nothing to do *)
   in
   (
     let+ env = ListM.fold_left (fun e (d:declaration) -> declare_var d.mut d.id d.varType None e) env decls
     in
-    let init_bb = insertion_block llvm.b
+    let init_bb = L.insertion_block llvm.b
     and llvm_bbs = aux cfg.input BlockMap.empty env in
-    position_at_end init_bb llvm.b;
-    build_br (BlockMap.find cfg.input llvm_bbs) llvm.b
+    L.position_at_end init_bb llvm.b;
+    L.build_br (BlockMap.find cfg.input llvm_bbs) llvm.b
   ) |> ignore
 
-let methodToIR (llc:llcontext) (llm:llmodule) (decl:Declarations.method_decl) (env:SailEnv.t) (name : string) : llvalue =
+let methodToIR (llc:L.llcontext) (llm:L.llmodule) (decl:Declarations.method_decl) (env:SailEnv.t) (name : string) : L.llvalue =
   match Either.find_right decl.defn.m_body with 
   | None -> decl.llval (* extern method *)
   | Some b -> 
     Logs.info (fun m -> m "codegen of %s" name);
-    let builder = builder llc in
-    let llvm = {b=builder; c=llc ; m = llm; layout=Llvm_target.DataLayout.of_string (data_layout llm)} in
+    let builder = L.builder llc in
+    let llvm = {b=builder; c=llc ; m = llm; layout=Llvm_target.DataLayout.of_string (L.data_layout llm)} in
 
-    if block_begin decl.llval <> At_end decl.llval then failwith ("redefinition of function " ^  name);
+    if L.block_begin decl.llval <> At_end decl.llval then failwith ("redefinition of function " ^  name);
 
-    let bb = append_block llvm.c "" decl.llval in
-    position_at_end bb llvm.b;
+    let bb = L.append_block llvm.c "" decl.llval in
+    L.position_at_end bb llvm.b;
 
     let args = toLLVMArgs decl.defn.m_proto.params (snd env) llvm in
 
@@ -219,12 +212,28 @@ let methodToIR (llc:llcontext) (llm:llmodule) (decl:Declarations.method_decl) (e
       fun env (m,_,v) -> 
         (
         let* env in 
-        let+ new_env = SailEnv.declare_var (value_name v) (dummy_pos,(m,v)) env in 
+        let+ new_env = SailEnv.declare_var (L.value_name v) (dummy_pos,(m,v)) env in 
         new_env
         ),v
       ) (E.pure env) args 
 
-    in Array.iteri (fun i arg -> build_store (param decl.llval i) arg llvm.b |> ignore ) args;
+    in Array.iteri (fun i arg -> L.build_store (L.param decl.llval i) arg llvm.b |> ignore ) args;
     (let+ new_env in cfgToIR decl.llval b llvm new_env) |> ignore;
     decl.llval
 
+let moduleToIR (sm: in_body SailModule.t) (dump_decl:bool) (verify_ir:bool) : L.llmodule E.t =
+  let llc = L.create_context () in
+  let llm = L.create_module llc sm.md.name in
+  let* decls = get_declarations sm llc llm in
+
+  if dump_decl then failwith "not done yet";
+
+  let env = SailEnv.empty decls in
+
+  DeclEnv.iter_decls (fun name m -> let func = methodToIR llc llm m env name in if verify_ir then Llvm_analysis.assert_valid_function func) (Self Method) decls >>= fun () ->
+  if verify_ir then 
+    match Llvm_analysis.verify_module llm with 
+    | None -> return llm 
+    | Some reason -> E.throw @@ Error.make dummy_pos (Fmt.str "LLVM : %s" reason)
+  else return llm
+    

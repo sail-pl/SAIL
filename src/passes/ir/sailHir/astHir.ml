@@ -40,23 +40,56 @@ type ('info,'import) expression = {info: 'info ; exp: ('info,'import) _expressio
 
 type ('info,'import,'exp) statement = {info: 'info; stmt: ('info,'import,'exp) _statement} and ('info,'import,'exp) _statement =
   | DeclVar of bool * string * sailtype option * 'exp option 
-  | DeclSignal of string
   | Skip
   | Assign of 'exp * 'exp
   | Seq of ('info,'import,'exp) statement * ('info,'import,'exp) statement
-  | Par of ('info,'import,'exp) statement * ('info,'import,'exp) statement
   | If of 'exp * ('info,'import,'exp) statement * ('info,'import,'exp) statement option
   | Loop of ('info,'import,'exp) statement
   | Break
   | Case of 'exp * (string * string list * ('info,'import,'exp) statement) list
   | Invoke of string option * 'import * l_str * 'exp list
   | Return of 'exp option
-  | Run of l_str * 'exp list
+  (*
+  | DeclSignal of string
   | Emit of string
   | Await of string
   | When of string * ('info,'import,'exp) statement
   | Watching of string * ('info,'import,'exp) statement
+  | Par of ('info,'import,'exp) statement * ('info,'import,'exp) statement
+  *)
   | Block of ('info,'import,'exp) statement
 
 let buildExp info (exp: (_,_) _expression) : (_,_) expression = {info;exp}
 let buildStmt info stmt : (_,_,_) statement = {info;stmt}
+
+
+module Syntax = struct
+  let skip = buildStmt dummy_pos Skip
+
+  let (=) = fun l r -> buildStmt dummy_pos (Assign (l,r))
+
+  let var (loc,id,ty) = buildStmt loc (DeclVar (true,id,Some ty,None))
+
+  let _true = buildExp dummy_pos (Literal (LBool true))
+  let _false = buildExp dummy_pos (Literal (LBool false))
+
+
+  let (+) = fun l r -> buildExp dummy_pos (BinOp(Plus,l,r))
+  let (%) = fun l r -> buildExp dummy_pos (BinOp(Rem,l,r))
+  let (==) = fun l r -> buildExp dummy_pos (BinOp(Eq, l,r))
+  
+  let (&&) = fun s1 s2 -> buildStmt dummy_pos (Seq (s1,s2))
+
+
+  let (!@) = fun id -> buildExp dummy_pos (Variable id)
+
+  let (!) = fun n -> buildExp dummy_pos (Literal (LInt {l=Z.of_int n; size=32}))
+
+  let (!!) = fun b -> buildStmt dummy_pos  (Block b)
+
+  let _if cond _then _else = 
+    let _else = match _else.stmt with Skip -> None | stmt ->  Some {_else with stmt} in 
+    buildStmt dummy_pos (If (cond,_then,_else))
+
+
+end

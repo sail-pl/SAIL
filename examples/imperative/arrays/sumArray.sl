@@ -1,5 +1,9 @@
-import print_utils
-process Main(){
+import test_utils
+
+process Main {
+Init:
+Loop:
+
     var mut a : array<int;10> = [1,2,3,4,5,6,7,8,9,10];
     print_string("Hello World\n"); 
 
@@ -11,5 +15,6 @@ process Main(){
         cpt = cpt + 1
     }
     print_int (res); print_newline();
-    print_string("Hello\n")
+    print_string("Hello\n");
+    exit(0);
 }

@@ -1,5 +1,8 @@
-import print_utils
-process Main(){
+import test_utils
+process Main {
+Init:
+Loop:
+
 
     var x : box<int>;
     {
@@ -10,5 +13,6 @@ process Main(){
     // Error
      //print_int(*x); print_newline();
     // print_int(y); print_newline()
-    x = box(3)
+    x = box(3);
+    exit(0);
 }

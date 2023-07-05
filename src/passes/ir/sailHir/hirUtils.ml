@@ -31,8 +31,7 @@ match import with
   else
     let+ t = 
       E.throw_if_none (Error.make iloc  ~hint:(Some (None,Fmt.str "try importing the module with 'import %s'" name)) @@ "unknown module " ^ name)  
-                      (List.find_opt (fun {mname;_} -> mname = name) (D.get_imports env)) >>=
-     fun _ ->
+                      (List.find_opt (fun {mname;_} -> mname = name) (D.get_imports env)) >>= fun _ ->
       E.throw_if_none (Error.make loc @@ "declaration "  ^ id ^ " not found in module " ^ name)
                       (D.find_decl id (Specific (name, Filter filt)) env)
     in
@@ -50,7 +49,7 @@ match import with
     | _ as choice -> E.throw 
                   @@ Error.make loc ~hint:(Some (None,"specify one with '::' annotation")) 
                   @@ Fmt.str "multiple definitions for declaration %s : \n\t%s" id 
-                     (List.map (fun (i,def) -> match def with T def -> Fmt.str "from %s : %s" i.mname (string_of_sailtype (def.ty)) | _ -> "") choice |> String.concat "\n\t")
+                    (List.map (fun (i,def) -> match def with T def -> Fmt.str "from %s : %s" i.mname (string_of_sailtype (def.ty)) | _ -> "") choice |> String.concat "\n\t")
   end
 
 let follow_type ty env : (sailtype * D.t) E.t = 

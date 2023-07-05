@@ -1,0 +1,5 @@
+(include_subdirs no)
+
+(library
+(libraries common sailParser irHir irThir irMir) 
+(name ir))

@@ -1,6 +1,7 @@
-import print_utils
-process Main(){
+import test_utils
 
+process Main {
+Loop:
     {
         var x : int = 0
     }
@@ -9,5 +10,6 @@ process Main(){
     while (1 < 0){
         var x : int = 1
     }
-    // print_int(x); print_newline()
+    // print_int(x); print_newline();
+    exit(0);
 }

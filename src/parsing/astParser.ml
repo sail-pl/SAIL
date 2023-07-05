@@ -45,48 +45,55 @@ type expression = loc * expression_ and expression_ =
 
 type statement = loc * statement_ and statement_ = 
   | DeclVar of bool * string * sailtype option * expression option 
-  | DeclSignal of string
   | Skip
   | Assign of expression * expression
   | Seq of statement * statement
-  | Par of statement * statement
   | If of expression * statement * statement option
   | While of expression * statement
   | Break of unit
   | Case of expression * (pattern * statement) list
   | Invoke of  l_str option *  l_str * expression list
   | Return of expression option
-  | Run of l_str * expression list
   | Loop of statement
   | For of {var: string; iterable : expression; body : statement}
-  | Emit of string
-  | Await of string
-  | When of string * statement
-  | Watching of string * statement
   | Block of statement
 
- 
-type defn =
+  
+type pgroup_ty = Sequence | Parallel
+
+type ('s,'e) p_statement = loc * ('s,'e) p_statement_ and ('s,'e) p_statement_ = 
+  | Run of l_str * 'e option
+  | Statement of 's * 'e option
+  | PGroup of {p_ty : pgroup_ty  ; cond : 'e option ; children :  ('s,'e) p_statement list}
+
+type ('s,'e) process_body = {
+    locals : (loc * (string * (loc*sailtype))) list;
+    init : 's;
+    proc_init : (loc * 'e proc_init) list;
+    loop : ('s,'e) p_statement;
+}
+
+type 'a defn =
   | Type of ty_defn
   | Struct of struct_defn
-  | Enum of enum_defn
+  | Enum of enum_defn 
   | Method of statement method_defn list
-  | Process of statement process_defn
+  | Process of 'a process_defn
   
 module E = Error.Logger
 
-let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t E.t =
+let mk_program  (md:metadata) (imports: ImportSet.t)  l : (statement, (statement,expression) process_body) SailModule.methods_processes SailModule.t E.t =
   let open SailModule in
   let open Monad.MonadSyntax(E) in
   let open Monad.MonadOperator(E) in
   let open Monad.MonadFunctions(E) in
 
-  let rethrow where = E.catch (fun e -> E.throw {e with where}) in
+  let rethrow where = E.(catch (fun e -> throw {e with where})) in
 
   let rec aux = function
-    | [] -> return (let e = DeclEnv.empty in DeclEnv.set_name md.name e,[],[])
+    | [] -> return DeclEnv.(set_name md.name empty,[],[])
     | d::l ->
-      let* (e,m,p) = aux l in
+      let* e,m,p = aux l in
         match d with
           | Type t -> 
             let+ env = DeclEnv.add_decl t.name t Type e |> rethrow t.loc
@@ -106,7 +113,8 @@ let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t
           | Method d -> 
             
             let+ env,funs = 
-            ListM.fold_left (fun (e,f) d -> 
+            ListM.fold_left (fun (e,f) d ->
+              let* () = E.throw_if Error.(make d.m_proto.pos "calling a method 'main' is not allowed") (d.m_proto.name = "main") in
               let true_name = (match d.m_body with Left (sname,_) -> sname | Right _ -> d.m_proto.name) in
               let+ env =  DeclEnv.add_decl d.m_proto.name ((d.m_proto.pos,true_name),defn_to_proto (Method d)) Method e
               in (env,d::f)
@@ -116,7 +124,7 @@ let mk_program  (md:metadata) (imports: ImportSet.t)  l : statement SailModule.t
             let+ env =  DeclEnv.add_decl d.p_name (d.p_pos,defn_to_proto (Process d)) Process e
             in (env,m,d::p)
   in 
-  let+ (declEnv,methods,processes) = aux l in 
+  let+ declEnv,methods,processes = aux l in 
   let builtins = Builtins.get_builtins () in
-  {md; imports; declEnv ; methods;processes;builtins}
+  {md; imports; declEnv ; body={methods;processes};builtins}
 
