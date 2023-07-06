@@ -56,7 +56,7 @@ type value =
 let valueOfLiteral c =
   match c with
   | LBool x -> VBool x
-  | LInt x -> VInt x
+  | LInt x -> VInt (Z.to_int x.l)
   | LFloat x -> VFloat x
   | LChar x -> VChar x
   | LString x -> VString x

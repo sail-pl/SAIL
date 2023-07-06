@@ -53,7 +53,7 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue =
   match x.exp with
   | Variable _ | StructRead _ | ArrayRead _ | StructAlloc _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
 
-  | Literal l ->  getLLVMLiteral l llvm
+  | Literal l -> getLLVMLiteral l llvm
   | UnOp (op,e) -> let l = eval_r env llvm e in unary op (ty_of_alias ty (snd env),l) llvm.b
   | BinOp (op,e1, e2) -> 
       let l1 = eval_r env llvm e1
@@ -100,7 +100,7 @@ and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list)
       List.map2 (fun t v -> 
       let builder =
         match ty_of_alias t (snd env) with
-        | Bool | Int | Char -> build_zext
+        | Bool | Int _ | Char -> build_zext
         | Float -> build_bitcast
         | _ -> build_ptrtoint
         in

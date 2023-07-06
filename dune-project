@@ -23,4 +23,5 @@
     (mtime (>= 1.3.0))
     (ctypes-foreign (>= 0.18.0))
     (llvm (>= 13.0.0))
+    zarith
     ))
