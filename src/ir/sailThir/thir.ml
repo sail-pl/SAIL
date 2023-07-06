@@ -41,14 +41,16 @@ struct
     | ArrayRead (array_exp,idx) -> let* array_exp = aux array_exp and* idx = lower_rexp generics idx in
       begin 
         match snd array_exp.info with
-        | ArrayType (t,size) -> 
-          let* _ = matchArgParam (idx.info) Int generics [] in
+        | ArrayType (t,sz) -> 
+          let* _ = matchArgParam (idx.info) (Int 32) generics [] in
           begin 
             (* can do a simple oob check if the type is an int literal *)
             match idx.exp with
             | Literal (LInt n) ->
-              ES.throw_if (Error.make (fst idx.info) @@ Printf.sprintf "index out of bounds : must be between 0 and %i (got %i)" (size - 1) n)
-                          (n < 0 || n >= size) 
+              ES.throw_if (Error.make (fst idx.info) @@ Printf.sprintf "index out of bounds : must be between 0 and %i (got %s)" 
+                            (sz - 1) Z.(to_string n.l)
+                          )
+                  Z.( n.l < ~$0 ||  n.l > ~$sz)   
             | _ -> return ()
           end >>| fun () -> buildExp (loc,t) @@ ArrayRead (array_exp,idx)
         | _ ->  ES.throw (Error.make loc "not an array !")
@@ -80,7 +82,21 @@ struct
     | Variable id -> 
       let+ (_,(_,t)) = ES.get_var id >>= ES.throw_if_none (Error.make loc @@ Printf.sprintf "unknown variable %s" id) in
       buildExp (loc,t) @@ Variable id
-    | Literal li -> let t = sailtype_of_literal li in return @@ buildExp (loc,t) @@ Literal li
+    | Literal li -> 
+      let+ () = 
+        match li with 
+        | LInt t -> 
+          let max_int = Z.( ~$2 ** (Stdlib.(-) t.size  1) - ~$1) in 
+          let min_int = Z.( ~-( max_int + ~$1) ) in
+          ES.throw_if 
+            (
+              Error.make loc @@ Fmt.str "type suffix can't contain int literal : i%i is between %s and %s but literal is %s"
+              t.size (Z.to_string min_int) (Z.to_string max_int) (Z.to_string t.l)
+            ) 
+            Z.(lt t.l  min_int || gt t.l max_int) 
+        | _ -> return () in
+      let t = sailtype_of_literal li in 
+      buildExp (loc,t) @@ Literal li
     | UnOp (op,e) -> let+ e = aux e in buildExp e.info @@ UnOp (op,e)
     | BinOp (op,le,re) ->
       let* le = aux le in

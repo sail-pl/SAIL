@@ -25,9 +25,10 @@
     open TypesCommon
     open AstParser
 %}
-%token TYPE_BOOL TYPE_INT TYPE_FLOAT TYPE_CHAR TYPE_STRING
+%token TYPE_BOOL TYPE_FLOAT TYPE_CHAR TYPE_STRING
+%token <int> TYPE_INT 
 %token TYPE
-%token <int> INT
+%token <Z.t> INT
 %token <float> FLOAT
 %token <string> ID
 %token <string> UID
@@ -157,7 +158,7 @@ let id_colon(X) == ~ =ID ; ":" ; ~ = located(X) ; <>
 let literal ==
 | TRUE ; {LBool(true) }
 | FALSE ; {LBool(false)}
-| ~ = INT ; <LInt>
+| l = INT ; size = TYPE_INT?; {let size = match size with None -> 32 | Some s -> s in LInt {l;size}}
 | ~ = FLOAT ; <LFloat>
 | ~ = CHAR ; <LChar>
 | ~ = STRING ; <LString>
@@ -189,7 +190,11 @@ let block_or_statement(b) ==
 
 
 let iterable_or_range ==
-|  rl = INT ; "," ; rr = INT ; {ArrayStatic (List.init (rr - rl) (fun i -> dummy_pos,Literal (LInt (i + rl))))}
+|  rl = INT ; "," ; rr = INT ; {
+    let rl = Z.to_int rl in 
+    let rr = Z.to_int rr in 
+    ArrayStatic (List.init (rr - rl) (fun i -> dummy_pos,Literal (LInt {l=Z.of_int (i + rl); size=32})))
+    }
 | e = expression ; {snd e}
 
 
@@ -246,11 +251,11 @@ let pattern :=
 
 let sailtype :=
 | TYPE_BOOL ; {Bool}
-| TYPE_INT ; {Int}
+| l = TYPE_INT ; {Int l}
 | TYPE_FLOAT ; {Float}
 | TYPE_CHAR ; {Char}
 | TYPE_STRING ; {String}
-| ARRAY ; "<" ; ~ = sailtype ; ";" ; ~ = INT ; ">" ; <ArrayType>
+| ARRAY ; "<" ; ty = sailtype ; ";" ; size = INT ; ">" ; {let size = Z.to_int size in ArrayType (ty,size) }
 | mloc = ioption(module_loc) ; name = located(ID) ; generic_instances = instance ; {CompoundType {origin=mloc; name; generic_instances; decl_ty=None} }
 | ~ = UID ; <GenericType>
 | REF ; b = mut ; t = sailtype ; {RefType(t,b)}

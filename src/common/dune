@@ -1,5 +1,5 @@
 (include_subdirs unqualified)
 
 (library
-(libraries logs menhirLib fmt)
+(libraries logs zarith menhirLib fmt)
  (name common))

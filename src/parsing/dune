@@ -3,7 +3,7 @@
 
 (library
  (name sailParser)
- (libraries common menhirLib)
+ (libraries common zarith menhirLib)
 )
 
 (ocamllex lexer)

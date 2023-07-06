@@ -15,7 +15,7 @@ type statement = (loc,l_str,expression) AstHir.statement
 let degenerifyType (t: sailtype) (generics: sailtype dict) loc : sailtype ES.t =
   let rec aux = function
   | Bool -> return Bool
-  | Int -> return Int 
+  | Int n -> return (Int n)
   | Float -> return Float
   | Char -> return Char
   | String -> return String
@@ -78,7 +78,7 @@ let matchArgParam (l,arg: loc * sailtype) (m_param : sailtype) (generics : strin
 
     match lt,rt with
     | Left Bool,Left Bool -> return (Bool,g)
-    | Left Int,Left Int -> return (Int,g)
+    | Left (Int i1), Left (Int i2) when i1 = i2 ->  return ((Int  i1),g) 
     | Left Float,Left Float -> return (Float,g)
     | Left Char,Left Char -> return (Char,g)
     | Left String,Left String -> return (String,g)
@@ -155,6 +155,7 @@ let find_function_source (fun_loc:loc) (_var: string option) (name : l_str) (imp
   | M decl ->  
     let _x = fun_loc and _y = el in 
     let+ _ = check_call (snd name) (snd decl) el fun_loc in mname,decl
+
   | _ -> failwith "non method returned" (* cannot happen because we only requested methods *)
 
          (* ES.throw 

@@ -30,10 +30,12 @@ module SailEnv = VariableDeclEnv (Declarations)(
 
 open Declarations
 
+
+  
 let getLLVMBasicType f t llc llm  : lltype = 
   let rec aux = function
   | Bool -> i1_type llc
-  | Int -> i32_type llc 
+  | Int n -> integer_type llc n
   | Float -> double_type llc
   | Char -> i8_type llc
   | String -> i8_type llc |> pointer_type

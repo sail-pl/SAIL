@@ -88,7 +88,7 @@ let follow_type ty env : (sailtype * D.t) E.t =
     | ArrayType (t,n) -> let+ t,path = aux t path in  ArrayType (t,n),path
     | Box t -> let+ t,path = aux t path in Box t,path
     | RefType (t,mut) -> let+ t,path = aux t path in RefType (t,mut),path
-    | Bool | Char | Int | Float | String | GenericType _ as t ->  (* basic type, stop *)
+    | Bool | Char | Int _ | Float | String | GenericType _ as t ->  (* basic type, stop *)
       (* Logs.debug (fun m -> m "'%s' resolves to '%s'" (string_of_sailtype (Some ty)) (string_of_sailtype (Some ty'))); *)
       return (t,path)
   in
