@@ -24,4 +24,6 @@
     (ctypes-foreign (>= 0.18.0))
     (llvm (>= 13.0.0))
     zarith
+    ppx_lun
+    logs-ppx
     ))
