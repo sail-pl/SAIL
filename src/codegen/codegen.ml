@@ -84,7 +84,7 @@ and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list)
   in
   (* let mname = mangle_method_name name origin.mname args_type in  *)
   let mangled_name = "_" ^ mname ^ "_" ^ name in 
-  Logs.debug (fun m -> m "constructing call to %s" name);
+  [%log debug "constructing call to %s" name];
   let llval,ext = match SailEnv.get_decl mangled_name (Specific (mname,Method)) env with 
     | None ->   
       begin

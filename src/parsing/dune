@@ -4,6 +4,9 @@
 (library
  (name sailParser)
  (libraries common zarith menhirLib)
+  (preprocess
+      (pps logs-ppx)
+  )
 )
 
 (ocamllex lexer)

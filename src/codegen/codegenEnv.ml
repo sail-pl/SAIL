@@ -103,13 +103,13 @@ let get_declarations (sm: IrMir.Mir.Pass.out_body SailModule.t) llc llm : DeclEn
   let open Monad.MonadSyntax(E) in
   let open Monad.MonadOperator(E) in
 
-  Logs.debug (fun m -> m 
+  [%log debug 
   "codegen of %i method(s), %i struct(s), %i type(s) and %i enum(s)"
    (List.length sm.methods)
     SailModule.DeclEnv.(get_own_decls sm.declEnv |> get_decls Struct |> container_length)
     SailModule.DeclEnv.(get_own_decls sm.declEnv |> get_decls Type |> container_length)
     SailModule.DeclEnv.(get_own_decls sm.declEnv |> get_decls Enum |> container_length)
-  );
+  ];
 
   let valueify_method_sig (m:method_sig) : method_sig =
     let open Monad.MonadOperator(MonadOption.M) in
@@ -165,18 +165,18 @@ let get_declarations (sm: IrMir.Mir.Pass.out_body SailModule.t) llc llm : DeclEn
   in 
   let sorted_imports = (sm.imports |> ImportSet.elements |> List.sort (fun i1 i2 -> Int.compare i1.proc_order i2.proc_order)) in 
 
-  Logs.debug (fun m -> m "import processing order : %s" (List.map (fun (i:import) -> Fmt.str "% i:%s" i.proc_order i.mname) sorted_imports |> String.concat " " ));
+  [%log debug "import processing order : %s" (List.map (fun (i:import) -> Fmt.str "% i:%s" i.proc_order i.mname) sorted_imports |> String.concat " " )];
   
   let* decls = 
     ListM.fold_left (fun (e:DeclEnv.t) (i:import)  -> 
-      Logs.debug (fun m -> m "processing import %s" i.mname);
+      [%log debug "processing import %s" i.mname];
       let (sm: 'a SailModule.t) = 
         In_channel.with_open_bin (i.dir ^ i.mname ^ Constants.mir_file_ext) Marshal.from_channel
       in
       (* putting import methods,types,structs and enums into mir env *)
       let empty_env = DeclEnv.(empty |> set_name i.mname |> replace_imports_with e) in
       let+ import_env = load_types sm empty_env >>= load_structs sm >>= load_methods sm.methods true in
-      (* Logs.debug (fun m -> m "import %s env : %s"  i.mname @@ DeclEnv.string_of_env import_env); *)
+      (* [%log debug "import %s env : %s"  i.mname @@ DeclEnv.string_of_env import_env); *)
       DeclEnv.add_import_decls (i,import_env) e 
     ) DeclEnv.(empty |> set_name sm.md.name) sorted_imports
   in  

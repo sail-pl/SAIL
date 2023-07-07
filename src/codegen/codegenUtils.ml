@@ -8,7 +8,7 @@ let mangle_method_name (name:string) (mname:string) (args: sailtype list ) : str
   let back = List.fold_left (fun s t -> s ^ string_of_sailtype (Some t) ^ "_"  ) "" args in
   let front = "_" ^ mname ^ "_" ^ name ^ "_" in
   let res = front ^ back in
-  (* Logs.debug (fun m -> m "renamed %s to %s" name res); *)
+  (* [%log debug "renamed %s to %s" name res); *)
   res
 
 

@@ -20,6 +20,7 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
+module Log = Logs
 module FieldMap = Map.Make (String)
 module FieldSet = Set.Make (String)
 

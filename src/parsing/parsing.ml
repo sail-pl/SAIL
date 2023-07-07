@@ -8,7 +8,6 @@ open TypesCommon
 module L = MenhirLib.LexerUtil
 module E = MenhirLib.ErrorReports
 
-
 let print_error_position lexbuf =
   let pos = lexbuf.lex_curr_p in
   Printf.sprintf "Line:%d Position:%d" pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1)
@@ -71,7 +70,7 @@ let fail text buffer (checkpoint : _ I.checkpoint) =
   try
   let message = ParserMessages.message state_num in
   let message = E.expand (get text checkpoint) message in
-  Logs.debug (fun m -> m "reached error state %i "state_num);
+  [%log debug "reached error state %i " state_num];
   Logger.throw @@ Error.make location message
   with Not_found -> 
     Logger.throw @@ Error.make location "Syntax error"

@@ -10,6 +10,9 @@
     fmt.tty
     fmt.cli
     logs.cli
-    )
+  )
+  (preprocess
+      (pps logs-ppx)
+  )
   (names sailInterpreter sailCompiler)
   (public_names saili sailor))

@@ -230,7 +230,7 @@ let reverse_traversal (lbl:int) (blocks : basicBlock BlockMap.t) :  basicBlock B
     let blocks' = BlockMap.remove lbl blocks in
     
     (* if blocks' != blocks then
-      Logs.debug (fun m -> m "reverse bb %i" lbl); *)
+      [%log debug "reverse bb %i" lbl); *)
 
     match BlockMap.find_opt lbl blocks with
     | None -> blocks'
@@ -249,7 +249,7 @@ let cfg_returns ({input;blocks;_} : cfg) : (loc option * basicBlock BlockMap.t) 
 
     (* 
     if blocks' != blocks then
-      Logs.debug (fun m -> m "checking bb %i" lbl);
+      [%log debug "checking bb %i" lbl);
     *) 
     
     match BlockMap.find_opt lbl blocks with

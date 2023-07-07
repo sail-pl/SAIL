@@ -1,3 +1,6 @@
 (library
+  (preprocess
+      (pps logs-ppx)
+  )
  (libraries irThir irMir common)
  (name irMisc))

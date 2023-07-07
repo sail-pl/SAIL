@@ -269,7 +269,7 @@ struct
         let* declEnv = ES.get_env in   
         let+ () = SEnv.iter (fun (id,proto) -> check_non_cyclic_struct id proto declEnv |> ES.S.lift) (get_own_decls declEnv |> get_decls Struct) in
 
-        (* Logs.debug (fun m -> m "%s" @@ string_of_declarations declEnv); *)
+        (* [%log debug "%s" @@ string_of_declarations declEnv); *)
         {sm with methods; processes; declEnv}
       ) sm.declEnv |> fst in
       sm
