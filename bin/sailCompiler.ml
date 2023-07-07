@@ -73,13 +73,13 @@ let link ?(is_lib = false) (llm:llmodule) (module_name : string) (basepath:strin
   let libs = List.map (fun l -> "-l " ^ l) libs |> String.concat " "  in 
   if Target.has_asm_backend target then
     begin
-      Logs.info (fun m -> m "emitting object file...");
+      [%log info "emitting object file..."];
       TargetMachine.emit_to_file llm ObjectFile f machine;
       if not is_lib then 
         begin
         if (Option.is_none (lookup_function "main" llm)) then failwith ("no Main process found for module '" ^ module_name ^  "', can't compile as executable");
         let clang_cmd = Fmt.str "clang %s -o %s %s %s" objfiles module_name libs clang_args in
-        Logs.debug (fun m -> m "invoking clang with the following parameters : \n%s" clang_cmd);
+        [%log debug "invoking clang with the following parameters : \n%s" clang_cmd];
         Sys.command clang_cmd
         (* "rm " ^ objfile |>  Sys.command *)
         end
@@ -99,9 +99,9 @@ let execute (llm:llmodule) =
   | Some m -> m
   | None -> failwith "can't execute : no main process found" 
   in
-  match Llvm_executionengine.initialize () with
-  | false -> failwith "unable to start the execution engine"
-  | _ -> ();
+  if not @@ Llvm_executionengine.initialize () then
+    failwith "unable to start the execution engine";
+
   let ee = Llvm_executionengine.create llm in
   let open Ctypes in 
   let m_t = void @-> returning int in
@@ -130,7 +130,7 @@ let find_file_opt ?(maxdepth = 4) ?(paths = [Filename.current_dir_name]) (f:stri
   List.fold_left (
     fun r dir -> match r with 
     | Some f -> Some f
-    | None ->  aux dir 0
+    | None -> aux dir 0
     ) None paths
 
 
@@ -164,7 +164,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         let open PassManager in
         let pm = create () in add_passes pm;
         let res = run_module llm pm in
-        Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
+        [%log debug "pass manager executed, module modified : %b" res];
         dispose pm
       end
     ;
@@ -188,16 +188,16 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
     let basepath = Filename.(dirname f) in 
 
     if List.mem mname treated then
-     (Logs.debug (fun m -> m "skipping module '%s'" mname); 
+     ([%log debug "skipping module '%s'" mname]; 
       return (treated,SailModule.emptyModule))
     else
       let treated = mname::treated in 
       let add_imports_decls (curr_env: SailModule.DeclEnv.t ) (imports : ImportSet.t) = 
         ImportSet.fold (fun i -> 
           let file = i.dir ^ i.mname ^ C.mir_file_ext in 
-          Logs.debug (fun m -> m "reading module '%s' from mir file %s" i.mname file); 
+          [%log debug "reading module '%s' from mir file %s" i.mname file]; 
           let slmd : AstMir.mir_function SailModule.t = In_channel.with_open_bin file  Marshal.from_channel in
-          (* Logs.debug (fun m -> m "decls of import %s : \n %s" i.mname (SailModule.DeclEnv.string_of_env slmd.declEnv)); *)
+          (* [%log debug "decls of import %s : \n %s" i.mname (SailModule.DeclEnv.string_of_env slmd.declEnv)); *)
           SailModule.DeclEnv.add_import_decls (i, slmd.declEnv)
         )
         imports curr_env 
@@ -207,7 +207,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
 
       let process_imports_and_compile () : (string list * 'a SailModule.t) E.t =
         Logs.info (fun m -> m "======= processing module '%s' =======" slmd.md.name );
-        Logs.debug (fun m -> m "module hash : %s" (Digest.to_hex slmd.md.hash));
+        [%log debug "module hash : %s" (Digest.to_hex slmd.md.hash)];
         (* for each import, we check if a corresponding mir file exists.
           - if it exists, we get its corresponding sail_module 
           - if not, we look for a source file and compile it 
@@ -283,7 +283,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
 
   try 
   match ListM.fold_left (fun t f -> let+ t,_ = process_file f t [] ~is_lib in f::t) [] files with
-  | Ok treated,_ -> Logs.debug (fun m -> m "files processed : %s " @@ String.concat " " treated) ; `Ok ()
+  | Ok treated,_ -> [%log debug "files processed : %s " (String.concat " " treated)] ; `Ok ()
   | Error e,errs -> 
     Error.print_errors (e::errs);
     `Error(false, "compilation aborted") 

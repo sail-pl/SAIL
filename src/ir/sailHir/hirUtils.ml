@@ -42,7 +42,7 @@ match import with
     let decl = D.find_decl id (All (Filter filt)) env in
     match decl with
     | [i,m] -> 
-      (* Logs.debug (fun m -> m "'%s' is from %s" id i.mname); *)
+      (* [%log debug "'%s' is from %s" id i.mname); *)
       return ((dummy_pos,i.mname),m)
 
     | [] ->  E.throw @@ Error.make loc @@ "unknown declaration " ^ id
@@ -57,10 +57,10 @@ let follow_type ty env : (sailtype * D.t) E.t =
   
   let current = SailModule.DeclEnv.get_name env in
 
-  (* Logs.debug (fun m -> m "following type '%s'" (string_of_sailtype (Some ty))); *)
+  (* [%log debug "following type '%s'" (string_of_sailtype (Some ty))); *)
 
   let rec aux ty' path : (sailtype * ty_defn list) E.t = 
-    (* Logs.debug (fun m -> m "path: %s" (List.map (fun ({name;_}:ty_defn) -> name)path |> String.concat " ")); *)
+    (* [%log debug "path: %s" (List.map (fun ({name;_}:ty_defn) -> name)path |> String.concat " ")); *)
     match ty' with 
     | CompoundType {origin;name=id;generic_instances;_} -> (* compound type, find location and definition *) 
       let* (l,origin),def = find_symbol_source id origin env in 
@@ -79,7 +79,7 @@ let follow_type ty env : (sailtype * D.t) E.t =
             >>= (fun () -> aux ty (def::path))
             )
           | None -> (* abstract type *) 
-            (* Logs.debug (fun m -> m "'%s' resolves to abstract type '%s' " (string_of_sailtype (Some ty)) def.name);  *)
+            (* [%log debug "'%s' resolves to abstract type '%s' " (string_of_sailtype (Some ty)) def.name);  *)
             return (default (T ()),path)
           end
         | _ -> 
@@ -88,8 +88,8 @@ let follow_type ty env : (sailtype * D.t) E.t =
     | ArrayType (t,n) -> let+ t,path = aux t path in  ArrayType (t,n),path
     | Box t -> let+ t,path = aux t path in Box t,path
     | RefType (t,mut) -> let+ t,path = aux t path in RefType (t,mut),path
-    | Bool | Char | Int | Float | String | GenericType _ as t ->  (* basic type, stop *)
-      (* Logs.debug (fun m -> m "'%s' resolves to '%s'" (string_of_sailtype (Some ty)) (string_of_sailtype (Some ty'))); *)
+    | Bool | Char | Int _ | Float | String | GenericType _ as t ->  (* basic type, stop *)
+      (* [%log debug "'%s' resolves to '%s'" (string_of_sailtype (Some ty)) (string_of_sailtype (Some ty'))); *)
       return (t,path)
   in
   let+ res,p = aux ty [] in

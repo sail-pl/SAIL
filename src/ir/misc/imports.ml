@@ -1,7 +1,6 @@
 open Common
 open TypesCommon
 open IrMir
-
 module E = Common.Error
 open Monad.MonadSyntax(E.Logger)
 open Monad.MonadFunctions(E.Logger)
@@ -14,7 +13,7 @@ module Pass = Pass.Make( struct
 
   let read_imports (imports : ImportSet.t) : (string * in_body SailModule.t) list  = 
     List.map (fun i ->  
-      Logs.debug (fun m -> m "reading mir for import '%s' (%s)" i.mname i.dir); 
+      [%log debug "reading mir for import '%s' (%s)" i.mname i.dir]; 
       i.dir,In_channel.with_open_bin (i.dir ^ i.mname ^ Constants.mir_file_ext) Marshal.from_channel
     ) (ImportSet.elements imports)
 
@@ -49,7 +48,7 @@ module Pass = Pass.Make( struct
     {m with methods ; imports; md={m.md with libs}}
 
   let transform (smdl : in_body SailModule.t)  : out_body SailModule.t E.Logger.t =
-    Logs.debug (fun m -> m "imports : %s" (String.concat " " (List.map (fun i -> i.mname) (ImportSet.elements smdl.imports))));
+    [%log debug "imports : %s" (String.concat " " (List.map (fun i -> i.mname) (ImportSet.elements smdl.imports)))];
     set_fcall_source smdl
 end
 )

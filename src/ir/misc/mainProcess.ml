@@ -15,13 +15,13 @@ struct
     let+ p = E.Logger.throw_if_none (E.make dummy_pos @@ "module '" ^ m.md.name ^ "' : no Main process found") 
                                     (List.find_opt (fun p -> p.p_name = "Main") m.processes)
     in
-    let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = fst p.p_interface; variadic=false; rtype=Some Int} in
+    let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = fst p.p_interface; variadic=false; rtype=Some (Int 32)} in
     let m_body = 
       let decls,cfg = p.p_body in 
       let b = IrMir.AstMir.BlockMap.find cfg.output cfg.blocks in
       (* hardcode "return 0" at the end *)
       let blocks = IrMir.AstMir.BlockMap.add cfg.output 
-        {b with terminator=Some (Return (Some {info=(dummy_pos,Int); exp=(Literal (LInt 0))}))} cfg.blocks in
+        {b with terminator=Some (Return (Some {info=(dummy_pos,Int 32); exp=(Literal (LInt {l=Z.zero;size=32}))}))} cfg.blocks in
       Either.right (decls,{cfg with blocks})
     in
     {m_proto; m_body}

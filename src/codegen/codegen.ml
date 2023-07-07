@@ -53,7 +53,7 @@ and eval_r (env:SailEnv.t) (llvm:llvm_args) (x:AstMir.expression) : llvalue =
   match x.exp with
   | Variable _ | StructRead _ | ArrayRead _ | StructAlloc _ ->  let v = eval_l env llvm x in build_load v "" llvm.b
 
-  | Literal l ->  getLLVMLiteral l llvm
+  | Literal l -> getLLVMLiteral l llvm
   | UnOp (op,e) -> let l = eval_r env llvm e in unary op (ty_of_alias ty (snd env),l) llvm.b
   | BinOp (op,e1, e2) -> 
       let l1 = eval_r env llvm e1
@@ -84,7 +84,7 @@ and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list)
   in
   (* let mname = mangle_method_name name origin.mname args_type in  *)
   let mangled_name = "_" ^ mname ^ "_" ^ name in 
-  Logs.debug (fun m -> m "constructing call to %s" name);
+  [%log debug "constructing call to %s" name];
   let llval,ext = match SailEnv.get_decl mangled_name (Specific (mname,Method)) env with 
     | None ->   
       begin
@@ -100,7 +100,7 @@ and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list)
       List.map2 (fun t v -> 
       let builder =
         match ty_of_alias t (snd env) with
-        | Bool | Int | Char -> build_zext
+        | Bool | Int _ | Char -> build_zext
         | Float -> build_bitcast
         | _ -> build_ptrtoint
         in

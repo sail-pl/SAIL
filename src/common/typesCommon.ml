@@ -20,6 +20,7 @@
 (* along with this program.  If not, see <https://www.gnu.org/licenses/>. *)
 (**************************************************************************)
 
+module Log = Logs
 module FieldMap = Map.Make (String)
 module FieldSet = Set.Make (String)
 
@@ -52,7 +53,7 @@ let string_of_decl : (_,_,_,_,_) decl_sum -> string = function
 
 type sailtype =
   | Bool 
-  | Int 
+  | Int of int
   | Float 
   | Char 
   | String
@@ -69,7 +70,7 @@ type sailtype =
 
 type literal =
   | LBool of bool
-  | LInt of int
+  | LInt of {l:Z.t;size:int}
   | LFloat of float
   | LChar of char
   | LString of string
@@ -77,7 +78,7 @@ type literal =
 let sailtype_of_literal = function
 | LBool _ -> Bool
 | LFloat _ -> Float
-| LInt _ -> Int
+| LInt l -> Int l.size
 | LChar _ -> Char
 | LString _ -> String
 
@@ -86,7 +87,7 @@ let rec string_of_sailtype (t : sailtype option) : string =
   let open Printf in 
   match t with 
   | Some Bool -> "bool"
-  | Some Int -> "int"
+  | Some Int size -> "i" ^ string_of_int  size
   | Some Float -> "float"
   | Some Char -> "char"
   | Some String -> "string"

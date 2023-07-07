@@ -1,3 +1,6 @@
 (library
  (libraries irThir common)
+   (preprocess
+      (pps logs-ppx)
+  )
  (name irMir))

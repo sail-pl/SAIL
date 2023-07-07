@@ -24,7 +24,6 @@
 
   open Lexing
   open Parser
-
   exception SyntaxError of (position * position) * string
 
   let next_line lexbuf =
@@ -44,7 +43,9 @@ let alpha = ['a'-'z' 'A'-'Z']
 let frac = '.' digit*
 let exp = ['e' 'E'] ['-' '+']? digit+
 
-let int = '-'? digit+
+let pos = (['1'-'9'] ('_'|digit)*)
+let int = '-'? (pos | '0')
+let itype = 'i' pos
 let float = digit* frac? exp?
 let id = (alpha) (alpha|digit|'_')*
 let uid = (['A'-'Z']) (alpha|digit|'_')*
@@ -55,7 +56,8 @@ let newline = '\r' | '\n' | "\r\n"
 
 rule read_token = parse 
   | "bool" { TYPE_BOOL }
-  | "int" { TYPE_INT }
+  | itype { let l = Lexing.lexeme lexbuf in TYPE_INT (int_of_string String.(sub l 1 (length l - 1))) }
+  | "int" { TYPE_INT(32)}
   | "float" { TYPE_FLOAT }
   | "char" { TYPE_CHAR}
   | "string" { TYPE_STRING}
@@ -120,7 +122,7 @@ rule read_token = parse
   | whitespace { read_token lexbuf }
   | "//" { read_single_line_comment lexbuf }
   | "/*" { read_multi_line_comment lexbuf } 
-  | int { INT (int_of_string (Lexing.lexeme lexbuf))}
+  | int { INT (Z.of_string (Lexing.lexeme lexbuf |> String.split_on_char '_' |> String.concat ""))}
   | float { FLOAT (float_of_string (Lexing.lexeme lexbuf))}
   | id { ID (Lexing.lexeme lexbuf) }
   | '"'      { read_string (Buffer.create 17) lexbuf }

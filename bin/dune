@@ -3,7 +3,6 @@
     evaluator
     compiler
     ir
-  
     logs.fmt
     cmdliner
     logs
@@ -11,6 +10,9 @@
     fmt.tty
     fmt.cli
     logs.cli
-    )
+  )
+  (preprocess
+      (pps logs-ppx)
+  )
   (names sailInterpreter sailCompiler)
   (public_names saili sailor))

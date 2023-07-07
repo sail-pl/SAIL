@@ -117,16 +117,16 @@ struct
         let i_id = "_for_i_" ^ var in 
         let arr_length = List.length el in 
 
-        let tab_decl = info,DeclVar (false, arr_id, Some (ArrayType (Int,arr_length)), Some iterable) in
-        let var_decl = info,DeclVar (true, var, Some Int, None) in 
-        let i_decl = info,DeclVar (true, i_id, Some Int, Some (info,(Literal (LInt 0)))) in 
+        let tab_decl = info,DeclVar (false, arr_id, Some (ArrayType (Int 32,arr_length)), Some iterable) in
+        let var_decl = info,DeclVar (true, var, Some (Int 32), None) in 
+        let i_decl = info,DeclVar (true, i_id, Some (Int 32), Some (info,(Literal (LInt {l=Z.zero;size=32})))) in 
 
         let tab = info,Variable arr_id in 
         let var = info,Variable var in
         let i = info,Variable i_id in
         
-        let cond = info,BinOp (Lt, i, (info,Literal (LInt arr_length))) in 
-        let incr = info,Assign (i,(info,BinOp (Plus, i, (info, Literal (LInt 1))))) in
+        let cond = info,BinOp (Lt, i, (info,Literal (LInt {l=Z.of_int arr_length;size=32}))) in 
+        let incr = info,Assign (i,(info,BinOp (Plus, i, (info, Literal (LInt {l=Z.one;size=32}))))) in
         let init = info,Seq ((info,Seq (tab_decl,var_decl)), i_decl) in 
         let vari = info, Assign (var,(info,ArrayRead(tab,i))) in 
 
@@ -269,7 +269,7 @@ struct
         let* declEnv = ES.get_env in   
         let+ () = SEnv.iter (fun (id,proto) -> check_non_cyclic_struct id proto declEnv |> ES.S.lift) (get_own_decls declEnv |> get_decls Struct) in
 
-        (* Logs.debug (fun m -> m "%s" @@ string_of_declarations declEnv); *)
+        (* [%log debug "%s" @@ string_of_declarations declEnv); *)
         {sm with methods; processes; declEnv}
       ) sm.declEnv |> fst in
       sm

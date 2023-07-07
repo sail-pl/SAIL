@@ -67,7 +67,7 @@ struct
       if Option.is_some ret && decl.ret <> None then 
         E.log @@ Error.make (Option.get ret) @@ Printf.sprintf "%s doesn't always return !" decl.name
       else
-        let () = BlockMap.iter (fun lbl {location=_;_} ->  Logs.debug (fun m -> m "unreachable block %i" lbl)) unreachable_blocks in
+        let () = BlockMap.iter (fun lbl {location=_;_} ->  [%log debug "unreachable block %i" lbl]) unreachable_blocks in
         try 
           let _,bb = BlockMap.filter (fun _ {location;_} -> location <> dummy_pos) unreachable_blocks |> BlockMap.choose in
           let _loc = match List.nth_opt bb.assignments 0 with
@@ -179,7 +179,7 @@ struct
         res
 
     in 
-    Logs.debug (fun m -> m "lowering to MIR %s" decl.name);
+    [%log debug "lowering to MIR %s" decl.name];
 
     let* (res,_),_env = aux decl.body 0 (fst env) in 
     
@@ -189,7 +189,7 @@ struct
 
     BlockMap.iter (
       fun l bb -> match bb.terminator with 
-      | Some (Return _) -> (* Logs.debug (fun m -> m "found leaf at %i" l); *) reverse_traversal l cfg.blocks |> ignore 
+      | Some (Return _) -> (* [%log debug "found leaf at %i" l); *) reverse_traversal l cfg.blocks |> ignore 
       | _ -> ()
     ) cfg.blocks;
     res,(snd env)

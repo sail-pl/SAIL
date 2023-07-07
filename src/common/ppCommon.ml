@@ -33,7 +33,7 @@ let pp_binop pf b =
   let pp_literal (pf : formatter) (c : literal) : unit = 
     match c with 
     | LBool (b) -> Format.fprintf pf "%b" b
-    | LInt (i) -> pp_print_int pf i
+    | LInt i -> pp_print_string pf (Z.to_string i.l)
     | LFloat (f) -> Format.fprintf pf "%f" f
     | LChar (c) -> Format.fprintf pf "\'%s\'" (Char.escaped c)
     | LString s -> Format.fprintf pf "\"%s\"" (String.escaped s)
@@ -43,7 +43,7 @@ let pp_binop pf b =
   let rec pp_type (pf : formatter) (t : sailtype) : unit =
     match t with 
         Bool -> pp_print_string pf "bool"
-      | Int -> pp_print_string pf "int"
+      | Int n ->  Format.fprintf pf "i%i" n
       | Float -> pp_print_string pf "float"
       | Char -> pp_print_string pf "char"
       | String -> pp_print_string pf "string"
