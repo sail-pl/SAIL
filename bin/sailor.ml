@@ -1,36 +1,40 @@
-open SailParser
-open CliCommon
-open Cmdliner
-open Llvm
-open Llvm_target
 open Common
-open IrThir
-open IrHir
-open IrMir
-open IrMisc
-open Compiler
 open TypesCommon
-open Codegen
-open CodegenEnv
+module E = Error.Logger
+module Const  = Constants
+module C = Codegen
+module P = SailParser.Parsing
 
-module C  = Constants
-let error_handler err = "LLVM ERROR: " ^ err |> print_endline
+(* llvm *)
+module L = Llvm
+module T = Llvm_target
 
-open Monad.MonadSyntax(E) 
-open Monad.MonadFunctions(E)
-open Monad.MonadOperator(E) 
-open MakeOrderedFunctions(ImportCmp) 
 
-let moduleToIR (m:Mir.Pass.out_body SailModule.t) (dump_decl:bool) (verify_ir:bool) : llmodule E.t = 
-  let llc = create_context () in
-  let llm = create_module llc m.md.name in
-  let* decls = get_declarations m llc llm in
+(* passes *)
+module Hir = IrHir.Hir.Pass
+module Thir = IrThir.Thir.Pass
+module Mir = IrMir.Mir.Pass
+module Imports = IrMisc.Imports.Pass
+module MCall = IrMisc.MethodCall.Pass
+module MProc = IrMisc.MainProcess.Pass
+module Mono = IrMisc.Monomorphization.Pass
+module SetupLoop = IrMisc.SetupLoop.Pass
+
+
+(* error handling *)
+open Monad.UseMonad(E)
+
+let moduleToIR (m:Mir.out_body SailModule.t) (dump_decl:bool) (verify_ir:bool) : L.llmodule E.t =
+  let module Env = C.CodegenEnv in 
+  let llc = L.create_context () in
+  let llm = L.create_module llc m.md.name in
+  let* decls = Env.get_declarations m llc llm in
 
   if dump_decl then failwith "not done yet";
 
-  let env = SailEnv.empty decls in
+  let env = C.CodegenEnv.SailEnv.empty decls in
 
-  DeclEnv.iter_decls (fun name m -> let func = methodToIR llc llm m env name in if verify_ir then Llvm_analysis.assert_valid_function func) (Self Method) decls >>= fun () ->
+  Env.DeclEnv.iter_decls (fun name m -> let func = C.Codegen_.methodToIR llc llm m env name in if verify_ir then Llvm_analysis.assert_valid_function func) (Self Method) decls >>= fun () ->
   if verify_ir then 
     match Llvm_analysis.verify_module llm with 
     | None -> return llm 
@@ -38,14 +42,14 @@ let moduleToIR (m:Mir.Pass.out_body SailModule.t) (dump_decl:bool) (verify_ir:bo
   else return llm
 
 
-let set_target (llm : llmodule) (triple:string) : Target.t * TargetMachine.t =
-  let target = Target.by_triple triple in 
-  set_target_triple triple llm;  let machine = TargetMachine.create ~triple target ~reloc_mode:PIC in
-  set_data_layout (TargetMachine.data_layout machine |> DataLayout.as_string) llm;
+let set_target (llm : Llvm.llmodule) (triple:string) : Llvm_target.Target.t * Llvm_target.TargetMachine.t =
+  let target = T.Target.by_triple triple in 
+  L.set_target_triple triple llm;  let machine = T.TargetMachine.create ~triple target ~reloc_mode:PIC in
+  L.set_data_layout (T.TargetMachine.data_layout machine |> T.DataLayout.as_string) llm;
   (target,machine)
 
 
-let add_opt_passes (pm : [`Module] PassManager.t) : unit  = 
+let add_opt_passes (pm : [`Module] Llvm.PassManager.t) : unit  = 
   (* seems to be deprecated
     TargetMachine.add_analysis_passes pm machine; *)
 
@@ -63,18 +67,18 @@ let add_opt_passes (pm : [`Module] PassManager.t) : unit  =
   Llvm_ipo.add_function_inlining pm
 
 
-let link ?(is_lib = false) (llm:llmodule) (module_name : string) (basepath:string) (imports: string list) (libs : string list) (target, machine) clang_args : int =
-  let f = Filename.(concat basepath module_name ^ C.object_file_ext) in
-  let triple = TargetMachine.triple machine in
+let link ?(is_lib = false) (llm:Llvm.llmodule) (module_name : string) (basepath:string) (imports: string list) (libs : string list) (target, machine) clang_args : int =
+  let f = Filename.(concat basepath module_name ^ Const.object_file_ext) in
+  let triple = T.TargetMachine.triple machine in
   let objfiles = String.concat " " (f::imports) in 
   let libs = List.map (fun l -> "-l " ^ l) libs |> String.concat " "  in 
-  if Target.has_asm_backend target then
+  if T.Target.has_asm_backend target then
     begin
       Logs.info (fun m -> m "emitting object file...");
-      TargetMachine.emit_to_file llm ObjectFile f machine;
+      T.TargetMachine.emit_to_file llm ObjectFile f machine;
       if not is_lib then 
         begin
-        if (Option.is_none (lookup_function "main" llm)) then failwith ("no Main process found for module '" ^ module_name ^  "', can't compile as executable");
+        if (Option.is_none (L.lookup_function "main" llm)) then failwith ("no Main process found for module '" ^ module_name ^  "', can't compile as executable");
         let clang_cmd = Fmt.str "clang --target=%s %s -o %s %s %s" triple objfiles module_name libs clang_args in
         Logs.debug (fun m -> m "invoking clang with the following parameters : \n%s" clang_cmd);
         Sys.command clang_cmd
@@ -83,29 +87,30 @@ let link ?(is_lib = false) (llm:llmodule) (module_name : string) (basepath:strin
       else 0
     end
   else
-    failwith ("target " ^ target_triple  llm ^ "doesn't have an asm backend, can't generate object file!")
+    failwith ("target " ^ L.target_triple  llm ^ "doesn't have an asm backend, can't generate object file!")
 
 
-let execute (llm:llmodule) = 
+let execute (llm:L.llmodule) = 
+  let module EE = Llvm_executionengine in 
   (* 
     fixme : when depending on other modules, we need to 'Llvm_executionengine.add' them, which implies the .ll must be available to be read.
     This will be revisited when we make use of the .ll files for LTO 
   *)
 
-  let _ = match lookup_function "main" llm with
+  let _ = match L.lookup_function "main" llm with
   | Some m -> m
   | None -> failwith "can't execute : no main process found" 
   in
-  match Llvm_executionengine.initialize () with
+  match EE.initialize () with
   | false -> failwith "unable to start the execution engine"
   | _ -> ();
-  let ee = Llvm_executionengine.create llm in
+  let ee = EE.create llm in
   let open Ctypes in 
   let m_t = void @-> returning int in
-  let main_addr = Llvm_executionengine.get_function_address "main" (static_funptr m_t) ee in 
+  let main_addr = EE.get_function_address "main" (static_funptr m_t) ee in 
   let main = coerce (static_funptr m_t) (Foreign.funptr m_t) main_addr in 
   let _ret = main () in 
-  Llvm_executionengine.dispose ee (* implicitely disposes the module *)
+  EE.dispose ee (* implicitely disposes the module *)
 
 
 let find_file_opt ?(maxdepth = 4) ?(paths = [Filename.current_dir_name]) (f:string)  : string option = (* recursively find the file *)
@@ -131,38 +136,36 @@ let find_file_opt ?(maxdepth = 4) ?(paths = [Filename.current_dir_name]) (f:stri
     ) None paths
 
 
-type comp_mode = Library | Executable | Loop
+let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () (force_comp:bool list) (paths:string list) (comp_mode : Cli.comp_mode)  (clang_args: string) (verify_ir:bool) (target_triple:string) = 
+  Llvm.enable_pretty_stacktrace ();
+  Llvm.install_fatal_error_handler (fun err -> print_string @@ Fmt.str "LLVM ERROR : '%s'\n" err);
 
-let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () (force_comp:bool list) (paths:string list) (comp_mode : comp_mode)  (clang_args: string) (verify_ir:bool) (target_triple:string) = 
-  enable_pretty_stacktrace ();
-  install_fatal_error_handler error_handler;
-
-  let apply_passes sail_module (comp_mode : comp_mode) : AstMir.mir_function SailModule.t E.t =
+  let apply_passes sail_module (comp_mode : Cli.comp_mode) : Mir.out_body SailModule.t E.t =
     return sail_module 
-    |> Hir.Pass.transform 
-    |> (if comp_mode = Loop then SetupLoop.Pass.transform else Fun.id)
-    |> Thir.Pass.transform 
-    |> MethodCall.Pass.transform
-    |> Mir.Pass.transform 
-    |> Imports.Pass.transform
-    |> (if comp_mode <> Library then MainProcess.Pass.transform else Fun.id)
-    |> Monomorphization.Pass.transform
+    |> Hir.transform 
+    |> (if comp_mode = Loop then SetupLoop.transform else Fun.id)
+    |> Thir.transform 
+    |> MCall.transform
+    |> Mir.transform 
+    |> Imports.transform
+    |> (if comp_mode <> Library then MProc.transform else Fun.id)
+    |> Mono.transform
   in
 
-  let compile sail_module basepath (comp_mode : comp_mode) : AstMir.mir_function SailModule.t E.t =
+  let compile sail_module basepath (comp_mode : Cli.comp_mode) : Mir.out_body SailModule.t E.t =
     let* m = apply_passes sail_module comp_mode in
     (* Out_channel.with_open_text Filename.(concat basepath m.md.name ^ ".mir.debug") (fun f -> Format.fprintf (Format.formatter_of_out_channel f) "%a" Pp_mir.ppPrintModule m); *)
     
     let+ llm = moduleToIR m dump_decl verify_ir in
 
     (* only generate mir file if codegen succeeds *)
-    Out_channel.with_open_bin Filename.(concat basepath m.md.name ^ C.mir_file_ext) (fun f -> Marshal.to_channel f m []);
+    Out_channel.with_open_bin Filename.(concat basepath m.md.name ^ Const.mir_file_ext) (fun f -> Marshal.to_channel f m []);
 
     let tm = set_target llm target_triple in
 
     if not noopt && comp_mode <> Library then 
       begin
-        let open PassManager in
+        let open L.PassManager in
         let pm = create () in add_opt_passes pm;
         let res = run_module llm pm in
         Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
@@ -170,19 +173,19 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       end
     ;
 
-    if intermediate then print_module Filename.(concat basepath m.md.name ^ C.llvm_ir_ext) llm;
+    if intermediate then L.print_module Filename.(concat basepath m.md.name ^ Const.llvm_ir_ext) llm;
 
     if not jit then
       begin
-        let libs,object_files = List.partition Filename.(fun e -> extension e <> C.object_file_ext) (FieldSet.elements m.md.libs) in 
-        let imports = object_files @ List.map (fun i -> i.dir ^ i.mname ^ C.object_file_ext) @@ ImportSet.elements m.imports in
+        let libs,object_files = List.partition Filename.(fun e -> extension e <> Const.object_file_ext) (FieldSet.elements m.md.libs) in 
+        let imports = object_files @ List.map (fun i -> i.dir ^ i.mname ^ Const.object_file_ext) @@ ImportSet.elements m.imports in
         let ret = link llm sail_module.md.name basepath imports libs tm ~is_lib:(comp_mode = Library) clang_args in
         if ret <> 0 then
           (Fmt.str "clang couldn't execute properly (error %i)" ret |> failwith)
       end
     ;
 
-    if jit && comp_mode <> Library then execute llm else dispose_module llm;
+    if jit && comp_mode <> Library then execute llm else L.dispose_module llm;
     m
   in
 
@@ -197,17 +200,18 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       let treated = mname::treated in 
       let add_imports_decls (curr_env: SailModule.DeclEnv.t ) (imports : ImportSet.t) = 
         ImportSet.fold (fun i -> 
-          let file = i.dir ^ i.mname ^ C.mir_file_ext in 
+          let file = i.dir ^ i.mname ^ Const.mir_file_ext in 
           Logs.debug (fun m -> m "reading module '%s' from mir file %s" i.mname file); 
-          let slmd : AstMir.mir_function SailModule.t = In_channel.with_open_bin file  Marshal.from_channel in
+          let slmd : Mir.out_body SailModule.t = In_channel.with_open_bin file  Marshal.from_channel in
           (* Logs.debug (fun m -> m "decls of import %s : \n %s" i.mname (SailModule.DeclEnv.string_of_env slmd.declEnv)); *)
           SailModule.DeclEnv.add_import_decls (i, slmd.declEnv)
         )
         imports curr_env 
     in
 
-      let* slmd = Parsing.parse_program f in 
+      let* slmd = P.parse_program f in 
       let process_imports_and_compile () : (string list * 'a SailModule.t) E.t =
+        let open MakeOrderedFunctions(ImportCmp) in 
         Logs.info (fun m -> m "======= processing module '%s' =======" slmd.md.name );
         Logs.debug (fun m -> m "module hash : %s" (Digest.to_hex slmd.md.hash));
         (* for each import, we check if a corresponding mir file exists.
@@ -226,8 +230,8 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
               "dependency cycle : "  ^ (String.concat " -> " ((List.split compiling |> fst |> List.rev) @ [slmd.md.name;i.mname]))
               in Error.make i.loc msg
             )  (List.mem_assoc i.mname compiling) in         
-            let mir_name = i.mname ^ C.mir_file_ext in
-            let source = i.mname ^ C.sail_file_ext in
+            let mir_name = i.mname ^ Const.mir_file_ext in
+            let source = i.mname ^ Const.sail_file_ext in
             
             let import = fun m -> {i with dir=Filename.(dirname m ^ dir_sep); proc_order=(List.length compiling)} in 
 
@@ -238,21 +242,21 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
                 let mir : 'a SailModule.t = Marshal.from_channel f in 
                 Digest.(equal mir.md.hash @@ file s) && 
                 List.length force_comp < 2 &&
-                mir.md.version = C.sailor_version
+                mir.md.version = Const.sailor_version
               )
               -> (* mir up-to-date with source -> use mir *)
               return (treated,import m)
             | None, Some m -> (* mir but no source -> use mir *)
               let mir :'a SailModule.t = In_channel.with_open_bin m Marshal.from_channel in
               E.throw_if 
-              (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version C.sailor_version)
-              (mir.md.version <> C.sailor_version) 
+              (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version Const.sailor_version)
+              (mir.md.version <> Const.sailor_version) 
               >>| fun () -> treated,import m
             | None,None -> (* nothing to work with *)
               E.throw @@ Error.make i.loc "import not found"
             | Some s, _ -> (* source but no mir or mir not up-to-date -> compile *)
               begin
-              let+ treated',_mir = process_file s treated ((slmd.md.name,i.loc)::compiling) Library
+              let+ treated',_mir = process_file s treated ((slmd.md.name,i.loc)::compiling) Cli.Library
               in 
               treated',import s
               end 
@@ -264,12 +268,12 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         treated,sm
       in
 
-      let mir_file = Filename.(dirname f ^ dir_sep ^ slmd.md.name ^ C.mir_file_ext) in
+      let mir_file = Filename.(dirname f ^ dir_sep ^ slmd.md.name ^ Const.mir_file_ext) in
       (* if mir file exists, check hash, if same hash, no need to compile *)
       if Sys.file_exists mir_file && (List.length force_comp = 0) then
         let mir : 'a SailModule.t = In_channel.with_open_bin mir_file Marshal.from_channel in
-        let* () = E.throw_if (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version C.sailor_version)
-                  (mir.md.version <> C.sailor_version) 
+        let* () = E.throw_if (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version Const.sailor_version)
+                  (mir.md.version <> Const.sailor_version) 
         in
         if not @@ Digest.equal mir.md.hash slmd.md.hash then
           process_imports_and_compile () 
@@ -297,67 +301,10 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
         else Printexc.get_backtrace () in 
      `Error (false,msg)
 
-     
-let jit_arg =
-  let doc = "execute using the LLVM JIT compiler" in 
-   Arg.(value & flag & info ["run"] ~doc)
-
-let intermediate_arg = intermediate_arg "save the LLVM IR"
-
-let noopt_arg = 
-  let doc = "do not use any optimisation pass" in
-  Arg.(value & flag & info ["no-opt"] ~doc)
-
-let dump_decl_arg =
-  let doc = "dump the declarations" in 
-  let i = Arg.info ["D"; "dump_decl"] ~doc in
-  Arg.(value & flag i)
-
-let extra_paths =
-  let doc = "add folders to look for modules" in 
-  Arg.(value & (opt_all dir [] & info  ["L"] ~doc))
-
-let force_comp =
-  let doc = "force compilation. Repeat twice to also recursively recompile imports" in 
-  let i = Arg.info ["f"; "force"] ~doc in
-  Arg.(value & flag_all i)
-
-let verify_ir =
-  let doc = "assert generated LLVM IR is correct" in 
-  let i = Arg.info ["verify_ir"] ~doc in
-  Arg.(value & opt bool true i)
-  
-let mode_arg = 
-  let doc = "How to compile the current file : $(b,lib) to only generate the object file, $(b,exe) for an executable and $(b,loop) for arduino-like setup/loop." in
-  let mode = Arg.enum ["lib", Library; "exe", Executable; "loop", Loop] in
-  Arg.(value & opt mode Executable & info ["m"; "mode"] ~doc)
-
-let clang_args = 
-  let doc = "extra args to pass to clang" in 
-  Arg.(value & opt string ""  & info  ["clang-args"] ~doc)
-
-
-let target_triple = 
-  let target_conv = 
-    let print f s = Format.fprintf f "%s" s in
-    let parse triple = 
-      try 
-        Target.by_triple triple |> ignore;
-        Ok triple
-      with Error e -> Error (`Msg e)
-    in
-    Arg.conv (parse,print)
-  in
-  let doc = "choose for what target to compile, defaults to the system target" in 
-  Arg.(value & opt target_conv (Target.default_triple ()) & info  ["target"] ~doc)
-  
-
-
-let cmd =
-  let doc = "SaiLOR, the SaIL cOmpileR" in
-  let info = Cmd.info "sailor" ~doc ~version:C.sailor_version in
-  Cmd.v info Term.(ret (const sailor $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ dump_decl_arg $ setup_log_term $ force_comp $ extra_paths $ mode_arg $ clang_args $ verify_ir $ target_triple))
 
 let () = 
   Llvm_all_backends.initialize (); (* init here to show targets from the cli *)
-  Cmd.eval cmd |> exit
+  Cmdliner.Cmd.eval (Cli.cmd sailor) |> exit
+
+
+  

@@ -1,7 +1,6 @@
-(executables
+(executable
   (libraries
-    evaluator
-    compiler
+    codegen
     ir
     logs.fmt
     cmdliner
@@ -11,5 +10,4 @@
     fmt.cli
     logs.cli
     )
-  (names sailInterpreter sailCompiler)
-  (public_names saili sailor))
+  (public_name sailor))

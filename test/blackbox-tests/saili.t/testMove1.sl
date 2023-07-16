@@ -1,1 +1,0 @@
-../../../examples/imperative/pointers/testMove1.sl

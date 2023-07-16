@@ -238,3 +238,9 @@ module MonadFunctions (M : Monad) = struct
   let pairMap2 (f : 'c -> 'b M.t) ((x,y) : 'a * 'c) :('a * 'b) M.t =
       let+ y = f y in x, y
 end
+
+module UseMonad(M : Monad) = struct
+  include MonadFunctions(M)
+  include MonadSyntax(M)
+  include MonadOperator(M)
+end
