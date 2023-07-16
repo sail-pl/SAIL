@@ -4,9 +4,8 @@ open TypesCommon
 open Env
 module E = Error.Logger
 
-open Monad.MonadFunctions(E)
+open Monad.UseMonad(E)
 open MakeOrderedFunctions(ImportCmp)
-open Monad.MonadSyntax(E)
 
 module Declarations = struct
   include SailModule.Declarations

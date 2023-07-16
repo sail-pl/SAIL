@@ -1,3 +1,0 @@
-(library
- (libraries common irMir sailParser logs)
- (name evaluator))

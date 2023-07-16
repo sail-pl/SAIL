@@ -8,19 +8,19 @@
   120
   $ sailor helloworld.sl && ./helloworld
   Hello World
-  $ sailor min.sl && ./min
-  3
   $ sailor minArray.sl && ./minArray
   2
+  $ sailor min.sl && ./min
+  3
   $ sailor mutual_rec.sl && ./mutual_rec
-  45
-  $ sailor sum.sl && ./sum
   45
   $ sailor sumArray.sl && ./sumArray
   Hello World
   Hello
   55
   Hello
+  $ sailor sum.sl && ./sum
+  45
   $ sailor testReturnVal.sl && ./testReturnVal
   1
   $ sailor while1.sl && ./while1

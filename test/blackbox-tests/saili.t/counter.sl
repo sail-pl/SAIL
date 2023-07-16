@@ -1,1 +1,0 @@
-../../../examples/reactive/watching/counter.sl
