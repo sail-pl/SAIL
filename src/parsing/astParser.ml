@@ -116,7 +116,8 @@ let mk_program  (md:metadata) (imports: ImportSet.t)  l : (statement, (statement
           | Method d -> 
             
             let+ env,funs = 
-            ListM.fold_left (fun (e,f) d -> 
+            ListM.fold_left (fun (e,f) d ->
+              let* () = E.throw_if Error.(make d.m_proto.pos "calling a method 'main' is not allowed") (d.m_proto.name = "main") in
               let true_name = (match d.m_body with Left (sname,_) -> sname | Right _ -> d.m_proto.name) in
               let+ env =  DeclEnv.add_decl d.m_proto.name ((d.m_proto.pos,true_name),defn_to_proto (Method d)) Method e
               in (env,d::f)

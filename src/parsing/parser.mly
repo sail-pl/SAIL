@@ -92,7 +92,7 @@ let defn :=
     {Enum {e_pos=$loc;e_name; e_generics; e_injections}}
 
 | METHOD ; name=ID ; generics=generic ; LPAREN ; params=separated_list(",", mutable_var(sailtype)) ; RPAREN ; rtype=returnType ; body = block ; 
-    {Method [{m_proto={pos=$loc;name; generics; params; variadic=false; rtype=rtype }; m_body = Either.right body}]}
+    {Method [{m_proto={pos=$loc;name; generics; params; variadic=false; rtype=rtype ; extern = false}; m_body = Either.right body}]}
 
 | PROCESS ; p_name = UID ; p_generics=generic ; p_interface = midrule(x = process_params(interface) ; {Option.value x ~default:([],[])}) ;  p_body = delimited("{", process_body, "}") ;
     {
@@ -131,7 +131,7 @@ let pbody := located (
 
 
 let extern_sig := METHOD ; name=ID ; LPAREN ;  params=separated_list(",", mutable_var(sailtype)) ; variadic=boption(VARARGS) ; RPAREN ; rtype=returnType ; ext_name=preceded("=",STRING)? ;
-        { (match ext_name with Some n -> n | None -> name),{pos=$loc; name; generics=[]; params; variadic; rtype=rtype} }
+        { (match ext_name with Some n -> n | None -> name),{pos=$loc; name; generics=[]; params; variadic; rtype=rtype;extern=true} }
 
 let enum_elt :=  ~ = UID ; ~ = loption(parenthesized(separated_list(",", sailtype))) ; <>
 

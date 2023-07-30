@@ -149,6 +149,7 @@ type method_sig =
   params : param list;
   rtype : sailtype option;
   variadic : bool;
+  extern : bool;
 }
 
 type 'a method_defn =  

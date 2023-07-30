@@ -7,8 +7,8 @@ module E = Error.Logger
 
 type body = (Hir.statement,(Hir.statement,Hir.expression) SailParser.AstParser.process_body) SailModule.methods_processes
 
-let method_of_process (p : 'a process_defn): 'a method_defn = 
-  let m_proto = {pos=p.p_pos; name=String.lowercase_ascii p.p_name; generics = p.p_generics; params = fst p.p_interface; variadic=false; rtype=None} 
+let method_of_main_process (p : 'a process_defn): 'a method_defn = 
+  let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = fst p.p_interface; variadic=false; rtype=None; extern=false} 
   and m_body = Either.right p.p_body in
   {m_proto;m_body}
 
@@ -79,7 +79,7 @@ let finalize (proc_def,(new_body: M.elt)) =
   let open AstHir in
   let (++) = M.SeqMonoid.concat in 
 
-  let main = method_of_process proc_def in 
+  let main = method_of_main_process proc_def in 
   let m_body = 
     new_body.decls ++ 
     new_body.init ++

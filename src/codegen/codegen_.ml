@@ -223,10 +223,10 @@ let methodToIR (llc:L.llcontext) (llm:L.llmodule) (decl:Declarations.method_decl
     (let+ new_env in cfgToIR decl.llval b llvm new_env) |> ignore;
     decl.llval
 
-let moduleToIR (m: in_body SailModule.t) (dump_decl:bool) (verify_ir:bool) : L.llmodule E.t =
+let moduleToIR (sm: in_body SailModule.t) (dump_decl:bool) (verify_ir:bool) : L.llmodule E.t =
   let llc = L.create_context () in
-  let llm = L.create_module llc m.md.name in
-  let* decls = get_declarations m llc llm in
+  let llm = L.create_module llc sm.md.name in
+  let* decls = get_declarations sm llc llm in
 
   if dump_decl then failwith "not done yet";
 

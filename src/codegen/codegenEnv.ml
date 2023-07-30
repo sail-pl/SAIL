@@ -98,7 +98,8 @@ let llvm_proto_of_method_sig (m:method_sig) env llc llm =
   in
   let args_type = List.map (fun ({ty;_}: param) -> getLLVMType env ty llc llm) m.params |> Array.of_list in
   let method_t = if m.variadic then var_arg_function_type else function_type in
-  declare_function m.name (method_t llvm_rt args_type ) llm
+  let name = if not (m.extern || m.name = "main") then Fmt.str "_%s_%s" (DeclEnv.get_name env) m.name else m.name in 
+  declare_function name (method_t llvm_rt args_type ) llm
 
 let collect_monos (sm: in_body SailModule.t) = 
   let open SailModule.DeclEnv in
