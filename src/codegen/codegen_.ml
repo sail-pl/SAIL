@@ -99,6 +99,7 @@ and construct_call (name:string) ((_,mname):l_str) (args:AstMir.expression list)
         match ty_of_alias t (snd env) with
         | Bool | Int _ | Char -> L.build_zext
         | Float -> L.build_bitcast
+        | CompoundType _ -> fun v _ _ _ -> v
         | _ -> L.build_ptrtoint
         in
       builder v (L.i64_type llvm.c) "" llvm.b

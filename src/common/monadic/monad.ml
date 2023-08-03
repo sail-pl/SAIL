@@ -153,9 +153,9 @@ module MonadFunctions (M : Monad) = struct
   
   end
 
-  module MakeOrderedFunctions(Order : sig type t val compare : t -> t -> int end ) = struct
+  module MakeOrderedFunctions(Order : Set.OrderedType) = struct
     module MapM = struct
-      module MMap = Map.Make(Order)
+      module MMap = Map.Make(Order) 
       let map (f : MMap.key -> 'a -> 'b M.t) (m : 'a MMap.t) : ('b MMap.t) M.t = 
       let* l' = SeqM.map (fun (id,x) -> let+ res = f id x in id,res) (MMap.to_seq m) in 
       return (MMap.of_seq l')

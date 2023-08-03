@@ -31,16 +31,19 @@ let rec ppPrintExpression (pf : Format.formatter) (e : expression) : unit =
     | MethodCall _ -> ()
 
 let rec ppPrintStatement (pf : Format.formatter) (s : statement) : unit = match s.stmt with
-| DeclVar (_mut, id, _opt_t,_opt_exp) -> fprintf pf "var %s" id 
-| Assign(e1, e2) -> fprintf pf "%a = %a" ppPrintExpression e1 ppPrintExpression e2
-| Seq(c1, c2) -> fprintf pf "%a;\n%a" ppPrintStatement c1 ppPrintStatement c2
-| If(cond_exp, then_s,_else_s) -> fprintf pf "if (%a) {\n%a\n}\nelse {\ntodo\n}" ppPrintExpression cond_exp ppPrintStatement then_s
-| Loop c -> fprintf pf "loop {\n%a\n}" ppPrintStatement c
-| Break -> fprintf pf "break"
+| DeclVar (_mut, id, _opt_t,_opt_exp) -> fprintf pf "\nvar %s;" id 
+| Assign(e1, e2) -> fprintf pf "\n%a = %a;" ppPrintExpression e1 ppPrintExpression e2
+| Seq(c1, c2) -> fprintf pf "%a%a" ppPrintStatement c1 ppPrintStatement c2
+| If(cond_exp, then_s,else_s) -> fprintf pf "\nif (%a) {\n%a\n}\n%a" 
+  ppPrintExpression cond_exp 
+  ppPrintStatement then_s
+  (pp_print_option (fun pf -> fprintf pf "else {\n%a\n}" ppPrintStatement)) else_s
+| Loop c -> fprintf pf "\nloop {\n%a\n}" ppPrintStatement c
+| Break -> fprintf pf "break;"
 | Case(_e, _cases) -> ()
-| Invoke (_var, _mod_loc, (_,id), el) -> fprintf pf "todo = %s(%a)" id (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-| Return _e -> fprintf pf "return ?"
-| Block c -> fprintf pf "{\n@[ %a @]\n}" ppPrintStatement c
+| Invoke (var, _mod_loc, (_,id), el) -> fprintf pf "%a %s(%a);" (pp_print_option  pp_print_string) var id (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
+| Return _e -> fprintf pf "\nreturn ?;"
+| Block c -> fprintf pf "\n{\n@[ %a @]\n}" ppPrintStatement c
 | Skip -> ()
 
 let ppPrintMethodSig (pf : Format.formatter) (s : TypesCommon.method_sig) : unit = 

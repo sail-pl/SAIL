@@ -2,8 +2,8 @@ open TypesCommon
 module E = Error.Logger
 
 module Declarations = struct
-  type process_decl = loc * function_proto
-  type method_decl = l_str * function_proto 
+  type process_decl = loc * process_proto
+  type method_decl = l_str * method_proto 
   type struct_decl = loc * struct_proto
   type enum_decl = loc * enum_proto
   type type_decl = ty_defn

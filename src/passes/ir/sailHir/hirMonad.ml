@@ -2,7 +2,7 @@ open Common
 
 module Make(MonoidSeq : Monad.Monoid) = struct
   module V = struct 
-    type t = unit
+    type t = unit 
     let string_of_var _ = ""
     let to_var _ _ _ = ()
     end

@@ -69,10 +69,8 @@ rule read_token = parse
   | "[" { LSQBRACE}
   | "]" { RSQBRACE}
   | "<" { LANGLE }
-  | "<<" { DLANGLE }
   | ">" { RANGLE }
-  | ">>" { DRANGLE }
-  | "|" { P_AND } 
+  (* | "|" { P_AND }  *)
   (* | "->" { ARROW } *)
   | "," { COMMA }
   | "." { DOT }
@@ -88,8 +86,14 @@ rule read_token = parse
   | "&"  {REF}
   | "and" { AND }
   | "or" { OR }
-  | "with" { WITH }
-  (* | "||" { PAR } *)
+  (* | "with" { WITH } *)
+  | "reads" { READS }
+  | "writes" { WRITES }
+  | "||" { PAR }
+  | "((" {P_LPAREN}
+  | "))" {P_RPAREN}
+  | ";;" { SEQ }
+  | "Skip" {P_SKIP}
   | "!" { NOT }
   | "<=" {LE}
   | ">="  {GE}
@@ -97,13 +101,14 @@ rule read_token = parse
   | "==" { EQ }
   | "var" { VAR }
   | "case" {CASE}
-  | "signal" { SIGNAL}
+  (* | "signal" { SIGNAL} *)
   | "struct" { STRUCT }
   | "enum " { ENUM }
   | "process" { PROCESS }
-  | "Locals" {P_LOCALS}
+  | "Persist" {P_LOCALS}
+  | "Processes" {P_PROC_INIT}
   | "Init" {P_INIT}
-  | "Loop" {P_LOOP}
+  | "Run" {P_LOOP}
   | "method" { METHOD }
   | "extern" { EXTERN }
   | "import" { IMPORT }

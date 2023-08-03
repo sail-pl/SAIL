@@ -96,7 +96,7 @@ let check_binop op l r : sailtype ES.t =
     let+ _ = matchArgParam r (snd l) in snd l
 
 
-let check_call (name:string) (f : function_proto) (args: expression list) loc : unit ES.t =
+let check_call (name:string) (f : method_proto) (args: expression list) loc : unit ES.t =
     (* if variadic, we just make sure there is at least minimum number of arguments needed *)
     let args = if f.variadic then List.filteri (fun i _ -> i < (List.length f.args)) args else args in
     let nb_args = List.length args and nb_params = List.length f.args in

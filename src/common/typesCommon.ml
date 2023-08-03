@@ -132,13 +132,23 @@ type enum_defn =
 
 
 
+type interface = {p_params: param list ; p_shared_vars: (l_str list * l_str list)}
+
 type 'a process_defn = 
 {
   p_pos : loc;
   p_name : string;
   p_generics : string list;
-  p_interface : param list * string list;
+  p_interface : interface;
   p_body : 'a;
+}
+
+type 'e proc_init = {
+    id : string;
+    proc : string;
+    params : 'e list;
+    read : l_str list;
+    write : l_str list;
 }
 
 type method_sig = 
@@ -177,7 +187,7 @@ type struct_proto =
   fields : (loc * sailtype * int) dict
 }
 
-type function_proto = 
+type method_proto = 
 {
   ret : sailtype option;
   args : param list;
@@ -185,9 +195,17 @@ type function_proto =
   variadic : bool;
 }
 
+type process_proto = 
+{
+  read : l_str list;
+  write : l_str list;
+  params : param list;
+  generics : string list;
+}
+
 type _ decl = 
-| Method : _ method_defn -> function_proto decl
-| Process : _ process_defn -> function_proto decl
+| Method : _ method_defn -> method_proto decl
+| Process : _ process_defn -> process_proto decl
 | Struct : struct_defn -> struct_proto decl
 | Enum : enum_defn -> enum_proto decl
 
@@ -199,11 +217,10 @@ let defn_to_proto (type proto) (decl: proto decl) : proto = match decl with
   and variadic = d.m_proto.variadic in
   {ret;args;generics;variadic}
 | Process d -> 
-  let ret = None
-  and args = fst d.p_interface
+  let read,write = d.p_interface.p_shared_vars
   and generics = d.p_generics
-  and variadic = false in
-  {ret;args;generics;variadic}
+  and params = d.p_interface.p_params in 
+  {read;write;generics;params}
 | Struct d -> {generics=d.s_generics;fields=List.mapi (fun i (n,(l,t)) -> n,(l,t,i)) d.s_fields}
 | Enum d -> {generics=d.e_generics;injections=d.e_injections}
 

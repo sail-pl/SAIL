@@ -105,7 +105,7 @@ struct
 
 
   let lower_process (p: T.p_in process_defn) (sm : (T.m_in,T.p_in) SailModule.methods_processes SailModule.t) : (VEnv.D.t * T.p_out process_defn ) Logger.t  = 
-    let start_env = VEnv.get_start_env sm.declEnv (fst p.p_interface) in
+    let start_env = VEnv.get_start_env sm.declEnv p.p_interface.p_params in
     let* ve = start_env in
     let+ p_body,d = T.lower_process p ve sm in
     d,{ p with p_body}

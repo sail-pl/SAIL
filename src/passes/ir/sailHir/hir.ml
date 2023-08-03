@@ -178,31 +178,53 @@ struct
     let module F = MonadFunctions(ECSW) in
     let open UseMonad(E) in
     
-    let params = List.map (fun p -> p.id) (fst p.p_interface )|> FieldSet.of_list  in
-    let locals = List.map fst p.p_body.decls |> FieldSet.of_list  in 
+    let params = List.to_seq p.p_interface.p_params |> Seq.map (fun (p:param) -> (p.id,p.loc)) |> FieldMap.of_seq  in
+    let locals = List.to_seq p.p_body.locals |> Seq.map (fun (l,(id,_)) -> id,l ) |> FieldMap.of_seq  in 
+    let read,write = p.p_interface.p_shared_vars in
+    let read = List.to_seq read |> Seq.map (fun (x,y) -> y,x) |> FieldMap.of_seq in
+    let write = List.to_seq write |> Seq.map (fun (x,y) -> y,x) |> FieldMap.of_seq in
 
-    let has_name_conflict = FieldSet.(union params locals |> cardinal <> cardinal params + cardinal locals) in 
+
+    let union_no_dupl = FieldMap.union (fun _k _loca _locb -> None) in 
+    let has_name_conflict = FieldMap.(
+      union_no_dupl params locals |> union_no_dupl read |> union_no_dupl write |> cardinal 
+      <> 
+      cardinal params + cardinal locals + cardinal read + cardinal write
+    ) in 
     E.throw_if Error.(make dummy_pos @@ Fmt.str "process '%s' : name conflict between params,local decls or shared variables" p.p_name) has_name_conflict 
     >>= fun () ->
 
-    let add_vars v e = ListM.fold_left (fun e (id,_) -> HIREnv.declare_var id (dummy_pos,()) e) (e,decls) v >>| fst in 
-    let* env = add_vars p.p_body.decls env in
+    let add_locals v e = ListM.fold_left (fun e (l,(id,_)) -> HIREnv.declare_var id (l,()) e) (e,decls) v >>| fst in 
+    let add_rw r e = ListM.fold_left (fun e (l,id) -> HIREnv.declare_var id (l,()) e) (e,decls) r >>| fst in 
+
+    let* env = add_locals p.p_body.locals env >>= add_rw (fst p.p_interface.p_shared_vars) >>= add_rw (snd p.p_interface.p_shared_vars) in
 
 
-    let* init,decls =  lower_method (snd p.p_body.init,()) (env,decls) sm |> E.recover ({info=dummy_pos;stmt=Skip},decls) in
-    let+ decls,loop = ListM.fold_left_map (fun (decls : D.t) ((l,b),cond) -> 
-      let* b,decls =  match b with 
-        | Statement s -> let+ s,decls = lower_method (s,()) (env,decls) sm in Statement s,decls
-        | Run (proc,args) -> 
-          let+ (args,_),decls = F.ListM.map lower_expression args (env,decls) |> ECS.run  in 
-          Run (proc,args),decls
-      in
-      let+ cond,decls = match cond with 
-      | Some cond -> let+ (cond,_),decls = lower_expression cond (env,decls) |> ECS.run in Some cond,decls
-      | None -> return(None,decls) in
-      decls,((l,b),cond)
-    ) decls p.p_body.loop in
-  {p.p_body with init=fst p.p_body.init,init; loop}, decls
+    let* init,decls = lower_method (p.p_body.init,()) (env,decls) sm |> E.recover ({info=dummy_pos;stmt=Skip},decls) in
+    
+    let* (proc_init,_),decls = F.ListM.map (fun (p: _ proc_init) ->
+      let open UseMonad(ECSW) in 
+      let+ params = F.ListM.map lower_expression p.params in {p with params}
+    ) p.p_body.proc_init (env,decls) |> ECS.run 
+    in 
+    let+ loop = 
+      let rec aux (l,s) = match s with
+      | Statement s -> let+ s,_ = lower_method (s,()) (env,decls) sm in l,Statement s
+      | Run proc -> E.pure (l,Run proc)
+      | PSeq (s1,s2) -> let+ l1,s1 = aux s1 and* l2,s2 = aux s2 in l,PSeq((l1,s1),(l2,s2))
+      | PPar (s1,s2) -> let+ l1,s1 = aux s1 and* l2,s2 = aux s2 in l,PPar((l1,s1),(l2,s2))
+      | PSkip -> E.pure (l,PSkip)
+      | PGroup (cond,s) -> 
+        let* cond =
+          match cond with
+          | None -> return None
+          | Some c -> 
+          let+ (cond,_),_ = lower_expression c (env,decls) |> ECS.run in Some cond
+        in
+        let+ l',s = aux s in l,PGroup(cond,(l',s))
+      in aux p.p_body.loop
+    in
+  {p.p_body with init ; proc_init; loop},decls
 
 
 
@@ -279,15 +301,15 @@ struct
       ) sm.body.methods in
 
       let* processes = ListM.map (
-        fun ({p_interface=p,s;p_name;p_pos;_} as pr)  ->
-          let* p = ListM.map (
+        fun proc ->
+          let* p_params = ListM.map (
             fun (({ty;_}:param) as p) -> 
               let* env = ES.get_env in 
               let* ty,env = (follow_type ty env) |> ES.S.lift in
               let+ () = ES.set_env env in {p with ty}
-          ) p in
-        let p = {pr with p_interface=p,s} in
-        let+ () = ES.update_env (update_decl p_name (p_pos, defn_to_proto (Process p)) (Self Process)) 
+          ) proc.p_interface.p_params in
+        let p = {proc with p_interface={proc.p_interface with p_params}} in
+        let+ () = ES.update_env (update_decl p.p_name (p.p_pos, defn_to_proto (Process p)) (Self Process)) 
         in p
       ) sm.body.processes in 
 

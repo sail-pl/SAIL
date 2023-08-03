@@ -87,7 +87,9 @@ module Syntax = struct
 
   let (!!) = fun b -> buildStmt dummy_pos  (Block b)
 
-  let _if cond _then _else = buildStmt dummy_pos (If (cond,_then,Some _else))
+  let _if cond _then _else = 
+    let _else = match _else.stmt with Skip -> None | stmt ->  Some {_else with stmt} in 
+    buildStmt dummy_pos (If (cond,_then,_else))
 
 
 end

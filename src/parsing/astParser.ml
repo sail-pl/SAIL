@@ -57,23 +57,21 @@ type statement = loc * statement_ and statement_ =
   | Loop of statement
   | For of {var: string; iterable : expression; body : statement}
   | Block of statement
-  (*
-  | DeclSignal of string
-  | Emit of string
-  | Await of string
-  | When of string * statement
-  | Watching of string * statement
-  | Par of statement * statement
-    *)
+
   
 type ('s,'e) p_statement = loc * ('s,'e) p_statement_ and ('s,'e) p_statement_ = 
-  | Run of l_str * 'e list
+  | Run of l_str
   | Statement of 's
+  | PPar of ('s,'e) p_statement * ('s,'e) p_statement 
+  | PSeq of ('s,'e) p_statement * ('s,'e) p_statement 
+  | PGroup of 'e option * ('s,'e) p_statement
+  | PSkip
 
 type ('s,'e) process_body = {
-    decls : (string * sailtype) list;
-    init : loc * 's;
-    loop : (('s,'e) p_statement * 'e option) list;
+    locals : (loc * (string * (loc*sailtype))) list;
+    init : 's;
+    proc_init : 'e proc_init list;
+    loop : ('s,'e) p_statement;
 }
 
 type 'a defn =

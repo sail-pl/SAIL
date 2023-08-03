@@ -31,7 +31,7 @@ let apply_passes (sail_module : Hir.in_body SailModule.t) (comp_mode : Cli.comp_
   let passes = Fun.id
     @> Hir.transform 
     @> active_if (comp_mode <> Library) ProcessPass.transform
-    @> active_if false hir_debug
+    @> active_if true hir_debug
     @> Thir.transform 
     @> Imports.transform 
     @> MCall.transform 

@@ -42,15 +42,17 @@
 %token EXTERN
 %token VARARGS
 %token METHOD PROCESS STRUCT ENUM 
-%token VAR SIGNAL 
+%token VAR 
+//SIGNAL 
 %token IF ELSE WHILE RETURN BREAK
 %token WHEN
-%token DLANGLE DRANGLE 
-
+%token WRITES READS
+%token P_PROC_INIT
 // %token AWAIT EMIT WATCHING WHEN PAR "||"
-// %token PAR "||"
+%token PAR "||" SEQ ";;"
 %token P_LOCALS P_INIT P_LOOP
-%token WITH
+%token P_LPAREN "((" P_RPAREN "))"
+// %token WITH
 %token TRUE FALSE 
 %token PLUS "+" MINUS "-" MUL "*" DIV "/" REM "%"
 %token LE "<=" GE ">=" EQ "==" NEQ "!="
@@ -59,7 +61,8 @@
 %token REF "&"
 %token MUT
 %token ARRAY
-%token P_AND
+// %token P_AND
+%token P_SKIP
 %token SELF
 %token LOOP
 %token FOR
@@ -68,8 +71,8 @@
 
 %left AND OR
 %left "<" ">" "<=" ">=" "==" "!="
-%left "+" "-"
-%left "*" "/" "%"
+%left "+" "-" "||"
+%left "*" "/" "%" ";;"
 
 %nonassoc UNARY
 %nonassoc ")"
@@ -94,39 +97,60 @@ let defn :=
 | METHOD ; name=ID ; generics=generic ; LPAREN ; params=separated_list(",", mutable_var(sailtype)) ; RPAREN ; rtype=returnType ; body = block ; 
     {Method [{m_proto={pos=$loc;name; generics; params; variadic=false; rtype=rtype ; extern = false}; m_body = Either.right body}]}
 
-| PROCESS ; p_name = UID ; p_generics=generic ; p_interface = midrule(x = process_params(interface) ; {Option.value x ~default:([],[])}) ;  p_body = delimited("{", process_body, "}") ;
-    {
-        Process ({p_pos=$loc;p_name; p_generics; p_interface; p_body})
-    }
-
 | EXTERN ; lib=STRING? ; protos =  delimited("{", separated_nonempty_list_opt(";", extern_sig), "}") ;
     {let protos = List.map (
         fun (sid,p) -> 
             let lib = match lib with Some s -> String.split_on_char ' ' s | None -> [] in 
             {m_proto=p; m_body=Either.left (sid,lib)}
     ) protos in Method protos}
-
-
-let process_params(params) == ~ = delimited(DLANGLE,params,DRANGLE)? ; <>
-
-let process_body := 
-    decls = midrule(P_LOCALS ; ":" ; ~ = list(~ = ID ; ":" ;  ~ = sailtype ; <>) ; <>)? ; 
-    init  = midrule(P_INIT ; ":" ; statement?)? ; 
-    loop  = midrule(P_LOOP ; ":" ; separated_nonempty_list(WITH, pblock)?)? ; 
+    
+| PROCESS 
+    ; p_name = UID ; p_generics=generic
+    ; p_params = midrule(x = process_params(separated_list(",", mutable_var(sailtype))) ; {Option.value x ~default:[]})
+    ; p_shared_vars = shared_vars 
+    ; p_body = delimited("{", process_body, "}") ;
     {
-        let decls = Option.value decls ~default:[] in
-        let init =  $loc,Option.(join init |> value ~default:($loc,Skip)) in
-        let loop = Option.(join loop |> value ~default:[]) in
-        let loop = List.(map (fun (bodies,cond) -> map (fun b -> b,cond) bodies) loop |> flatten) in 
-        {decls;init;loop} 
+        Process ({p_pos=$loc;p_name; p_generics; p_interface = {p_params; p_shared_vars}; p_body})
     }
 
-let pblock := ~ = separated_nonempty_list(P_AND, pbody) ; ~ = midrule(WHEN ; ~= expression ; <>)?  ; <>
+let process_params(params) == ~ = parenthesized(params)? ; <>
 
-let pbody := located (
-| ~ = statement ; <Statement>
-| ~ = midrule(~ = located(UID) ; ~ = midrule(x = process_params(separated_list(",", expression )) ; {Option.value x ~default:[]}) ; <Run>); <> 
-)
+let shared_vars := 
+    | (* empty *) {[],[]}
+    | READS ; v = var_list ; {v,[]}
+    | WRITES ; v = var_list ; {[],v}
+    | READS ; r = var_list ; "," ; WRITES ; w = var_list ; {r,w}
+
+let var_list == midrule(x = located(ID) ; {[x]}) | parenthesized(separated_list(",", located(ID)))
+
+
+let process_body := 
+    locals = midrule(P_LOCALS ; ":" ; ~ = list(located(id_colon(sailtype))) ; <>)? ; 
+    init  = midrule(P_INIT ; ":" ; statement?)? ; 
+    proc_init = midrule(P_PROC_INIT ; ":" ; ~ = list(proc_init) ; <>)? ; 
+    loop = midrule(P_LOOP ; ":" ; loop?)? ; 
+    {
+        let locals = Option.value locals ~default:[] in
+        let init =  Option.(join init |> value ~default:($loc,Skip)) in
+        let proc_init =  Option.value proc_init ~default:[] in
+        let loop = Option.join loop |> function Some l -> l | None -> ($loc,PSkip) in
+
+        {locals;init;proc_init;loop} 
+    }
+
+let proc_init := 
+    | id = UID ; ":" ; "=" ; proc = UID ; params =  midrule(p = process_params(separated_list(",", expression)); {Option.value p ~default:[]}) ; (read,write) = shared_vars ; { {id;proc;params;read;write} }
+    | id = UID ; params = midrule(p = process_params(separated_list(",", expression)); {Option.value p ~default:[]}) ; (read,write) = shared_vars ; { {id;proc=id;params;read;write} }
+
+let loop := 
+    located(
+        | P_SKIP ; {PSkip}
+        | ~ = statement ; <Statement>
+        | ~ = located(UID) ; <Run>
+        | l = loop ; "||" ; r = loop ; {PPar (l,r)}
+        | l = loop ; ";;" ; r = loop ; {PSeq (l,r)}
+        | ~= preceded(WHEN,expression)?; ~ = delimited("((", loop, "))") ; <PGroup>
+    )
 
 
 
@@ -148,11 +172,6 @@ let separated_nonempty_list_opt(separator, X) :=
 | x = X; separator; xs = separated_nonempty_list_opt(separator, X) ; { x :: xs }
 
 
-let interface :=
-| {([],[])}
-| SIGNAL ; signals = separated_list(",",ID); {([], signals)}
-| VAR ; global = separated_nonempty_list(",",mutable_var(sailtype)) ; {(global, [])}
-| VAR ; ~ = separated_nonempty_list(",", mutable_var(sailtype)) ; ";" ; SIGNAL ; ~ = separated_nonempty_list(",",ID) ; <>
 
 let block := located (
 | "{" ; "}" ; {Skip}
@@ -215,8 +234,6 @@ let block_or_statement(b) :=
     | LOOP ; ~ = b ; <Loop>
     | IF ; ~ = parenthesized(expression) ; ~ = b ; ~ = endrule({None}) ;  <If>
     | IF ; ~ = parenthesized(expression) ; ~ = single_statement ; ELSE ; ~ = endrule(~ = b ; <Some>) ; <If>
-    // | WATCHING ; ~ = ID ; s = b ; <Watching>
-    // | WHEN ; ~ = ID ; ~ = block ; <When>
     | FOR ; var = ID; IN ; iterable=parenthesized(located(iterable_or_range)) ; body = b ; { For {var;iterable; body} }
 
 
@@ -232,13 +249,10 @@ let iterable_or_range :=
 let single_statement := 
 | located (
     | vardecl
-    // | SIGNAL ; ~ = ID ; <DeclSignal>
     | l = expression ; "=" ; e = expression ; <Assign>
     | CASE ; ~ = parenthesized(expression) ; ~ = brace_del_sep_list(",", case) ; <Case>
     | ~ = ioption(module_loc) ; ~ = located(ID) ; ~ = parenthesized(separated_list(",", expression)) ; <Invoke>
     | RETURN ; ~ = expression? ; <Return>
-    // | EMIT ; ~ = ID ; <Emit>
-    // | AWAIT ; ~ = ID ; <Await>''
     | BREAK ; <Break>
     | block_or_statement(single_statement)
     )

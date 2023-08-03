@@ -362,7 +362,7 @@ module VariableEnv : VariableEnvType = functor (V : Variable) -> struct
     let init_env (args:param list) : t E.t =
       let open Monad.MonadFunctions(Error.Logger) in
       let env = empty |> new_frame in
-        ListM.fold_right (fun p ->
+        ListM.fold_right (fun (p:param) ->
         let v = V.to_var p.id p.mut p.ty  in 
         declare_var p.id (p.loc,v)
       ) args

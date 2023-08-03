@@ -8,18 +8,18 @@ module E = Error.Logger
 type body = (Hir.statement,(Hir.statement,Hir.expression) SailParser.AstParser.process_body) SailModule.methods_processes
 
 let method_of_main_process (p : 'a process_defn): 'a method_defn = 
-  let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = fst p.p_interface; variadic=false; rtype=None; extern=false} 
+  let m_proto = {pos=p.p_pos; name="main"; generics = p.p_generics; params = p.p_interface.p_params; variadic=false; rtype=None; extern=false} 
   and m_body = Either.right p.p_body in
   {m_proto;m_body}
 
 
 
-let prefix_exp prefix (e: _ AstHir.expression) = 
+let rename_var_exp (f: string -> string) (e: _ AstHir.expression) = 
   let open AstHir in 
   let rec aux (e : _ expression) = 
     let buildExp = buildExp e.info in 
     match e.exp with 
-    | Variable id -> buildExp @@ Variable (prefix ^ id)
+    | Variable id -> buildExp @@ Variable (f id)
     | Deref e -> let e = aux e in buildExp @@ Deref e
     | StructRead (mod_loc,e, id) -> let e = aux e in buildExp @@ StructRead(mod_loc,e,id)
     | ArrayRead (e1, e2) ->
@@ -40,36 +40,35 @@ let prefix_exp prefix (e: _ AstHir.expression) =
     | MethodCall (mod_loc, id, el) -> let el  = List.map aux el in buildExp @@ MethodCall (mod_loc,id,el)
     in aux e
 
-let prefix_stmt prefix s = 
+let rename_var_stmt (f:string -> string) s = 
   let open AstHir in 
-  let prefix_exp = prefix_exp prefix in 
   let rec aux (s : _ statement) = 
     let buildStmt = buildStmt s.info in
     match s.stmt with
     | DeclVar (mut, id, opt_t,opt_exp) -> 
-      let e = Option.(bind opt_exp (fun e -> prefix_exp e |> some)) in
-      buildStmt @@ DeclVar (mut,prefix ^ id,opt_t,e)
+      let e = MonadOption.M.fmap  (rename_var_exp f) opt_exp in
+      buildStmt @@ DeclVar (mut,f id,opt_t,e)
     | Assign(e1, e2) -> 
-      let e1 = prefix_exp e1
-      and e2 = prefix_exp e2 in 
+      let e1 = rename_var_exp f e1
+      and e2 = rename_var_exp f e2 in 
       buildStmt @@ Assign(e1, e2)
     | Seq(c1, c2) -> 
       let c1 = aux c1 in
       let c2 = aux c2 in
       buildStmt  @@ Seq(c1, c2)
     | If(cond_exp, then_s, else_s) -> 
-      let cond_exp = prefix_exp cond_exp in
+      let cond_exp = rename_var_exp f cond_exp in
       let then_s = aux then_s in
-      let else_s  = Option.(bind else_s (fun s -> aux s |> some)) in
+      let else_s  = MonadOption.M.fmap aux else_s in
       buildStmt (If(cond_exp, then_s, else_s))
     | Loop c -> let c = aux c in buildStmt (Loop c)
     | Break -> buildStmt Break
-    | Case(e, _cases) -> let e = prefix_exp e in buildStmt (Case (e, []))
+    | Case(e, _cases) -> let e = rename_var_exp f e in buildStmt (Case (e, []))
     | Invoke (var, mod_loc, id, el) -> 
-      let el = List.map prefix_exp el in 
-      let var = Option.(bind var (fun v -> prefix ^ v |> some)) in
+      let el = List.map (rename_var_exp f) el in 
+      let var = MonadOption.M.fmap f var in
       buildStmt @@ Invoke(var,mod_loc, id,el)
-    | Return e -> let e = Option.(bind e (fun e -> prefix_exp e |> some)) in buildStmt @@ Return e
+    | Return e -> let e =  MonadOption.M.fmap (rename_var_exp f) e in buildStmt @@ Return e
     | Block c -> let c = aux c in buildStmt (Block c)
     | Skip -> buildStmt Skip
     in
