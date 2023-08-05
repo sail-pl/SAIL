@@ -22,7 +22,7 @@ module Mono = Mono.Monomorphization.Pass
 (* error handling *)
 open Monad.UseMonad(E)
 
-let apply_passes (sail_module : Hir.in_body SailModule.t) (comp_mode : Cli.comp_mode) : Mono.out_body SailModule.t E.t =
+let apply_passes (sail_module : Hir.in_body SailModule.t) (comp_mode : Cli.comp_mode) (dump_ir : bool): Mono.out_body SailModule.t E.t =
   let hir_debug =  fun m -> let+ m in Out_channel.with_open_text (sail_module.md.name ^ ".hir.debug") (fun f -> Format.(fprintf (formatter_of_out_channel f)) "%a" IrHir.Pp_hir.ppPrintModule m); m in
   let mir_debug =  fun m -> let+ m in Out_channel.with_open_text (sail_module.md.name ^ ".mir.debug") (fun f -> Format.(fprintf (formatter_of_out_channel f)) "%a" IrMir.Pp_mir.ppPrintModule m); m in
 
@@ -31,12 +31,12 @@ let apply_passes (sail_module : Hir.in_body SailModule.t) (comp_mode : Cli.comp_
   let passes = Fun.id
     @> Hir.transform 
     @> active_if (comp_mode <> Library) ProcessPass.transform
-    @> active_if true hir_debug
+    @> active_if dump_ir hir_debug
     @> Thir.transform 
     @> Imports.transform 
     @> MCall.transform 
     @> Mir.transform
-    @> active_if false mir_debug
+    @> active_if dump_ir mir_debug
     @> Mono.transform
     @> finish 
   in run passes (return sail_module)
@@ -139,12 +139,12 @@ let find_file_opt ?(maxdepth = 4) ?(paths = [Filename.current_dir_name]) (f:stri
 let unmarshal_sm file = In_channel.with_open_bin file @@ fun c -> (Marshal.from_channel c : Mono.out_body SailModule.t)
 let marshal_sm file m = Out_channel.with_open_bin file @@ fun c -> Marshal.to_channel c m []
 
-let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_decl:bool) () (force_comp:bool list) (paths:string list) (comp_mode : Cli.comp_mode)  (clang_args: string) (verify_ir:bool) (target_triple:string) = 
+let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dump_ir:bool) () (force_comp:bool list) (paths:string list) (comp_mode : Cli.comp_mode)  (clang_args: string) (verify_ir:bool) (target_triple:string) = 
   if Logs.level () = Some Logs.Debug then Printexc.record_backtrace true;
 
   let compile sail_module basepath (comp_mode : Cli.comp_mode) : unit E.t =
-    let* m = apply_passes sail_module comp_mode in    
-    let+ llm = C.Codegen_.moduleToIR m dump_decl verify_ir in
+    let* m = apply_passes sail_module comp_mode dump_ir in    
+    let+ llm = C.Codegen_.moduleToIR m verify_ir in
 
     (* only generate mir file if codegen succeeds *)
     marshal_sm Filename.(concat basepath m.md.name ^ Const.mir_file_ext) m;
