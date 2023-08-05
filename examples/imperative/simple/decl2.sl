@@ -1,7 +1,7 @@
 import test_utils
 
 process Main {
-Loop:
+Run:
     {
         var x : int = 0
     }

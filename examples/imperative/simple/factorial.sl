@@ -6,9 +6,7 @@ method factorial(x : int) : int {
 }
 
 process Main {
-Init:
-Loop:
-
+Run:
     var x : int;
     x = factorial (5);
     print_int(x); 

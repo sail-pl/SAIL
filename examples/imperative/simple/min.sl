@@ -10,9 +10,7 @@ method min(x : int, y : int, z : int) : int {
 }
 
 process Main {
-Init:
-Loop:
-
+Run:
     var x : int;
     x = min(5,3,6);
     print_int(x);

@@ -1,8 +1,6 @@
 import test_utils
 process Main {
-Init:
-Loop:
-
+Run:
     var mut a : array<int;10> = [6,57,23,2,5,6,7,10,13,5];
     var mut res : int = 0;
     var mut cpt : int = 1;
