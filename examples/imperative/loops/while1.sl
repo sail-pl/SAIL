@@ -1,9 +1,7 @@
 import test_utils
 
 process Main {
-Locals:
-Loop:
-
+Run:
     var mut x : int = 0;
     while (x < 10){
         print_string("Hello\n");

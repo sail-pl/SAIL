@@ -1,8 +1,7 @@
 import test_utils
 
 process Main {
-    Init:
-    Loop:
+    Run:
 
     var x : int = 0;
     var z : int;
@@ -13,6 +12,5 @@ process Main {
     }
     print_int(z);
     print_newline();
-    exit(0);
     exit(0);
 }

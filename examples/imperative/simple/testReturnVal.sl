@@ -4,9 +4,7 @@ method f(x : int) : int{
     return x;
 }
 process Main {
-Init:
-Loop:
-
+Run:
     print_int(f(1));
     exit(0);
 }

@@ -11,9 +11,7 @@ method sumTo(n : int) : int{
 }
 
 process Main {
-Init:
-Loop:
-
+Run:
     print_int(sumTo(10));
     print_newline();
     exit(0);

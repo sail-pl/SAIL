@@ -14,8 +14,7 @@ method b(x : int) : int {
 
 
 process Main {
-    Init:
-    Loop:
+	Run:
         print_int(a(12)); print_newline();
         exit(0);
 }
