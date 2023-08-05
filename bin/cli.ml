@@ -48,9 +48,9 @@ let noopt_arg =
   let doc = "do not use any optimisation pass" in
   Arg.(value & flag & info ["no-opt"] ~doc)
 
-let dump_decl_arg =
-  let doc = "dump the declarations" in 
-  let i = Arg.info ["D"; "dump_decl"] ~doc in
+let dump_ir_arg =
+  let doc = "dump sailor intermediate representations" in 
+  let i = Arg.info ["print_ir"] ~doc in
   Arg.(value & flag i)
 
 let extra_paths =
@@ -96,6 +96,6 @@ Arg.(value & opt target_conv (Target.default_triple ()) & info  ["target"] ~doc)
 let cmd = fun pgrm ->
   let doc = "SaiLOR, the SaIL cOmpileR" in
   let info = Cmd.info "sailor" ~doc ~version:C.sailor_version in
-  Cmd.v info Term.(ret (const pgrm $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ dump_decl_arg $ setup_log_term $ force_comp $ extra_paths $ mode_arg $ clang_args $ verify_ir $ target_triple))
+  Cmd.v info Term.(ret (const pgrm $ sailfiles_arg $ intermediate_arg $ jit_arg $ noopt_arg $ dump_ir_arg $ setup_log_term $ force_comp $ extra_paths $ mode_arg $ clang_args $ verify_ir $ target_triple))
     
 
