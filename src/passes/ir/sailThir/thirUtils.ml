@@ -120,6 +120,7 @@ let find_function_source (fun_loc:loc) (_var: string option) (name : l_str) (imp
   | M decl ->  
     let _x = fun_loc and _y = el in 
     let+ _ = check_call (snd name) (snd decl) el fun_loc in mname,decl
+    (* return (mname,decl) *)
 
   | _ -> failwith "non method returned" (* cannot happen because we only requested methods *)
 

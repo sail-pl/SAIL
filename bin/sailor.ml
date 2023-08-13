@@ -15,6 +15,7 @@ module ProcessPass = ProcessPass.Process.Pass
 module Hir = IrHir.Hir.Pass
 module Thir = IrThir.Thir.Pass
 module Mir = IrMir.Mir.Pass
+module MirChecks = Misc.Cfg_analysis.Pass
 module Imports = Misc.Imports.Pass
 module MCall = Misc.MethodCall.Pass
 module Mono = Mono.Monomorphization.Pass
@@ -36,6 +37,7 @@ let apply_passes (sail_module : Hir.in_body SailModule.t) (comp_mode : Cli.comp_
     @> Imports.transform 
     @> MCall.transform 
     @> Mir.transform
+    @> MirChecks.transform
     @> active_if dump_ir mir_debug
     @> Mono.transform
     @> finish 
@@ -71,8 +73,8 @@ let add_opt_passes (pm : [`Module] Llvm.PassManager.t) : unit  =
 let link ?(is_lib = false) (llm:Llvm.llmodule) (module_name : string) (basepath:string) (imports: string list) (libs : string list) (target, machine) clang_args : int =
   let f = Filename.(concat basepath module_name ^ Const.object_file_ext) in
   let triple = T.TargetMachine.triple machine in
-  let objfiles = String.concat " " (f::imports) in 
-  let libs = List.map (fun l -> "-l " ^ l) libs |> String.concat " "  in 
+  let objfiles = List.fold_left (Fmt.str "%s '%s'") "" (f::imports)   in 
+  let libs = List.fold_left (Fmt.str "%s -l '%s'") " " libs in 
   if T.Target.has_asm_backend target then
     begin
       Logs.info (fun m -> m "emitting object file...");

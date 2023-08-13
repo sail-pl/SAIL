@@ -18,7 +18,9 @@ module Pass = Pass.Make(struct
     let lower_processes (procs : (H.statement,H.expression) AstParser.process_body process_defn list) : _ method_defn E.t =
       let rec compute_tree closed (l,pi:loc * _ proc_init)  : H.statement M.t = 
         let closed = FieldSet.add pi.proc closed in (* no cycle *)
-        let* p = M.throw_if_none Error.(make dummy_pos "unknown process") (List.find_opt (fun (p:_ process_defn) -> p.p_name = pi.proc) procs) in
+
+        let* p = find_process_source (l,pi.proc) pi.mloc procs (*fixme : grammar to allow :: syntax *) in
+        let* p = M.throw_if_none Error.(make l @@ Fmt.str "process '%s' is unknown" pi.proc) p in
         let* tag = M.fresh_prefix p.p_name in
         let prefix = (Fmt.str "%s_%s_" tag) in
         let read_params,write_params = p.p_interface.p_shared_vars in 
@@ -48,18 +50,18 @@ module Pass = Pass.Make(struct
         ) p.p_interface.p_params pi.params M.SeqMonoid.empty in
         
         (* add process init *)
-        let init = rename_var_stmt prefix p.p_body.init in 
+        let init = H.rename_var_stmt prefix p.p_body.init in 
         M.write_init HirS.(!! (params && init)) >>= fun () -> 
         
         
         (* inline process calls *)
         let rec aux ((_,s) : (H.statement, H.expression) AstParser.p_statement) (_ty:AstParser.pgroup_ty) : H.statement M.t =
-          
-          let process_cond c s = match c with Some c -> HirS.(_if (rename_var_exp prefix c) s skip) | None -> s in
+          let replace_or_prefix = fun id -> let new_id = rename id in if new_id <> id then new_id else prefix id in
+          let process_cond c s = match c with Some c -> HirS.(_if (H.rename_var_exp replace_or_prefix c) s skip) | None -> s in
 
           match s with
           | Statement (s,cond) -> 
-            let s = rename_var_stmt (fun id -> let new_id = rename id in if new_id <> id then new_id else prefix id) s in
+            let s = H.rename_var_stmt replace_or_prefix s in
             return (process_cond cond s)
           
           | Run ((l,id),cond) ->
@@ -68,7 +70,7 @@ module Pass = Pass.Make(struct
               let* l,pi = M.throw_if_none Error.(make l @@ Fmt.str "no proc init called '%s'" id) (List.find_opt (fun (_,p: loc * _ proc_init) -> p.id = id) p.p_body.proc_init) in
               let read = List.map (fun (l,id) -> l,prefix id) pi.read in 
               let write = List.map (fun (l,id) -> l,prefix id) pi.write in 
-              let params = List.map (rename_var_exp prefix) pi.params in
+              let params = List.map (H.rename_var_exp prefix) pi.params in
               compute_tree closed (l,{pi with read ; write ; params}) >>| process_cond cond
 
           | PGroup g -> 
@@ -83,10 +85,10 @@ module Pass = Pass.Make(struct
         let* m = M.throw_if_none (Error.make dummy_pos "need main process") 
                                   (List.find_opt (fun p -> p.p_name = Constants.main_process) procs) 
         in 
-        let (pi: _ proc_init) = {read = []; write = [] ; params = [] ; id = Constants.main_process ; proc = Constants.main_process} in
+        let (pi: _ proc_init) = {mloc=None; read = []; write = [] ; params = [] ; id = Constants.main_process ; proc = Constants.main_process} in
         let* body = compute_tree FieldSet.empty (dummy_pos,pi) in 
         let+ () = M.write_loop body in m
-      ) |> M.run >>| fun x -> finalize x
+      ) |> M.run sm.declEnv >>| finalize
   
   in
   let open Monad.UseMonad(E) in

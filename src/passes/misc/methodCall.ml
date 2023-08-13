@@ -14,7 +14,7 @@ module V = (
 )
 module THIREnv = SailModule.SailEnv(V)
 module E = Error.Logger
-module EC = MonadState.CounterTransformer(E)
+module EC = MonadState.CounterTransformer(E)(struct type t = int let succ = Int.succ let init = 0 end)
 module ECS = struct
   include MonadState.T(EC)(THIREnv)
 

@@ -139,8 +139,12 @@ let process_body :=
     }
 
 let proc_init := 
-    | id = UID ; ":" ; "=" ; proc = UID ; params =  midrule(p = process_params(separated_list(",", expression)); {Option.value p ~default:[]}) ; (read,write) = shared_vars(located(ID)) ; { {id;proc;params;read;write} }
-    | id = UID ; params = midrule(p = process_params(separated_list(",", expression)); {Option.value p ~default:[]}) ; (read,write) = shared_vars(located(ID)) ; { {id;proc=id;params;read;write} }
+    | id = UID ; ":" ; "=" ; mloc = ioption(module_loc); proc = UID 
+        ; params =  midrule(p = process_params(separated_list(",", expression)); {Option.value p ~default:[]}) 
+        ; (read,write) = shared_vars(located(ID)) ; { {mloc;id;proc;params;read;write} }
+    | mloc = ioption(module_loc) ; id = UID 
+        ; params = midrule(p = process_params(separated_list(",", expression)); {Option.value p ~default:[]}) 
+        ; (read,write) = shared_vars(located(ID)) ; { {mloc;id;proc=id;params;read;write} }
 
 let loop := 
     located(

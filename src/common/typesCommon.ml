@@ -144,11 +144,12 @@ type 'a process_defn =
 }
 
 type 'e proc_init = {
-    id : string;
-    proc : string;
-    params : 'e list;
-    read : l_str list;
-    write : l_str list;
+  mloc : l_str  option;
+  id : string;
+  proc : string;
+  params : 'e list;
+  read : l_str list;
+  write : l_str list;
 }
 
 type method_sig = 
@@ -170,9 +171,9 @@ type 'a method_defn =
 
 
 type ty_defn = {
-      name: string;
-      ty: sailtype option; (* None means abstract type *)
-      loc : loc;
+  name: string;
+  ty: sailtype option; (* None means abstract type *)
+  loc : loc;
 }
 
 type enum_proto = 

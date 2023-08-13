@@ -40,15 +40,15 @@ module M = T(MonadIdentity)
 
 
 
-module CounterTransformer  = functor (M:Monad) -> struct
-  include T(M)(struct type t = int end)
+module CounterTransformer  = functor (M:Monad)(C : sig type t val succ : t -> t val init : t end) -> struct
+  include T(M)(struct type t = C.t end)
 
-  let tick : unit t = fun n -> set (succ n) n
-  let get : int t = get
-  let fresh : int t = bind get (fun n -> bind tick (fun () ->  pure n))
+  let tick : unit t = fun n -> set (C.succ n) n
+  let get : C.t t = get
+  let fresh : C.t t = bind get (fun n -> bind tick (fun () ->  pure n))
 
   
-  let run (f : 'a t) = M.bind (f 0) (fun (r,_) -> M.pure r) (* generalize to all monads ?  *)
+  let run (f : 'a t) = M.bind (f C.init) (fun (r,_) -> M.pure r) (* generalize to all monads ?  *)
 end
 
 module Counter = CounterTransformer(MonadIdentity)

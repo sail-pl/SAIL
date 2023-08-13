@@ -28,10 +28,16 @@ let rec ppPrintExpression (pf : Format.formatter) (e : expression) : unit =
     | EnumAlloc (id,el) ->  
       fprintf pf "[%s(%a)]" (snd id)
         (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    | MethodCall _ -> ()
+    | MethodCall ((_,id),mod_loc,el) -> 
+      fprintf pf "%a%s(%a)" 
+      (pp_print_option  (fun fmt (_,ml) -> fprintf fmt "%s::" ml)) mod_loc
+      id 
+      (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
 
 let rec ppPrintStatement (pf : Format.formatter) (s : statement) : unit = match s.stmt with
-| DeclVar (_mut, id, _opt_t,_opt_exp) -> fprintf pf "\nvar %s;" id 
+| DeclVar (_mut, id, opt_t,opt_exp) -> fprintf pf "\nvar %s%a%a;" id 
+      (pp_print_option (fun fmt -> fprintf fmt " : %a" pp_type)) opt_t
+      (pp_print_option (fun fmt -> fprintf fmt " = %a" ppPrintExpression)) opt_exp
 | Assign(e1, e2) -> fprintf pf "\n%a = %a;" ppPrintExpression e1 ppPrintExpression e2
 | Seq(c1, c2) -> fprintf pf "%a%a" ppPrintStatement c1 ppPrintStatement c2
 | If(cond_exp, then_s,else_s) -> fprintf pf "\nif (%a) {\n%a\n}\n%a" 
@@ -41,8 +47,12 @@ let rec ppPrintStatement (pf : Format.formatter) (s : statement) : unit = match 
 | Loop c -> fprintf pf "\nloop {%a\n}" ppPrintStatement c
 | Break -> fprintf pf "break;"
 | Case(_e, _cases) -> ()
-| Invoke (var, _mod_loc, (_,id), el) -> fprintf pf "\n%a%s(%a);" (pp_print_option  pp_print_string) var id (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-| Return _e -> fprintf pf "\nreturn ?;"
+| Invoke (var, mod_loc, (_,id), el) -> fprintf pf "\n%a%a%s(%a);" 
+    (pp_print_option  (fun fmt v -> fprintf fmt "%s = " v)) var 
+    (pp_print_option  (fun fmt (_,ml) -> fprintf fmt "%s::" ml)) mod_loc
+    id 
+    (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
+| Return e -> fprintf pf "\nreturn %a;" (pp_print_option  ppPrintExpression) e
 | Block c -> fprintf pf "\n{\n@[ %a @]\n}" ppPrintStatement c
 | Skip -> ()
 
@@ -55,7 +65,7 @@ let ppPrintMethodSig (pf : Format.formatter) (s : TypesCommon.method_sig) : unit
 
 let ppPrintMethod (pf : Format.formatter) (m: statement TypesCommon.method_defn) : unit = 
   match m.m_body with
-  | Right s ->  fprintf pf  "fn %a{\n@{<hov 2> @ %a@]}\n"  ppPrintMethodSig m.m_proto ppPrintStatement s
+  | Right s ->  fprintf pf  "fn %a{\n@[<hov 2>%a@]\n}\n"  ppPrintMethodSig m.m_proto ppPrintStatement s
   | Left _ -> fprintf pf "extern fn %a\n" ppPrintMethodSig m.m_proto
 
 

@@ -15,7 +15,7 @@ module M = struct
   open AstHir
 
   module E =  Error.Logger
-  module Env = Env.VariableEnv(V)
+  module Env = Env.VariableDeclEnv(SailModule.Declarations)(V)
 
   module SeqMonoid = struct
 
@@ -31,14 +31,15 @@ module M = struct
 
   end
 
-  module EC = MonadState.CounterTransformer(E)
+  module EC = MonadState.CounterTransformer(E)(struct type t = int let succ = Int.succ let init = 0 end)
   module ECW =  MonadWriter.MakeTransformer(EC)(SeqMonoid)
   module ECWS =  MonadState.T(ECW)(Env)
   include ECWS
   open Monad.UseMonad(ECWS)
 
+  let from_error = fun x -> EC.lift x |> ECW.lift |> lift
 
-  let throw_if_none b e = E.throw_if_none b e |> EC.lift |> ECW.lift |> lift
+  let throw_if_none b e = E.throw_if_none b e |> from_error
 
   let write_decls decls = ECW.write SeqMonoid.{decls; init=empty ; loop=empty} |> lift
   let write_init init = ECW.write SeqMonoid.{decls=empty; init; loop=empty} |> lift
@@ -47,10 +48,10 @@ module M = struct
   let declare_read_var loc id = ECWS.update (fun env -> Env.declare_var id (loc,Read) env |> EC.lift |> ECW.lift)
   let declare_write_var loc id = ECWS.update (fun env -> Env.declare_var id (loc,Write) env |> EC.lift |> ECW.lift)
 
-  let throw_if b e = E.throw_if b e |> EC.lift |> ECW.lift |> lift 
+  let throw_if b e = E.throw_if b e |> from_error
 
   let fresh_prefix pname : string t = EC.fresh |> ECW.lift |> lift >>| fun i -> Fmt.str "%i%s" i pname
 
 
-  let run : 'a t -> _ E.t = fun x -> E.bind (x Env.empty 0) (fun (((x,_e),body),_c) -> E.pure (x,body))
+  let run : Env.D.t -> 'a t -> _ E.t = fun decls prog -> E.bind (prog (Env.empty decls) 0 ) (fun (((x,_e),body),_c) -> E.pure (x,body))
 end

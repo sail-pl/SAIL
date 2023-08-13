@@ -166,19 +166,19 @@ let cfgToIR (proto:L.llvalue) (decls,cfg: mir_function) (llvm:llvm_args) (env :S
           L.position_at_end llvm_bb llvm.b;
           L.build_br (BlockMap.find f.next llvm_bbs) llvm.b |> ignore;
           llvm_bbs
-        | Some (SwitchInt (e,cases,default)) -> 
-            let sw_val = eval_r env llvm e in
+        | Some (SwitchInt si) -> 
+            let sw_val = eval_r env llvm si.choice in
             let sw_val = L.build_intcast sw_val (L.i32_type llvm.c) "" llvm.b (* for condition, expression val will be bool *)
-            and llvm_bbs = aux default llvm_bbs env in
+            and llvm_bbs = aux si.default llvm_bbs env in
             L.position_at_end llvm_bb llvm.b;
-            let sw = L.build_switch sw_val (BlockMap.find default llvm_bbs) (List.length cases) llvm.b in
+            let sw = L.build_switch sw_val (BlockMap.find si.default llvm_bbs) (List.length si.paths) llvm.b in
             List.fold_left (
               fun bm (n,lbl) -> 
                 let n = L.const_int (L.i32_type llvm.c) n 
                 and bm = aux lbl bm env 
                 in L.add_case sw n (BlockMap.find lbl bm);
                 bm
-            ) llvm_bbs cases
+            ) llvm_bbs si.paths
 
         | None -> failwith "no terminator : mir is broken" (* can't happen *)
         | Some Break -> failwith "no break should be there"
