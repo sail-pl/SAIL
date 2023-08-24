@@ -44,7 +44,7 @@ let find_process_source (name: l_str) (import : l_str option) procs : 'a process
     else
       let find_import = List.find_opt (fun i -> i.mname = origin) (HirUtils.D.get_imports env) in
       let+ i = M.throw_if_none Error.(make dummy_pos "can't happen") find_import in 
-      let sm = In_channel.with_open_bin (i.dir ^ i.mname ^ Constants.mir_file_ext) @@ fun c -> (Marshal.from_channel c : Mono.Monomorphization.mono_body SailModule.t)
+      let sm = In_channel.with_open_bin (i.dir ^ i.mname ^ Constants.mir_file_ext) @@ fun c -> (Marshal.from_channel c : Mono.MonomorphizationUtils.out_body SailModule.t)
       in sm.body.processes
   in
   List.find_opt (fun (p:_ process_defn) -> p.p_name = snd name) procs

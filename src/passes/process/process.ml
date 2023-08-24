@@ -92,7 +92,9 @@ module Pass = Pass.Make(struct
   
   in
   let open Monad.UseMonad(E) in
-  let+ main = lower_processes sm.body.processes in
+  let* main = lower_processes sm.body.processes in
   let body : in_body =  { methods = main::sm.body.methods; processes = sm.body.processes} in 
-  {sm with body}
+  let decl = SailModule.method_decl_of_defn main in 
+  let+ declEnv = SailModule.DeclEnv.add_decl "main" decl Method sm.declEnv in
+  {sm with body ; declEnv}
 end)

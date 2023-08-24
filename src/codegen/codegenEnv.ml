@@ -43,7 +43,7 @@ let getLLVMBasicType f t llc llm  : lltype =
   | String -> i8_type llc |> pointer_type
   | ArrayType (t,s) -> array_type (aux t) s
   | Box t | RefType (t,_) -> aux t |> pointer_type
-  | GenericType _ -> failwith "there should be no generic type, was degenerifyType used ? " 
+  | GenericType _ -> failwith "no generic type in codegen" 
   | CompoundType {name=(_,name); _} when name = "_value" -> i64_type llc (* for extern functions *)
   | CompoundType {origin=None;_} | CompoundType {decl_ty=None;_} -> failwith "compound type with no origin or decl_ty"
   | CompoundType  {origin=Some (_,mname); name=(_,name); decl_ty=Some d;_} -> 
