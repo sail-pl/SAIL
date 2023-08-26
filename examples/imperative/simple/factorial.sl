@@ -11,5 +11,5 @@ Run:
     x = factorial (5);
     print_int(x); 
     print_newline();
-    exit(0);
+    quit();
 }

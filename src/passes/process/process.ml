@@ -5,7 +5,7 @@ open SailParser
 open ProcessUtils
 module H = HirUtils
 module HirS = AstHir.Syntax
-module E = Error.Logger
+module E = Logging.Logger
 open ProcessMonad
 open Monad.UseMonad(M)
 
@@ -20,13 +20,13 @@ module Pass = Pass.Make(struct
         let closed = FieldSet.add pi.proc closed in (* no cycle *)
 
         let* p = find_process_source (l,pi.proc) pi.mloc procs (*fixme : grammar to allow :: syntax *) in
-        let* p = M.throw_if_none Error.(make l @@ Fmt.str "process '%s' is unknown" pi.proc) p in
+        let* p = M.throw_if_none Logging.(make_msg l @@ Fmt.str "process '%s' is unknown" pi.proc) p in
         let* tag = M.fresh_prefix p.p_name in
         let prefix = (Fmt.str "%s_%s_" tag) in
         let read_params,write_params = p.p_interface.p_shared_vars in 
         let param_arg_mismatch name p a = 
           let pl,al = List.(length p,length a) in
-          M.throw_if Error.(make l @@ Fmt.str "number of %s params provided and required differ : %i vs %i" name al pl) (pl <> al) in
+          M.throw_if Logging.(make_msg l @@ Fmt.str "number of %s params provided and required differ : %i vs %i" name al pl) (pl <> al) in
         
         let* () = param_arg_mismatch "read" read_params pi.read in
         let* () = param_arg_mismatch "write" write_params pi.write in
@@ -37,7 +37,7 @@ module Pass = Pass.Make(struct
         let rename = fun id -> match List.assoc_opt id rename_l with Some v -> v | None -> id in 
         
         (* add process local (but persistant) vars *)
-        ListM.iter (fun (l,(id,(_,ty))) ->
+        ListM.iter (fun ((l,id),ty) ->
           let* ty,_ = HirUtils.follow_type ty sm.declEnv |> M.EC.lift |> M.ECW.lift |> M.lift  in
           M.(write_decls HirS.(var (l,prefix id,ty)))
         ) p.p_body.locals >>= fun () -> 
@@ -65,9 +65,9 @@ module Pass = Pass.Make(struct
             return (process_cond cond s)
           
           | Run ((l,id),cond) ->
-              M.throw_if Error.(make l "not allowed to call Main process explicitely") (id = Constants.main_process) >>= fun () ->
-              M.throw_if Error.(make l "not allowed to have recursive process") (FieldSet.mem id closed) >>= fun () ->
-              let* l,pi = M.throw_if_none Error.(make l @@ Fmt.str "no proc init called '%s'" id) (List.find_opt (fun (_,p: loc * _ proc_init) -> p.id = id) p.p_body.proc_init) in
+              M.throw_if Logging.(make_msg l "not allowed to call Main process explicitely") (id = Constants.main_process) >>= fun () ->
+              M.throw_if Logging.(make_msg l "not allowed to have recursive process") (FieldSet.mem id closed) >>= fun () ->
+              let* l,pi = M.throw_if_none Logging.(make_msg l @@ Fmt.str "no proc init called '%s'" id) (List.find_opt (fun (_,p: loc * _ proc_init) -> p.id = id) p.p_body.proc_init) in
               let read = List.map (fun (l,id) -> l,prefix id) pi.read in 
               let write = List.map (fun (l,id) -> l,prefix id) pi.write in 
               let params = List.map (H.rename_var_exp prefix) pi.params in
@@ -82,7 +82,7 @@ module Pass = Pass.Make(struct
     
       let open Monad.MonadOperator(E) in
       (
-        let* m = M.throw_if_none (Error.make dummy_pos "need main process") 
+        let* m = M.throw_if_none Logging.(make_msg dummy_pos "need main process") 
                                   (List.find_opt (fun p -> p.p_name = Constants.main_process) procs) 
         in 
         let (pi: _ proc_init) = {mloc=None; read = []; write = [] ; params = [] ; id = Constants.main_process ; proc = Constants.main_process} in

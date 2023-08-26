@@ -13,5 +13,5 @@ process Main () {
  //   var b : &Point = &a;
  //   var c : Point = *b;
 //    var d : int = * (a.z);
-    exit(0);
+    quit();
 }

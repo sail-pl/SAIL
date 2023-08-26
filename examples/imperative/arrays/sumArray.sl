@@ -14,5 +14,5 @@ Run:
     }
     print_int (res); print_newline();
     print_string("Hello\n");
-    exit(0);
+    quit();
 }

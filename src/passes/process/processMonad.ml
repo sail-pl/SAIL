@@ -14,7 +14,7 @@ module V = (
 module M = struct
   open AstHir
 
-  module E =  Error.Logger
+  module E =  Logging.Logger
   module Env = Env.VariableDeclEnv(SailModule.Declarations)(V)
 
   module SeqMonoid = struct

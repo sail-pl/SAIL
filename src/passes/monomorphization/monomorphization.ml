@@ -1,16 +1,13 @@
 open Common
 open Monad
 open TypesCommon
-module E = Common.Error
+module E = Common.Logging
 open Monad.MonadSyntax (E.Logger)
 open IrMir.AstMir
 open MonomorphizationMonad
 module M = MonoMonad
 open MonomorphizationUtils
-open MonadSyntax(M)
-open MonadOperator(M)
-open MonadFunctions(M)
-
+open UseMonad(M)
 
 module Pass = Pass.Make (struct
   let name = "Monomorphization"
@@ -22,20 +19,26 @@ module Pass = Pass.Make (struct
 
   let mono_fun (f : sailor_function) (sm : in_body SailModule.t) : unit M.t =
     
-    let mono_exp (e : expression) : sailtype M.t =
+    let mono_exp (e : expression) (decls :declaration list) : sailtype M.t =
       let rec aux (e : expression) : sailtype M.t =
         match e.exp with
-        | Variable s -> M.get_var s >>| fun v -> (v |> Option.get |> snd).ty 
+        | Variable s -> 
+          M.get_var s 
+          <&> (function 
+              | Some v -> Some (snd v).ty (* var is a function param *)
+              | None -> Option.bind (List.find_opt (fun v -> v.id = s) decls) (fun decl -> Some decl.varType) (* var is function declaration *)
+              ) 
+          >>= M.throw_if_none Logging.(make_msg (fst e.info) @@ Fmt.str "compiler error : var '%s' not found" s)
           
         | Literal l -> return (sailtype_of_literal l)
     
         | ArrayRead (e, idx) -> 
           begin
-            let* t = aux e in
+            let* l,t = aux e in
             match t with
             | ArrayType (t, _) ->
                 let+ idx_t = aux idx in
-                let _ = resolveType idx_t (Int 32) [] [] in
+                let _ = resolveType idx_t (l,Int 32) [] [] in
                 t
             | _ -> failwith "cannot happen"
             end
@@ -49,25 +52,25 @@ module Pass = Pass.Make (struct
     
         | Ref (m, e) ->
             let+ t = aux e in
-            RefType (t, m)
+            dummy_pos,RefType (t, m)
     
         | Deref e -> (
-            let+ t = aux e in
+            let+ l,t = aux e in
             match t with
-            | RefType _ -> t
+            | RefType _ -> l,t
             | _ -> failwith "cannot happen"
           )
     
         | ArrayStatic (e :: h) ->
-            let* t = aux e in 
-            let+ t =
-              ListM.fold_left (fun last_t e ->
-                  let+ next_t = aux e in
-                  let _ = resolveType next_t last_t [] [] in
-                  next_t
-                ) t h
-            in
-          ArrayType (t, List.length (e :: h))
+          let* t = aux e in 
+          let+ t =
+            ListM.fold_left (fun last_t e ->
+                let+ next_t = aux e in
+                let _ = resolveType next_t last_t [] [] in
+                next_t
+              ) t h
+          in
+          dummy_pos,ArrayType (t, List.length (e :: h))
     
         | ArrayStatic [] -> failwith "error : empty array"
         | StructAlloc (_, _, _) -> failwith "todo: struct alloc"
@@ -78,7 +81,7 @@ module Pass = Pass.Make (struct
       aux e
     in
     
-    let construct_call (calle : string) (el : expression list) : (string * sailtype option) M.t =
+    let construct_call (calle : string) (el : expression list) decls : (string * sailtype option) M.t =
       (* we construct the types of the args (and collect extra new calls) *)
       Logs.debug (fun m -> m "contructing call to %s from %s" calle f.m_proto.name);
       let* monos = M.get_monos and* funs = M.get_funs in
@@ -90,7 +93,7 @@ module Pass = Pass.Make (struct
         ListM.fold_left
           (fun l e ->
             Logs.debug (fun m -> m "analyze param expression");
-            let* t = mono_exp e in 
+            let* t = mono_exp e decls in 
             Logs.debug (fun m -> m "param is %s " @@ string_of_sailtype @@ Some t);
             return (t :: l)
           )
@@ -108,7 +111,7 @@ module Pass = Pass.Make (struct
         begin
           let* f = find_callable calle sm |> M.lift in
           match f with 
-          | None -> (*import *) return (mname,Some (Int 32) (*fixme*))
+          | None -> (*import *) return (mname,Some (dummy_pos,Int 32) (*fixme*))
           | Some f -> 
               begin
             Logs.debug (fun m -> m "found call to %s, variadic : %b" f.m_proto.name f.m_proto.variadic );
@@ -153,47 +156,49 @@ module Pass = Pass.Make (struct
       end
     in
 
-    let rec mono_body (lbl: label) (treated: LabelSet.t) (blocks : (VE.t,unit) basicBlock BlockMap.t): (LabelSet.t * (_,_) basicBlock BlockMap.t) MonoMonad.t =
-    (* collect calls and name correctly *)
-    if LabelSet.mem lbl treated then return (treated,blocks)
-    else
-      begin
-        let treated = LabelSet.add lbl treated in 
+    let mono_body (lbl: label) (blocks : (VE.t,unit) basicBlock BlockMap.t) (decls : declaration list) : (_,_) basicBlock BlockMap.t MonoMonad.t =
+      let rec aux lbl (treated: LabelSet.t) blocks = 
+        (* collect calls and name correctly *)
+        if LabelSet.mem lbl treated then return (treated,blocks)
+        else
+        begin
+            let treated = LabelSet.add lbl treated in 
 
-        let bb = BlockMap.find lbl blocks in
-        let* () = M.set_ve bb.forward_info in 
-        let* () = ListM.iter (fun assign -> mono_exp assign.target >>= fun _ty -> mono_exp assign.expression >>| fun _ty -> ()) bb.assignments 
-        in
-        
-        match bb.terminator |> Option.get with 
-        | Return e -> 
-          let+ _ = 
-          begin
-            match e with 
-            | Some e -> let+ t = mono_exp e in Some t
-            | None -> return None
-          end 
-          in treated,blocks
+            let bb = BlockMap.find lbl blocks in
+            let* () = M.set_ve bb.forward_info in 
+            let* () = ListM.iter (fun assign -> mono_exp assign.target decls >>= fun _ty -> mono_exp assign.expression decls >>| fun _ty -> ()) bb.assignments 
+            in
+            let* terminator = M.throw_if_none Logging.(make_msg bb.location @@ Fmt.str "no terminator for bb%i : mir is broken.." lbl) bb.terminator in
+            match terminator with 
+            | Return e -> 
+              let+ _ = 
+              begin
+                match e with 
+                | Some e -> let+ t = mono_exp e decls in Some t
+                | None -> return None
+              end 
+              in treated,blocks
 
-        | Invoke new_f ->
-          let* (id,_) = construct_call new_f.id new_f.params in
-          mono_body new_f.next treated BlockMap.(update lbl (fun _ -> Some {bb with terminator=Some (Invoke {new_f with id})}) blocks)
-        
-        | Goto lbl -> mono_body lbl treated blocks
+            | Invoke new_f ->
+              let* (id,_) = construct_call new_f.id new_f.params decls in
+              aux new_f.next treated BlockMap.(update lbl (fun _ -> Some {bb with terminator=Some (Invoke {new_f with id})}) blocks)
+            
+            | Goto lbl -> aux lbl treated blocks
 
-        | SwitchInt si -> 
-          let* _ = mono_exp si.choice in 
-          let* treated,blocks = mono_body si.default treated blocks in 
-          ListM.fold_left ( fun (treated,blocks) (_,lbl) ->
-            mono_body lbl treated blocks
-          ) (treated,blocks) si.paths
+            | SwitchInt si -> 
+              let* _ = mono_exp si.choice decls in 
+              let* treated,blocks = aux si.default treated blocks in 
+              ListM.fold_left ( fun (treated,blocks) (_,lbl) ->
+                aux lbl treated blocks
+              ) (treated,blocks) si.paths
 
-        | Break -> failwith "no break should be there"
-      end
+            | Break -> failwith "no break should be there"
+        end
+      in aux lbl LabelSet.empty blocks <&> snd
     in
-
     match f.m_body with
-    | Right (decls,cfg) -> mono_body cfg.input LabelSet.empty cfg.blocks >>= fun (_,blocks) -> 
+    | Right (decls,cfg) -> 
+      let* blocks = mono_body cfg.input cfg.blocks decls in
       let params = List.map (fun (p:param)  -> p.ty) f.m_proto.params in
       let name = mangle_method_name f.m_proto.name params in
       let methd = {m_proto = f.m_proto; m_body=Right (decls,{cfg with blocks})} in 
@@ -244,7 +249,9 @@ module Pass = Pass.Make (struct
       end
       else return ()
     in
-    let* empty = M.get_monos >>| (=) [] in M.throw_if Error.(make dummy_pos "no monomorphic callable (no main?)") empty >>= aux
+    let* _empty = M.get_monos >>| (=) [] in 
+    (* M.throw_if Logging.(make_msg dummy_pos "no monomorphic callable (no main?)") empty  >>= *) 
+    aux ()
 
 
   let transform (smdl : in_body SailModule.t) : out_body SailModule.t E.t =

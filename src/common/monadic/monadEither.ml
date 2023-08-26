@@ -28,6 +28,7 @@ module MakeTransformer (M : Monad) (T : Type) : MonadTransformer
     | Left l ->  Left l |> M.pure
 
   let lift (x:'a M.t) : 'a t = let+ x in right x
+
 end
 
 module Make = MakeTransformer(MonadIdentity)

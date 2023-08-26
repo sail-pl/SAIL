@@ -41,5 +41,5 @@ Loop:
     };
     var y : int = *a[0] + *a[1];
     if (y == 5) print_string ("OK\n") else print_string ("KO\n");
-    exit(0);
+    quit();
 }

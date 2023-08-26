@@ -8,5 +8,5 @@ process Main (){
         drop(y)
     }
 ;
-    exit(0);
+    quit();
 }

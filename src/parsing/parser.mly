@@ -126,7 +126,7 @@ let var_list(var) :=
 
 
 let process_body := 
-    locals = list(located(id_colon(sailtype))) ; 
+    locals = list(id_colon(sailtype)) ; 
     init  = midrule(P_INIT ; ":" ; statement?)? ; 
     proc_init = midrule(P_PROC_INIT ; ":" ; ~ = list(located(proc_init)) ; <>)? ; 
     loop = midrule(P_LOOP ; ":" ; loop?)? ; 
@@ -139,7 +139,7 @@ let process_body :=
     }
 
 let proc_init := 
-    | id = UID ; ":" ; "=" ; mloc = ioption(module_loc); proc = UID 
+    | id = UID ; ":" ; "=" ; mloc = module_loc?; proc = UID 
         ; params =  midrule(p = process_params(separated_list(",", expression)); {Option.value p ~default:[]}) 
         ; (read,write) = shared_vars(located(ID)) ; { {mloc;id;proc;params;read;write} }
     | mloc = ioption(module_loc) ; id = UID 
@@ -200,12 +200,13 @@ let expression :=
     | "*" ; ~ = expression ; %prec UNARY <Deref>
     | e1 = expression ; op =binOp ; e2 =expression ; { BinOp(op,e1,e2) }
     | ~ = delimited ("[", separated_list(",", expression), "]") ; <ArrayStatic>
-    | ~ = ioption(module_loc) ; ~ =located(ID) ; ~ = midrule(l = brace_del_sep_list(",", id_colon(expression)); {List.fold_left (fun l (y,(_,z)) -> (y,z)::l) [] l}) ; <StructAlloc>
+    | ~ = ioption(module_loc) ; ~ =located(ID) ; ~ = midrule(l = brace_del_sep_list(",", id_colon(expression)); 
+        {List.fold_left (fun l ((ly,y),z) -> (y,(ly,z))::l) [] l}) ; <StructAlloc>
     | ~ = located(UID) ; ~ = loption(parenthesized (separated_list(",", expression))) ; <EnumAlloc>
     | ~ = ioption(module_loc) ; ~ = located(ID) ; ~ = parenthesized(separated_list (",", expression)) ; <MethodCall>
 )
 
-let id_colon(X) := ~ =ID ; ":" ; ~ = located(X) ; <>
+let id_colon(X) := ~ = located(ID) ; ":" ; ~ = X ; <>
 
 let literal :=
 | TRUE ; {LBool(true) }
@@ -264,7 +265,7 @@ let vardecl := VAR ; ~ = mut ; ~ = ID ; ~ = preceded(":", sailtype)? ; ~ = prece
 
 let brace_del_sep_list(sep,x) := delimited("{", separated_nonempty_list(sep, x), "}") 
 
-let located(x) := ~ = x ; { ($loc,x) }
+let located(x) == ~ = x ; { ($loc,x) }
 
 let case := separated_pair(pattern, ":", statement)
 
@@ -292,16 +293,17 @@ let pattern :=
 | ~ = UID ; ~ = delimited("(", separated_list(",", pattern), ")") ; <PCons>
 
 
-let sailtype :=
-| TYPE_BOOL ; {Bool}
-| l = TYPE_INT ; {Int l}
-| TYPE_FLOAT ; {Float}
-| TYPE_CHAR ; {Char}
-| TYPE_STRING ; {String}
-| ARRAY ; "<" ; ~ = sailtype ; ";" ; ~ = midrule(size = INT ; {Z.to_int size}) ; ">" ; <ArrayType>
-| mloc = ioption(module_loc) ; name = located(ID) ; generic_instances = instance ; {CompoundType {origin=mloc; name; generic_instances; decl_ty=None} }
-| ~ = UID ; <GenericType>
-| REF ; b = mut ; t = sailtype ; {RefType(t,b)}
+let sailtype := located(
+    | TYPE_BOOL ; {Bool}
+    | l = TYPE_INT ; {Int l}
+    | TYPE_FLOAT ; {Float}
+    | TYPE_CHAR ; {Char}
+    | TYPE_STRING ; {String}
+    | ARRAY ; "<" ; ~ = sailtype ; ";" ; ~ = midrule(size = INT ; {Z.to_int size}) ; ">" ; <ArrayType>
+    | mloc = ioption(module_loc) ; name = located(ID) ; generic_instances = instance ; {CompoundType {origin=mloc; name; generic_instances; decl_ty=None} }
+    | ~ = UID ; <GenericType>
+    | REF ; b = mut ; t = sailtype ; {RefType(t,b)}
+)
 
 
 let instance := loption(delimited("<", separated_list(",", sailtype), ">"))

@@ -50,7 +50,7 @@ let string_of_decl : (_,_,_,_,_) decl_sum -> string = function
 | T _ -> "type"
 
 
-type sailtype =
+type sailtype = loc * sailtype_ and sailtype_ = 
   | Bool 
   | Int of int
   | Float 
@@ -75,29 +75,33 @@ type literal =
   | LString of string
 
 let sailtype_of_literal = function
-| LBool _ -> Bool
-| LFloat _ -> Float
-| LInt l -> Int l.size
-| LChar _ -> Char
-| LString _ -> String
+| LBool _ -> dummy_pos,Bool
+| LFloat _ -> dummy_pos,Float
+| LInt l -> dummy_pos,Int l.size
+| LChar _ -> dummy_pos,Char
+| LString _ -> dummy_pos,String
 
 
 let rec string_of_sailtype (t : sailtype option) : string =
   let open Printf in 
   match t with 
-  | Some Bool -> "bool"
-  | Some Int size -> "i" ^ string_of_int  size
-  | Some Float -> "float"
-  | Some Char -> "char"
-  | Some String -> "string"
-  | Some ArrayType (t,s) -> sprintf "array<%s;%d>" (string_of_sailtype (Some t)) s
-  | Some CompoundType {name=(_,x); generic_instances=[];_} -> (* empty compound type -> lookup what it binds to *) sprintf "%s" x
-  | Some CompoundType {name=(_,x); generic_instances;_} -> sprintf "%s<%s>" x (String.concat ", " (List.map (fun t -> string_of_sailtype (Some t)) generic_instances))
-  | Some Box(t) -> sprintf "ref<%s>" (string_of_sailtype (Some t))
-  | Some RefType (t,b) -> 
-      if b then sprintf "&mut %s" (string_of_sailtype (Some t))
-      else sprintf "&%s" (string_of_sailtype (Some t))
-  | Some GenericType(s) -> s
+  | Some (_,t) -> 
+    begin
+      match t with 
+    | Bool -> "bool"
+    | Int size -> "i" ^ string_of_int  size
+    | Float -> "float"
+    | Char -> "char"
+    | String -> "string"
+    | ArrayType (t,s) -> sprintf "array<%s;%d>" (string_of_sailtype (Some t)) s
+    | CompoundType {name=(_,x); generic_instances=[];_} -> (* empty compound type -> lookup what it binds to *) sprintf "%s" x
+    | CompoundType {name=(_,x); generic_instances;_} -> sprintf "%s<%s>" x (String.concat ", " (List.map (fun t -> string_of_sailtype (Some t)) generic_instances))
+    | Box(t) -> sprintf "ref<%s>" (string_of_sailtype (Some t))
+    | RefType (t,b) -> 
+        if b then sprintf "&mut %s" (string_of_sailtype (Some t))
+        else sprintf "&%s" (string_of_sailtype (Some t))
+    | GenericType(s) -> s
+    end
   | None -> "void"
 
 type unOp = Neg | Not
@@ -118,7 +122,7 @@ type struct_defn =
   s_pos : loc;
   s_name : string;
   s_generics : string list;
-  s_fields : (string * (loc * sailtype)) list;
+  s_fields : (l_str * sailtype) list;
 }
 
 type enum_defn = 
@@ -222,7 +226,7 @@ let defn_to_proto (type proto) (decl: proto decl) : proto = match decl with
   and generics = d.p_generics
   and params = d.p_interface.p_params in 
   {read;write;generics;params}
-| Struct d -> {generics=d.s_generics;fields=List.mapi (fun i (n,(l,t)) -> n,(l,t,i)) d.s_fields}
+| Struct d -> {generics=d.s_generics;fields=List.mapi (fun i ((l,n),t) -> n,(l,t,i)) d.s_fields}
 | Enum d -> {generics=d.e_generics;injections=d.e_injections}
 
 type import =

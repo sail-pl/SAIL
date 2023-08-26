@@ -193,7 +193,7 @@ module MonadFunctions (M : Monad) = struct
       | h::t -> let+ u = (f h) and* t = map f t in u::t
           
 
-    let rec map2 (f : 'a -> 'a -> 'b M.t) (l1 : 'a list) (l2 : 'a list): ('b list) M.t =
+    let rec map2 (f : 'a -> 'b -> 'c M.t) (l1 : 'a list) (l2 : 'b list): ('c list) M.t =
       match l1,l2 with 
       | [],[] -> return []
       | h1::t1,h2::t2 -> let+ u = (f h1 h2) and* t = map2 f t1 t2 in u::t
@@ -203,6 +203,12 @@ module MonadFunctions (M : Monad) = struct
         match l with 
         | [] -> return ()
         | h::t -> f h >>= (fun () -> iter f t)
+    let  iteri (f : int -> 'a -> unit M.t)  (l : 'a list) : unit M.t = 
+      let rec aux i l = 
+      match l with 
+      | [] -> return ()
+      | h::t -> f i h >>= (fun () -> aux (i+1) t)
+      in aux 0 l
 
     let rec iter2 f l1 l2 =
       match (l1, l2) with

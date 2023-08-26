@@ -2,7 +2,7 @@ open Common
 open TypesCommon 
 open Monad
 open IrHir
-module E = Error.Logger
+module E = Logging.Logger
 module Env = SailModule.SailEnv(IrMir.AstMir.V)
 open UseMonad(E)
 
@@ -35,53 +35,52 @@ let print_method_proto (name : string) (methd : in_body sailor_method) =
 
 
 let resolveType (arg : sailtype) (m_param : sailtype) (generics : string list) (resolved_generics : sailor_args) : (sailtype * sailor_args) E.t =
-  let rec aux (a : sailtype) (m : sailtype) (g : sailor_args) =
-    match (a, m) with
-    | Bool, Bool -> return (Bool, g)
-    | Int x, Int y when x = y -> return (Int x, g)
-    | Float, Float -> return (Float, g)
-    | Char, Char -> return (Char, g)
-    | String, String -> return (String, g)
-    | ArrayType (at, s), ArrayType (mt, _) -> let+ t,g = aux at mt g in ArrayType (t, s), g
-    | GenericType _g1, GenericType _g2 -> return (Int 32,g)
-      (* E.throw Error.(make dummy_pos @@ Fmt.str "resolveType between generic %s and %s" g1 g2) *)
-    | at, GenericType gt ->
-        let* () = E.throw_if Error.(make dummy_pos @@ Fmt.str "generic type %s not declared" gt) (not @@ List.mem gt generics) in
+  let rec aux ((aloc, a) : sailtype) ((mloc, m) : sailtype) (g : sailor_args) : (sailtype * sailor_args) E.t =
+    match a,m with
+    | Bool, Bool -> return ((aloc,Bool), g)
+    | Int x, Int y when x = y -> return ((aloc,Int x), g)
+    | Float, Float -> return ((aloc,Float), g)
+    | Char, Char -> return ((aloc,Char), g)
+    | String, String -> return ((aloc,String), g)
+    | ArrayType (at, s), ArrayType (mt, _) -> let+ t,g = aux at mt g in (aloc,ArrayType (t, s)), g
+    | GenericType _g1, GenericType _g2 -> return ((aloc,Int 32),g)
+      (* E.throw Logging.(make_msg dummy_pos @@ Fmt.str "resolveType between generic %s and %s" g1 g2) *)
+    
+    | _, GenericType gt ->
+        let* () = E.throw_if Logging.(make_msg mloc @@ Fmt.str "generic type %s not declared" gt) (not @@ List.mem gt generics) in
         begin
           match List.assoc_opt gt g with
-          | None -> return (at, (gt, at) :: g)
-          | Some t ->  
+          | None -> return ((aloc,a), (gt, (aloc,a)) :: g)
+          | Some (lt,t) ->  
             E.throw_if 
-              Error.(make dummy_pos @@ Fmt.str "generic type mismatch : %s -> %s vs %s" gt (string_of_sailtype (Some t)) (string_of_sailtype (Some at))) 
-              (t <> at) 
-            >>| fun () -> at, g
+              Logging.(make_msg lt @@ Fmt.str "generic type mismatch : %s -> %s vs %s" gt (string_of_sailtype (Some (lt,t))) (string_of_sailtype (Some (aloc,a)))) 
+              (t <> a) 
+            >>| fun () -> (aloc,a), g
         end
     | RefType (at, _), RefType (mt, _) -> aux at mt g
 
     | CompoundType _, CompoundType _ -> failwith "todocompoundtype"
     | Box _at, Box _mt -> failwith "todobox"
-    | _ -> E.throw Error.(make dummy_pos @@ Fmt.str "cannot happen : %s vs %s" (string_of_sailtype (Some a)) (string_of_sailtype (Some m)))
+    | _ -> E.throw Logging.(make_msg dummy_pos @@ Fmt.str "cannot happen : %s vs %s" (string_of_sailtype (Some (aloc,a))) (string_of_sailtype (Some (mloc,m))))
   in
   aux arg m_param resolved_generics
 
 let degenerifyType (t : sailtype) (generics : sailor_args) : sailtype E.t =
-  let rec aux = function
-    | Bool -> return Bool
-    | Int n -> return (Int n)
-    | Float -> return Float
-    | Char -> return Char
-    | String -> return String
-    | ArrayType (t, s) -> let+ t = aux t in ArrayType (t, s)
-    | Box t -> let+ t = aux t in Box t
-    | RefType (t, m) -> let+ t = aux t in RefType (t, m)
-    | GenericType _t when generics = [] -> 
-      (* E.throw Error.(make dummy_pos @@ Fmt.str "generic type %s present but empty generics list" t) *)
-      return (Int 32)
-
-    | GenericType _n -> 
-      (* E.throw_if_none Error.(make dummy_pos @@ Fmt.str "generic type %s not present in the generics list" n) (List.assoc_opt n generics) *)
-      return (Int 32)
-    | CompoundType _ -> failwith "todo compoundtype"
+  let rec aux (l,t) = 
+    let+ t = match t with
+      | Bool -> return Bool
+      | Int n -> return (Int n)
+      | Float -> return Float
+      | Char -> return Char
+      | String -> return String
+      | ArrayType (t, s) -> let+ t = aux t in ArrayType (t, s)
+      | Box t -> let+ t = aux t in Box t
+      | RefType (t, m) -> let+ t = aux t in RefType (t, m)
+      | GenericType n -> 
+        let+ t = E.throw_if_none Logging.(make_msg dummy_pos @@ Fmt.str "generic type %s not present in the generics list" n) (List.assoc_opt n generics) in
+        snd t
+      | CompoundType _ -> failwith "todo compoundtype"
+      in l,t
   in
   aux t
 
@@ -106,7 +105,7 @@ let find_callable (name : string) (sm : _ SailModule.methods_processes SailModul
   match SailModule.DeclEnv.find_decl name (All (Method)) sm.declEnv with
 
   | [_,_] -> 
-    return @@ List.find_opt (fun m -> print_string m.m_proto.name; print_newline ();  m.m_proto.name = name) sm.body.methods
+    return @@ List.find_opt (fun m -> m.m_proto.name = name) sm.body.methods
     
-  | [] -> E.throw Error.(make dummy_pos @@ Fmt.str "mono : %s not found" name)
-  | l -> E.throw Error.(make dummy_pos @@ Fmt.str "multiple symbols for %s : %s" name (List.map (fun (i,_) -> i.mname) l |> String.concat " "))
+  | [] -> E.throw Logging.(make_msg dummy_pos @@ Fmt.str "mono : %s not found" name)
+  | l -> E.throw Logging.(make_msg dummy_pos @@ Fmt.str "multiple symbols for %s : %s" name (List.map (fun (i,_) -> i.mname) l |> String.concat " "))

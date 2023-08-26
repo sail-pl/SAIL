@@ -14,5 +14,5 @@ process Main {
 Run:
     print_int(sumTo(10));
     print_newline();
-    exit(0);
+    quit();
 }

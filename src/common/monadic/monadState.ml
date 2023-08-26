@@ -10,7 +10,7 @@ module type S = functor (M:Monad) (State: Type) -> sig
   val update : (State.t -> State.t M.t) -> unit t
 
 
-end  with type 'a t = State.t -> ('a  * State.t) M.t  and  type 'a old_t  := 'a M.t 
+end with type 'a t = State.t -> ('a  * State.t) M.t  and  type 'a old_t  := 'a M.t 
 
 module T : S  = functor (M:Monad) (State: Type) -> struct
   open MonadSyntax(M)

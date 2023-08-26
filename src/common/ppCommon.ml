@@ -40,7 +40,7 @@ let pp_binop pf b =
   
   
 
-  let rec pp_type (pf : formatter) (t : sailtype) : unit =
+  let rec pp_type (pf : formatter) (_,t : sailtype) : unit =
     match t with 
         Bool -> pp_print_string pf "bool"
       | Int n ->  Format.fprintf pf "i%i" n

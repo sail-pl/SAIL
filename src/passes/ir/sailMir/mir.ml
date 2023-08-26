@@ -31,8 +31,8 @@ struct
       | Deref e -> rexpr e 
       | ArrayRead (e1, e2) -> let+ e1' = lexpr e1 and* e2' = rexpr e2 in buildExp lt (ArrayRead(e1',e2'))
       | StructRead (origin,e,field) -> let+ e = lexpr e in buildExp lt (StructRead (origin,e,field))
-      | Ref _ -> M.error @@ Error.make (fst lt) "todo"
-      |  _ ->  M.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
+      | Ref _ -> M.error Logging.(make_msg (fst lt) "todo")
+      |  _ ->  M.error Logging.(make_msg (fst lt) @@ "thir didn't lower correctly this expression")
   and rexpr (e : Thir.expression) : expression M.t = 
     let lt = e.info in 
     let open AstHir in
@@ -51,17 +51,17 @@ struct
         buildExp lt (StructRead (origin,exp,field))  
       
       | StructAlloc (origin,id, fields) -> 
-        let+ fields = ListM.map (pairMap2 (rexpr)) fields in 
+        let+ fields = ListM.map (rexpr |> pairMap2 |> pairMap2) fields in 
         buildExp lt (StructAlloc(origin,id,fields))
       | MethodCall _ 
-      | _ ->  M.error @@ Error.make (fst lt) @@ "thir didn't lower correctly this expression" 
+      | _ ->  M.error @@ Logging.(make_msg (fst lt) @@ "thir didn't lower correctly this expression")
 
 
 
       open UseMonad(M.E)   
 
 
-  let lower_method (body,_ : m_in * method_sig) env (_sm: (m_in,p_in) SailModule.methods_processes SailModule.t) : (m_out * SailModule.DeclEnv.t) M.E.t =
+  let lower_method (body,_ : m_in * method_sig) (env,tenv) (_sm: (m_in,p_in) SailModule.methods_processes SailModule.t) : (m_out * SailModule.DeclEnv.t * _) M.E.t =
     let rec aux (s : Thir.statement) : m_out M.t = 
       let open UseMonad(M) in
       let loc = s.info in
@@ -73,10 +73,11 @@ struct
         [{location=loc; mut; id; varType=ty}],bb
 
       | DeclVar(mut, id, Some ty, Some e) -> 
+        let* id_ty = M.get_type_id ty in
         let* expression = rexpr e in
         let* id = M.fresh_scoped_var >>| get_scoped_var id in
         let* () = M.declare_var loc id {ty;mut;id;loc} in
-        let target = AstHir.buildExp (loc,ty) (Variable id) in
+        let target = AstHir.buildExp (loc,id_ty) (Variable id) in
         let+ bn = assignBasicBlock loc {location=loc; target; expression }  in
         [{location=loc; mut; id=id; varType=ty}],bn
         (* ++ other statements *)
@@ -114,17 +115,17 @@ struct
         (d, l)
 
       | Break -> 
-        let* env = M.get_env in 
+        let* env,_ = M.get_env in 
         let bb = {location=loc; forward_info=env; backward_info = (); assignments=[]; predecessors=LabelSet.empty;terminator=Some Break} in
         let+ cfg = singleBlock bb in
         ([],cfg)
         
-      | Invoke (target, ((_,mname) as origin), (l,id), el) -> 
-        let* ((_,realname),_) = M.throw_if_none (Error.make loc @@ Fmt.str "Compiler Error : function '%s' must exist" id) 
-                                              (SailModule.DeclEnv.find_decl id (Specific (mname,Method)) (snd env))
+      | Invoke i -> 
+        let* ((_,realname),_) = M.throw_if_none Logging.(make_msg loc @@ Fmt.str "Compiler Error : function '%s' must exist" (snd i.id)) 
+                                              (SailModule.DeclEnv.find_decl (snd i.id) (Specific (snd i.import,Method)) (snd env))
         in
-        let* el' = ListM.map rexpr el in
-        let+ invoke = buildInvoke loc origin (l,realname) target el' in
+        let* args = ListM.map rexpr i.args in
+        let+ invoke = buildInvoke loc i.import (fst i.id,realname) i.ret_var args in
         ([], invoke)
 
       | Return e ->
@@ -134,7 +135,7 @@ struct
         let+ ret =  buildReturn loc e in
         ([], ret)
 
-      | Case _ -> M.error @@ Error.make loc "unimplemented"
+      | Case _ -> M.error Logging.(make_msg loc "unimplemented")
 
       | Block s -> 
         let* env = M.get_env in
@@ -143,11 +144,11 @@ struct
         res
 
     in 
-    let+ res = M.run aux body (fst env) in 
-    res,(snd env)
+    let+ res = M.run aux body (fst env,tenv) in 
+    res,(snd env),tenv
 
-    let preprocess = Error.Logger.pure
+    let preprocess = Logging.Logger.pure
 
-    let lower_process (c:p_in process_defn) env _ = M.E.pure (c.p_body,snd env)
+    let lower_process (c:p_in process_defn) ((_,env),tenv) _ = M.E.pure (c.p_body,env,tenv)
   end
 )

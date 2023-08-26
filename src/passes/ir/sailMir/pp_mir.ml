@@ -18,10 +18,9 @@ let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit
       Format.fprintf pf "[%a]"
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
     |StructAlloc  (_,id, m) ->
-      let pp_field pf (x, y) = Format.fprintf pf "%s:%a" x ppPrintExpression y in
+      let pp_field pf (x, (_ , y)) = Format.fprintf pf "%s:%a" x ppPrintExpression y in
       Format.fprintf pf "%s{%a}" (snd id)
-        (Format.pp_print_list ~pp_sep:pp_comma pp_field)
-        m
+        (Format.pp_print_list ~pp_sep:pp_comma pp_field) m
     | EnumAlloc (id,el) ->  
       Format.fprintf pf "[%s(%a)]" (snd id)
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el

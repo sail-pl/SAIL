@@ -21,7 +21,7 @@ let rec ppPrintExpression (pf : Format.formatter) (e : expression) : unit =
       fprintf pf "[%a]"
         (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
     |StructAlloc  (_,id, m) ->
-      let pp_field pf (x, y) = fprintf pf "%s:%a" x ppPrintExpression y in
+      let pp_field pf (x, (_,y)) = fprintf pf "%s:%a" x ppPrintExpression y in
       fprintf pf "%s{%a}" (snd id)
         (pp_print_list ~pp_sep:pp_comma pp_field)
         m
@@ -47,11 +47,11 @@ let rec ppPrintStatement (pf : Format.formatter) (s : statement) : unit = match 
 | Loop c -> fprintf pf "\nloop {%a\n}" ppPrintStatement c
 | Break -> fprintf pf "break;"
 | Case(_e, _cases) -> ()
-| Invoke (var, mod_loc, (_,id), el) -> fprintf pf "\n%a%a%s(%a);" 
-    (pp_print_option  (fun fmt v -> fprintf fmt "%s = " v)) var 
-    (pp_print_option  (fun fmt (_,ml) -> fprintf fmt "%s::" ml)) mod_loc
-    id 
-    (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
+| Invoke i -> fprintf pf "\n%a%a%s(%a);" 
+    (pp_print_option  (fun fmt v -> fprintf fmt "%s = " v)) i.ret_var
+    (pp_print_option  (fun fmt (_,ml) -> fprintf fmt "%s::" ml)) i.import
+    (snd i.id)
+    (pp_print_list ~pp_sep:pp_comma ppPrintExpression) i.args
 | Return e -> fprintf pf "\nreturn %a;" (pp_print_option  ppPrintExpression) e
 | Block c -> fprintf pf "\n{\n@[ %a @]\n}" ppPrintStatement c
 | Skip -> ()

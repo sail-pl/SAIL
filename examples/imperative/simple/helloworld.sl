@@ -4,5 +4,5 @@ process Main {
 Run:
 
     print_string("Hello World\n");
-    exit(0);
+    quit();
 }

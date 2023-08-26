@@ -2,6 +2,7 @@ open Llvm
 open Common
 open TypesCommon
 open CodegenEnv
+open Monad.UseMonad(Logging.Logger)
 
 type llvm_args = { c:llcontext; b:llbuilder;m:llmodule; layout : Llvm_target.DataLayout.t}
 let mangle_method_name (name:string) (mname:string) (args: sailtype list ) : string =
@@ -20,7 +21,7 @@ let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
   | LString s -> build_global_stringptr  s ".str" llvm.b
 
 let ty_of_alias(t:sailtype) env : sailtype  =
-  match t with
+  match snd t with
   | CompoundType  {origin=Some (_,mname); name=(_,name);decl_ty=Some T ();_} -> 
     begin
     match DeclEnv.find_decl name (Specific (mname,Type)) env with 
@@ -32,7 +33,7 @@ let ty_of_alias(t:sailtype) env : sailtype  =
 
 let unary (op:unOp) (t,v) : llbuilder -> llvalue = 
   let f = 
-    match t,op with
+    match snd t,op with
     | Float,Neg -> build_fneg
     | Int _,Neg -> build_neg
     | _,Not  -> build_not
@@ -75,21 +76,20 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : llbuilder -> llva
   | And -> "and" | Or -> "or" | Le -> "le" | Lt -> "lt" | Ge -> "ge" | Gt -> "gt" | Mul -> "mul"
   | NEq -> "neq" | Div -> "div"
   in
-  let t = if t = Bool then Int 1 else t in (* thir will have checked for correctness *)
-  let l = operators t in
+  let t = if snd t = Bool then fst t,Int 1 else t in (* thir will have checked for correctness *)
+  let l = operators (snd t) in
   let open Common.Monad.MonadOperator(Common.MonadOption.M) in
-  match l >>| List.assoc_opt op with
-  | Some Some oper -> oper l1 l2 ""
-  | Some None | None -> Printf.sprintf "codegen: bad usage of binop '%s' with type %s" (string_of_binop op) (string_of_sailtype @@ Some t) |> failwith
+  match l >>| List.assoc_opt op |> Option.join with
+  | Some oper -> oper l1 l2 ""
+  | None -> Printf.sprintf "codegen: bad usage of binop '%s' with type %s" (string_of_binop op) (string_of_sailtype @@ Some t) |> failwith
 
 
-let toLLVMArgs (args: param list ) (env:DeclEnv.t) (llvm:llvm_args) : (bool * sailtype * llvalue) array = 
-  let llvalue_list = List.map (
+let toLLVMArgs (args: param list ) (env:DeclEnv.t) (llvm:llvm_args) : (bool * sailtype * llvalue) array E.t = 
+  ListM.map (
     fun {id;mut;ty=t;_} -> 
-      let ty = getLLVMType env t llvm.c llvm.m in 
+      let+ ty = getLLVMType env t llvm.c llvm.m in 
       mut,t,build_alloca ty id llvm.b
-  ) args in
-  Array.of_list llvalue_list
+  ) args <&> Array.of_list 
 
 
 let get_memcpy_intrinsic llvm = 

@@ -3,7 +3,7 @@
 open Common
 open Lexer
 open Lexing
-open Error
+open Logging
 open TypesCommon
 open AstParser
 module L = MenhirLib.LexerUtil
@@ -20,7 +20,7 @@ let print_error_position lexbuf =
 
 
 
-let fastParse filename : (string * (statement,(statement,expression) process_body) SailModule.methods_processes SailModule.t Error.Logger.t, string) Result.t =
+let fastParse filename : (string * (statement,(statement,expression) process_body) SailModule.methods_processes SailModule.t Logging.Logger.t, string) Result.t =
   let text, lexbuf = L.read filename in
   let hash = Digest.string text in
 
@@ -32,7 +32,7 @@ let fastParse filename : (string * (statement,(statement,expression) process_bod
       let lexer_prefix = "Lexer - " in
       (* removes lexer prefix in case of a lexing error *)
       let msg = String.(if starts_with ~prefix:lexer_prefix msg then sub msg (length lexer_prefix) (length msg - length lexer_prefix) else msg) in
-      Error.print_errors [Error.make loc msg];
+      Logging.print_log {errors=[make_msg loc msg];warnings=[]};
       exit 1
 
   | exception Parser.Error ->
@@ -59,7 +59,7 @@ let state checkpoint : int =
 let get text checkpoint i =
   match I.get i (env checkpoint) with
   | Some (I.Element (_, _, pos1, pos2)) ->
-      Error.show_context text (pos1, pos2)
+      Logging.show_context text (pos1, pos2)
   | None -> "???"
   
 
@@ -72,9 +72,9 @@ let fail text buffer (checkpoint : _ I.checkpoint) =
   let message = ParserMessages.message state_num in
   let message = E.expand (get text checkpoint) message in
   Logs.debug (fun m -> m "reached error state %i "state_num);
-  Logger.throw @@ Error.make location message
+  Logger.throw @@ make_msg location message
   with Not_found -> 
-    Logger.throw @@ Error.make location "Syntax error"
+    Logger.throw @@ make_msg location "Syntax error"
   
   
 let slowParse filename text = 

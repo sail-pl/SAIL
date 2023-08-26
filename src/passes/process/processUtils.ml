@@ -3,7 +3,7 @@ open TypesCommon
 open ProcessMonad
 open Monad.UseMonad(M)
 open IrHir
-module E = Error.Logger
+module E = Logging.Logger
 module D = SailModule.Declarations
 
 type body = (Hir.statement,(Hir.statement,Hir.expression) SailParser.AstParser.process_body) SailModule.methods_processes
@@ -43,7 +43,7 @@ let find_process_source (name: l_str) (import : l_str option) procs : 'a process
     if origin = HirUtils.D.get_name env then return procs
     else
       let find_import = List.find_opt (fun i -> i.mname = origin) (HirUtils.D.get_imports env) in
-      let+ i = M.throw_if_none Error.(make dummy_pos "can't happen") find_import in 
+      let+ i = M.throw_if_none Logging.(make_msg dummy_pos "can't happen") find_import in 
       let sm = In_channel.with_open_bin (i.dir ^ i.mname ^ Constants.mir_file_ext) @@ fun c -> (Marshal.from_channel c : Mono.MonomorphizationUtils.out_body SailModule.t)
       in sm.body.processes
   in
