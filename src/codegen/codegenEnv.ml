@@ -12,7 +12,7 @@ open MakeOrderedFunctions(ImportCmp)
 module Declarations = struct
   include SailModule.Declarations
   type process_decl = unit
-  type method_decl = {defn : AstMir.mir_function method_defn ; llval :  llvalue ; extern : bool}
+  type method_decl = {defn : MirAst.mir_function method_defn ; llval :  llvalue ; extern : bool}
   type struct_decl = {defn : struct_proto; ty : lltype}
   type enum_decl = unit
 end
@@ -34,9 +34,9 @@ open Declarations
 type in_body = Monomorphization.Pass.out_body
 
 
-let getLLVMBasicType f t llc llm  : lltype E.t = 
-  let rec aux t = 
-    match snd t with
+let getLLVMBasicType f ty llc llm  : lltype E.t = 
+  let rec aux ty = 
+    match ty.value with
     | Bool -> i1_type llc |> return
     | Int n -> integer_type llc n |> return
     | Float -> double_type llc |> return
@@ -44,13 +44,13 @@ let getLLVMBasicType f t llc llm  : lltype E.t =
     | String -> i8_type llc |> pointer_type |> return
     | ArrayType (t,s) -> let+ t = aux t in array_type t s
     | Box t | RefType (t,_) -> aux t <&> pointer_type
-    | GenericType _ -> E.throw Logging.(make_msg (fst t) "no generic type in codegen")
-    | CompoundType {name=(_,name); _} when name = "_value" -> i64_type llc |> return (* for extern functions *)
+    | GenericType _ -> E.throw Logging.(make_msg ty.loc "no generic type in codegen")
+    | CompoundType {name; _} when name.value = "_value" -> i64_type llc |> return (* for extern functions *)
     | CompoundType {origin=None;_} 
-    | CompoundType {decl_ty=None;_} ->  E.throw Logging.(make_msg (fst t) "compound type with no origin or decl_ty")
-    | CompoundType  {origin=Some (_,mname); name=(_,name); decl_ty=Some d;_} -> 
-      f (mname,name,d) llc llm aux
-  in aux t
+    | CompoundType {decl_ty=None;_} -> E.throw Logging.(make_msg  ty.loc  "compound type with no origin or decl_ty")
+    | CompoundType  {origin=Some mname; name; decl_ty=Some d;_} -> 
+      f (mname.value,name.value,d) llc llm aux
+  in aux ty
 
 
   let handle_compound_type_codegen env (mname,name,d) llc _llm (aux : sailtype -> lltype E.t) : lltype E.t = 
@@ -80,7 +80,7 @@ let getLLVMBasicType f t llc llm  : lltype E.t =
     | Some (E _enum) -> failwith "todo enum"
     | Some (S (_,defn)) ->
       let _,f_types = List.split defn.fields in
-      let* elts = ListM.map (fun (_,t,_) -> aux t) f_types <&> Array.of_list in
+      let* elts = ListM.map (fun ty -> aux (fst ty.value)) f_types <&> Array.of_list in
       begin
       match type_by_name llm ("struct." ^ name) with 
         | Some ty -> return ty 
@@ -129,7 +129,7 @@ let get_declarations (sm: in_body SailModule.t) llc llm : DeclEnv.t E.t =
   );
 
   let valueify_method_sig (m:method_sig) : method_sig =
-    let value = fun pos -> dummy_pos,CompoundType{origin=None;name=(pos,"_value");generic_instances=[];decl_ty=None} in
+    let value = fun pos -> mk_locatable dummy_pos @@ CompoundType{origin=None;name=(mk_locatable pos "_value");generic_instances=[];decl_ty=None} in
     let rtype = m.rtype in (* keep the current type *)
     let params = List.map (fun (p:param) -> {p with ty=(value p.loc)}) m.params in
     {m with params; rtype}
@@ -137,8 +137,8 @@ let get_declarations (sm: in_body SailModule.t) llc llm : DeclEnv.t E.t =
 
   (* because the imports are at the mir stage, we also have to do some codegen for them *)
 
-  let load_methods (methods: IrMir.AstMir.mir_function method_defn list) is_import env = 
-    ListM.fold_left ( fun d (m:IrMir.AstMir.mir_function method_defn) -> 
+  let load_methods (methods: IrMir.MirAst.mir_function method_defn list) is_import env = 
+    ListM.fold_left ( fun d (m:IrMir.MirAst.mir_function method_defn) -> 
       let extern,proto = 
         if (Either.is_left m.m_body) then (* extern method, all parameters must be of type value *)
           true,valueify_method_sig m.m_proto
@@ -167,7 +167,7 @@ let get_declarations (sm: in_body SailModule.t) llc llm : DeclEnv.t E.t =
   let load_structs structs write_env =  
     SEnv.fold (fun acc (name,(_,defn)) -> 
       let _,f_types = List.split defn.fields in
-      let* elts = ListM.map (fun (_,t,_) -> _getLLVMType sm.declEnv t llc llm) f_types <&> Array.of_list in
+      let* elts = ListM.map (fun ty-> _getLLVMType sm.declEnv (fst ty.value) llc llm) f_types <&> Array.of_list in
       let ty = match type_by_name llm ("struct." ^ name) with 
         | Some ty -> ty 
         | None -> let ty = named_struct_type llc ("struct." ^ name) in

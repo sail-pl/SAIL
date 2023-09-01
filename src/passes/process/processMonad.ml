@@ -12,7 +12,7 @@ module V = (
 
 
 module M = struct
-  open AstHir
+  open IrAst.Ast
 
   module E =  Logging.Logger
   module Env = Env.VariableDeclEnv(SailModule.Declarations)(V)
@@ -21,11 +21,11 @@ module M = struct
 
     type t = {decls : HirUtils.statement; init : HirUtils.statement ; loop : HirUtils.statement}
 
-    let empty = {info=dummy_pos ; stmt=Skip}
-    let concat s1 s2 = match s1.stmt,s2.stmt with
+    let empty = {tag=dummy_pos ; node=Skip}
+    let concat s1 s2 = match s1.node,s2.node with
     | Skip, Skip -> empty
-    | Skip,stmt | stmt,Skip -> {info=dummy_pos ; stmt}
-    | _ -> {info=dummy_pos ; stmt=Seq (s1,s2)}
+    | Skip,node | node,Skip -> {tag=dummy_pos ; node}
+    | _ -> {tag=dummy_pos ; node=Seq (s1,s2)}
     let mempty = {decls=empty; init=empty ; loop=empty}
     let mconcat s1 s2 = {decls=concat s1.decls s2.decls; init = concat s1.init s2.init ; loop = concat s1.loop s2.loop}
 

@@ -26,9 +26,20 @@ module FieldSet = Set.Make (String)
 type loc = Lexing.position * Lexing.position
 let dummy_pos : loc = Lexing.dummy_pos,Lexing.dummy_pos
 
+type ('i,'n) tagged_node = {tag : 'i; node : 'n}
+let mk_tagged_node tag node = {tag;node}
+
+type ('i,'v) importable = {import : 'i; value : 'v}
+let mk_importable import value = {import;value}
+
+type 'v locatable  = {loc : loc; value : 'v}
+let mk_locatable loc value = {loc;value}
+
+
+
 type 'a dict = (string * 'a) list
 
-type l_str = loc * string
+type l_str = string locatable
 
 type ('m,'p,'s,'e,'t) decl_sum = M of 'm | P of 'p | S of 's | E of 'e | T of 't 
 
@@ -50,7 +61,7 @@ let string_of_decl : (_,_,_,_,_) decl_sum -> string = function
 | T _ -> "type"
 
 
-type sailtype = loc * sailtype_ and sailtype_ = 
+type sailtype = sailtype_ locatable and sailtype_ = 
   | Bool 
   | Int of int
   | Float 
@@ -75,27 +86,27 @@ type literal =
   | LString of string
 
 let sailtype_of_literal = function
-| LBool _ -> dummy_pos,Bool
-| LFloat _ -> dummy_pos,Float
-| LInt l -> dummy_pos,Int l.size
-| LChar _ -> dummy_pos,Char
-| LString _ -> dummy_pos,String
+| LBool _ -> mk_locatable dummy_pos Bool
+| LFloat _ -> mk_locatable dummy_pos Float
+| LInt l -> mk_locatable dummy_pos @@ Int l.size
+| LChar _ -> mk_locatable dummy_pos Char
+| LString _ -> mk_locatable dummy_pos String
 
 
 let rec string_of_sailtype (t : sailtype option) : string =
   let open Printf in 
   match t with 
-  | Some (_,t) -> 
+  | Some t -> 
     begin
-      match t with 
+      match t.value with 
     | Bool -> "bool"
     | Int size -> "i" ^ string_of_int  size
     | Float -> "float"
     | Char -> "char"
     | String -> "string"
     | ArrayType (t,s) -> sprintf "array<%s;%d>" (string_of_sailtype (Some t)) s
-    | CompoundType {name=(_,x); generic_instances=[];_} -> (* empty compound type -> lookup what it binds to *) sprintf "%s" x
-    | CompoundType {name=(_,x); generic_instances;_} -> sprintf "%s<%s>" x (String.concat ", " (List.map (fun t -> string_of_sailtype (Some t)) generic_instances))
+    | CompoundType {name; generic_instances=[];_} -> (* empty compound type -> lookup what it binds to *) sprintf "%s" name.value
+    | CompoundType {name; generic_instances;_} -> sprintf "%s<%s>" name.value (String.concat ", " (List.map (fun t -> string_of_sailtype (Some t)) generic_instances))
     | Box(t) -> sprintf "ref<%s>" (string_of_sailtype (Some t))
     | RefType (t,b) -> 
         if b then sprintf "&mut %s" (string_of_sailtype (Some t))
@@ -136,7 +147,11 @@ type enum_defn =
 
 
 
-type interface = {p_params: param list ; p_shared_vars: ((loc * (string * sailtype)) list * (loc * (string * sailtype)) list)}
+type interface = 
+{
+  p_params: param list ; 
+  p_shared_vars: (string * sailtype) locatable list * (string * sailtype) locatable list
+}
 
 type 'a process_defn = 
 {
@@ -148,7 +163,7 @@ type 'a process_defn =
 }
 
 type 'e proc_init = {
-  mloc : l_str  option;
+  mloc : l_str option;
   id : string;
   proc : string;
   params : 'e list;
@@ -189,7 +204,7 @@ type enum_proto =
 type struct_proto = 
 {
   generics : string list;
-  fields : (loc * sailtype * int) dict
+  fields : (sailtype * int) locatable dict
 }
 
 type method_proto = 
@@ -202,8 +217,8 @@ type method_proto =
 
 type process_proto = 
 {
-  read : (loc * (string * sailtype)) list;
-  write : (loc * (string * sailtype)) list;
+  read : (string * sailtype) locatable list;
+  write :(string * sailtype) locatable list;
   params : param list;
   generics : string list;
 }
@@ -226,7 +241,7 @@ let defn_to_proto (type proto) (decl: proto decl) : proto = match decl with
   and generics = d.p_generics
   and params = d.p_interface.p_params in 
   {read;write;generics;params}
-| Struct d -> {generics=d.s_generics;fields=List.mapi (fun i ((l,n),t) -> n,(l,t,i)) d.s_fields}
+| Struct d -> {generics=d.s_generics;fields=List.mapi (fun i (n,t) -> n.value,mk_locatable n.loc (t,i)) d.s_fields}
 | Enum d -> {generics=d.e_generics;injections=d.e_injections}
 
 type import =
@@ -236,7 +251,6 @@ type import =
   dir : string;
   proc_order: int;
 }
-
 
 module ImportCmp = struct type t = import let compare i1 i2 = String.compare i1.mname  i2.mname  end
 module ImportSet = Set.Make(ImportCmp)

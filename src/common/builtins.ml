@@ -5,4 +5,4 @@ let register_builtin name generics p rtype variadic l: method_sig list =
 
 let get_builtins () : method_sig list = 
   []
-  |> register_builtin "box" ["T"] [dummy_pos,GenericType "T"] (Some (dummy_pos,Box (dummy_pos,GenericType "T"))) false
+  |> register_builtin "box" ["T"] [mk_locatable dummy_pos (GenericType "T")] (Some (mk_locatable dummy_pos (Box (mk_locatable dummy_pos (GenericType "T"))))) false

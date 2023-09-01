@@ -49,4 +49,4 @@ let method_decl_of_defn (d : 'a method_defn) : Declarations.method_decl =
   and args = d.m_proto.params 
   and generics = d.m_proto.generics 
   and variadic = d.m_proto.variadic in
-  ((pos,name),{ret;args;generics;variadic})
+  (mk_locatable pos name,{ret;args;generics;variadic})

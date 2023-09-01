@@ -3,10 +3,10 @@ open TypesCommon
 open Monad
 open IrHir
 module E = Logging.Logger
-module Env = SailModule.SailEnv(IrMir.AstMir.V)
+module Env = SailModule.SailEnv(IrMir.MirAst.V)
 open UseMonad(E)
 
-type in_body = IrMir.AstMir.mir_function
+type in_body = IrMir.MirAst.mir_function
 type out_body = {
   monomorphics : in_body method_defn list; 
   polymorphics : in_body method_defn list; 
@@ -35,39 +35,46 @@ let print_method_proto (name : string) (methd : in_body sailor_method) =
 
 
 let resolveType (arg : sailtype) (m_param : sailtype) (generics : string list) (resolved_generics : sailor_args) : (sailtype * sailor_args) E.t =
-  let rec aux ((aloc, a) : sailtype) ((mloc, m) : sailtype) (g : sailor_args) : (sailtype * sailor_args) E.t =
-    match a,m with
-    | Bool, Bool -> return ((aloc,Bool), g)
-    | Int x, Int y when x = y -> return ((aloc,Int x), g)
-    | Float, Float -> return ((aloc,Float), g)
-    | Char, Char -> return ((aloc,Char), g)
-    | String, String -> return ((aloc,String), g)
-    | ArrayType (at, s), ArrayType (mt, _) -> let+ t,g = aux at mt g in (aloc,ArrayType (t, s)), g
-    | GenericType _g1, GenericType _g2 -> return ((aloc,Int 32),g)
+  let rec aux (at : sailtype) (mt : sailtype) (g : sailor_args) : (sailtype * sailor_args) E.t =
+    match at.value,mt.value with
+    | Bool, Bool -> return ((mk_locatable at.loc Bool), g)
+    | Int x, Int y when x = y -> return ((mk_locatable at.loc @@ Int x), g)
+    | Float, Float -> return ((mk_locatable at.loc Float), g)
+    | Char, Char -> return ((mk_locatable at.loc Char), g)
+    | String, String -> return ((mk_locatable at.loc String), g)
+    | ArrayType (at, s), ArrayType (mt, _) -> let+ t,g = aux at mt g in (mk_locatable at.loc @@ ArrayType (t, s)), g
+    | GenericType _g1, GenericType _g2 -> return ((mk_locatable at.loc @@ Int 32),g)
       (* E.throw Logging.(make_msg dummy_pos @@ Fmt.str "resolveType between generic %s and %s" g1 g2) *)
     
     | _, GenericType gt ->
-        let* () = E.throw_if Logging.(make_msg mloc @@ Fmt.str "generic type %s not declared" gt) (not @@ List.mem gt generics) in
+        let* () = E.throw_if 
+                  Logging.(make_msg mt.loc @@ Fmt.str "generic type %s not declared" gt) 
+                  (not @@ List.mem gt generics)  in
         begin
           match List.assoc_opt gt g with
-          | None -> return ((aloc,a), (gt, (aloc,a)) :: g)
-          | Some (lt,t) ->  
+          | None -> return (at, (gt, at) :: g)
+          | Some t  ->  
             E.throw_if 
-              Logging.(make_msg lt @@ Fmt.str "generic type mismatch : %s -> %s vs %s" gt (string_of_sailtype (Some (lt,t))) (string_of_sailtype (Some (aloc,a)))) 
-              (t <> a) 
-            >>| fun () -> (aloc,a), g
+              Logging.(make_msg t.loc @@ Fmt.str "generic type mismatch : %s -> %s vs %s" gt 
+              (string_of_sailtype (Some t)) 
+              (string_of_sailtype (Some at))) 
+              (t.value <> at.value) 
+            >>| fun () -> at, g
         end
+
     | RefType (at, _), RefType (mt, _) -> aux at mt g
 
     | CompoundType _, CompoundType _ -> failwith "todocompoundtype"
     | Box _at, Box _mt -> failwith "todobox"
-    | _ -> E.throw Logging.(make_msg dummy_pos @@ Fmt.str "cannot happen : %s vs %s" (string_of_sailtype (Some (aloc,a))) (string_of_sailtype (Some (mloc,m))))
+    | _ -> E.throw Logging.(make_msg dummy_pos @@ Fmt.str "cannot happen : %s vs %s"
+          (string_of_sailtype (Some at)) 
+          (string_of_sailtype (Some mt)))
   in
   aux arg m_param resolved_generics
 
 let degenerifyType (t : sailtype) (generics : sailor_args) : sailtype E.t =
-  let rec aux (l,t) = 
-    let+ t = match t with
+  let rec aux t = 
+    let+ t' = match t.value with
       | Bool -> return Bool
       | Int n -> return (Int n)
       | Float -> return Float
@@ -77,10 +84,13 @@ let degenerifyType (t : sailtype) (generics : sailor_args) : sailtype E.t =
       | Box t -> let+ t = aux t in Box t
       | RefType (t, m) -> let+ t = aux t in RefType (t, m)
       | GenericType n -> 
-        let+ t = E.throw_if_none Logging.(make_msg dummy_pos @@ Fmt.str "generic type %s not present in the generics list" n) (List.assoc_opt n generics) in
-        snd t
+        let+ t = E.throw_if_none 
+                Logging.(make_msg dummy_pos @@ Fmt.str "generic type %s not present in the generics list" n) 
+                (List.assoc_opt n generics) 
+        in
+        t.value
       | CompoundType _ -> failwith "todo compoundtype"
-      in l,t
+      in mk_locatable t.loc t'
   in
   aux t
 

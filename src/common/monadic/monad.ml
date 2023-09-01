@@ -43,11 +43,25 @@ module type Functor = sig
   val fmap : ('a -> 'b) -> 'a t  -> 'b t
 end
 
+module FunctorOperator(F : Functor) = struct
+  let (<$>) = F.fmap
+  let (<&>) = fun x f -> F.fmap f x
+  let (<$) (type a b) : a -> b F.t -> a F.t = fun x y -> F.fmap (fun _ -> x) y
+  let ($>) = fun x y -> (<$) y x
+  let void = fun x -> () <$ x
+end
+
 module type Applicative = sig
 include Functor
   val pure : 'a -> 'a t  
   val apply : ('a -> 'b ) t -> 'a t -> 'b t
 end 
+
+module ApplicativeOperator (A : Applicative) = struct
+  include FunctorOperator(A)
+  let (<*>) : ('a -> 'b) A.t -> 'a A.t -> 'b A.t = A.apply
+  let ( *>) : 'a A.t -> 'b A.t -> 'b A.t = fun x y -> (Fun.id <$ x) <*> y
+end
 
 module type Monad = sig
   include Applicative
@@ -69,11 +83,14 @@ module MonadIdentity : Monad with type 'a t = 'a = struct
 end
 
 module MonadOperator (M : Monad) = struct
-  let (<*>) = M.apply
-  let (<$>) = M.fmap
-  let (<&>) = fun x f -> M.fmap f x
+  include ApplicativeOperator(M)
   let (>>=) = M.bind
+  let (=<<) = fun x y -> M.bind y x
   let (>>|) x f = x >>= fun x -> f x |> M.pure
+  let (>=>) : ('a -> 'b M.t) -> ('b -> 'c M.t) -> 'a -> 'c M.t = fun f1 f2 x -> f1 x >>= f2
+  let (<=<)  : 'a -> ('a -> 'b M.t) -> ('b -> 'c M.t) -> 'c M.t = fun x f1 f2 -> (f1 >=> f2) x
+
+  let ap : ('a -> 'b) M.t -> 'a M.t -> 'b M.t = fun f x -> f >>= fun f -> f <$> x
 end
 
 module MonadSyntax (M : Monad ) = struct 

@@ -5,7 +5,10 @@ module Make(MonoidSeq : Monad.Monoid) = struct
     type t = unit 
     let string_of_var _ = ""
     let param_to_var _ = ()
-    end
+  end
+
+  module MonoidSeq = MonoidSeq
+
   module HIREnv = SailModule.SailEnv(V)
 
 

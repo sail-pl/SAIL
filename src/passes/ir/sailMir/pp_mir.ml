@@ -1,30 +1,30 @@
 open Common
 open PpCommon
 open Format
-open AstMir 
+open MirAst 
+open TypesCommon
 
-let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit =
-  match e.exp with 
+let rec ppPrintExpression (pf : Format.formatter) (e : MirAst.expression) : unit =
+  match e.node with 
     | Variable s -> fprintf pf "%s" s
     | Deref e -> fprintf pf "*%a" ppPrintExpression e 
-    | StructRead (_,e, (_,s)) -> fprintf pf "%a.%s" ppPrintExpression e s
-    | ArrayRead (e1, e2) -> fprintf pf "%a[%a]" ppPrintExpression e1 ppPrintExpression e2
+    | StructRead2 s -> fprintf pf "%a.%s" ppPrintExpression s.value.strct s.value.field.value
+    | ArrayRead a -> fprintf pf "%a[%a]" ppPrintExpression a.array ppPrintExpression a.idx
     | Literal (l) -> fprintf pf "%a" PpCommon.pp_literal l 
     | UnOp (o, e) -> fprintf pf "%a %a" pp_unop o ppPrintExpression e
-    | BinOp ( o, e1, e2) -> fprintf pf "%a %a %a" ppPrintExpression e1 pp_binop o ppPrintExpression e2
+    | BinOp bop -> fprintf pf "%a %a %a" ppPrintExpression bop.left pp_binop bop.op ppPrintExpression bop.right
     | Ref (true,e) -> fprintf pf "&mut %a" ppPrintExpression e 
     | Ref (false,e) -> fprintf pf "&%a" ppPrintExpression e 
     | ArrayStatic el ->  
       Format.fprintf pf "[%a]"
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    |StructAlloc  (_,id, m) ->
-      let pp_field pf (x, (_ , y)) = Format.fprintf pf "%s:%a" x ppPrintExpression y in
-      Format.fprintf pf "%s{%a}" (snd id)
-        (Format.pp_print_list ~pp_sep:pp_comma pp_field) m
+    |StructAlloc2  s ->
+      let pp_field pf (x, (y: 'a locatable)) = Format.fprintf pf "%s:%a" x ppPrintExpression y.value in
+      Format.fprintf pf "%s{%a}" s.value.name.value
+        (Format.pp_print_list ~pp_sep:pp_comma pp_field) s.value.fields
     | EnumAlloc (id,el) ->  
-      Format.fprintf pf "[%s(%a)]" (snd id)
+      Format.fprintf pf "[%s(%a)]" id.value
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    | MethodCall _ -> ()
 
 let ppPrintPredecessors (pf : Format.formatter) (preds : LabelSet.t ) : unit = 
   if LabelSet.is_empty preds then fprintf pf "// no precedessors"
@@ -40,8 +40,8 @@ let ppPrintAssignement (pf : Format.formatter) (a : assignment) : unit =
 let ppPrintTerminator (pf : Format.formatter) (t : terminator) : unit = 
   match t with 
     | Goto lbl -> fprintf pf "\t\tgoto %d;" lbl 
-    | Invoke {id; params;next;origin=(_,mname);target} -> fprintf pf "\t\t%a%s(%a) -> [return: bb%d]" 
-          (Format.pp_print_option  (fun fmt id -> fprintf fmt "%s = %s::" id mname)) target 
+    | Invoke {id; params;next;origin;target} -> fprintf pf "\t\t%a%s(%a) -> [return: bb%d]" 
+          (Format.pp_print_option  (fun fmt id -> fprintf fmt "%s = %s::" id origin.value)) target 
           id 
           (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) params 
           next

@@ -31,8 +31,8 @@ type statement = Assign of lvalue * rvalue | Drop of drop_kind * lvalue
 
 *)
 
-type expression = Thir.expression
-type statement = Thir.statement 
+type expression = ThirUtils.expression
+type statement = ThirUtils.statement 
 
 type declaration = {location : loc; mut : bool; id : string; varType : sailtype}
 type assignment = {location : loc; target : expression; expression : expression}

@@ -1,4 +1,4 @@
-open AstMir
+open MirAst
 open Common 
 open TypesCommon
 open Monad
@@ -16,78 +16,68 @@ module Pass = MakeFunctionPass(V)(
 struct
   let name = "MIR"
   
-  type m_in = Thir.statement
+  type m_in = ThirUtils.statement
   type m_out = mir_function
   type p_in =  (HirUtils.statement,HirUtils.expression) AstParser.process_body
   type p_out = p_in
 
-  let rec lexpr (e : Thir.expression) : expression M.t = 
-    let open AstHir in
-    let lt = e.info in 
-    match e.exp with 
+  let rec lexpr (exp : ThirUtils.expression) : expression M.t = 
+    let open IrAst.Ast in
+    match exp.node with 
       | Variable name ->
         let* id = find_scoped_var name in
-        let+ () = M.update_var (fst lt) id assign_var in buildExp lt (Variable id)
+        let+ () = M.update_var exp.tag.loc  id assign_var in buildExp exp.tag (Variable id)
       | Deref e -> rexpr e 
-      | ArrayRead (e1, e2) -> let+ e1' = lexpr e1 and* e2' = rexpr e2 in buildExp lt (ArrayRead(e1',e2'))
-      | StructRead (origin,e,field) -> let+ e = lexpr e in buildExp lt (StructRead (origin,e,field))
-      | Ref _ -> M.error Logging.(make_msg (fst lt) "todo")
-      |  _ ->  M.error Logging.(make_msg (fst lt) @@ "thir didn't lower correctly this expression")
-  and rexpr (e : Thir.expression) : expression M.t = 
-    let lt = e.info in 
-    let open AstHir in
-    match e.exp with 
-      | Variable name ->
-        let+ id = find_scoped_var name in buildExp lt (Variable id)
-      | Literal l -> buildExp lt (Literal l) |> M.pure
-      | Deref e -> lexpr e 
-      | ArrayRead (array_exp,idx) -> let+ arr = rexpr array_exp and* idx' = rexpr idx in buildExp lt (ArrayRead(arr,idx'))
-      | UnOp (o, e) -> let+ e' = rexpr e in buildExp lt (UnOp (o, e'))
-      | BinOp (o ,e1, e2) ->  let+ e1' = rexpr e1 and* e2' = rexpr e2 in buildExp lt (BinOp(o, e1', e2'))
-      | Ref (b, e) -> let+ e' = rexpr e in buildExp lt (Ref(b, e'))
-      | ArrayStatic el -> let+ el' = ListM.map rexpr el in buildExp lt (ArrayStatic el')
-      | StructRead (origin,struct_exp,field)  -> 
-        let+ exp = rexpr struct_exp in 
-        buildExp lt (StructRead (origin,exp,field))  
-      
-      | StructAlloc (origin,id, fields) -> 
-        let+ fields = ListM.map (rexpr |> pairMap2 |> pairMap2) fields in 
-        buildExp lt (StructAlloc(origin,id,fields))
-      | MethodCall _ 
-      | _ ->  M.error @@ Logging.(make_msg (fst lt) @@ "thir didn't lower correctly this expression")
+      | ArrayRead a -> let+ array = lexpr a.array and* idx = rexpr a.idx in
+        buildExp exp.tag (ArrayRead {array;idx})
 
+      | StructRead2 s -> let+ strct = lexpr s.value.strct in buildExp exp.tag (StructRead2 {s with value={s.value with strct}})
+
+      | Ref _ -> M.error Logging.(make_msg exp.tag.loc "todo")
+
+      | Literal _ | UnOp _ | BinOp _  | ArrayStatic _ | StructAlloc2 _ | EnumAlloc _ ->
+      M.error Logging.(make_msg exp.tag.loc  @@ "compiler error : not a lexpr")
+
+  and rexpr (exp : ThirUtils.expression) : expression M.t = 
+  let open IrAst.Ast in
+    match exp.node with 
+      | Variable name ->
+        let+ id = find_scoped_var name in buildExp exp.tag (Variable id)
+      | Literal l -> buildExp exp.tag (Literal l) |> M.pure
+      | Deref e -> lexpr e 
+      | ArrayRead a -> let+ array = rexpr a.array and* idx = rexpr a.idx in buildExp exp.tag (ArrayRead {array;idx})
+      | UnOp (o, e) -> let+ e' = rexpr e in buildExp exp.tag (UnOp (o, e'))
+      | BinOp bop ->  let+ left = rexpr bop.left and* right = rexpr bop.right in buildExp exp.tag (BinOp {bop with left;right})
+      | Ref (b, e) -> let+ e' = rexpr e in buildExp exp.tag (Ref(b, e'))
+      | ArrayStatic el -> let+ el' = ListM.map rexpr el in buildExp exp.tag (ArrayStatic el')
+      | StructRead2 s  -> 
+        let+ strct = rexpr s.value.strct in 
+        buildExp exp.tag (StructRead2 {s with value={s.value with strct}})  
+      
+      | StructAlloc2 s -> 
+        let+ fields = ListM.map (fun f -> pairMap2 (fun f ->  let+ value = rexpr f.value in {f with value}) f)  s.value.fields in 
+        buildExp exp.tag (StructAlloc2 {s with value={s.value with fields}})
+      | EnumAlloc _ ->  M.error @@ Logging.(make_msg exp.tag.loc @@ "compiler error : not a rexpr")
 
 
       open UseMonad(M.E)   
 
 
   let lower_method (body,_ : m_in * method_sig) (env,tenv) (_sm: (m_in,p_in) SailModule.methods_processes SailModule.t) : (m_out * SailModule.DeclEnv.t * _) M.E.t =
-    let rec aux (s : Thir.statement) : m_out M.t = 
+    let rec aux (s : ThirUtils.statement) : m_out M.t = 
       let open UseMonad(M) in
-      let loc = s.info in
-      match s.stmt with
-      | DeclVar(mut, id, Some ty, None) -> 
+      let loc = s.tag.loc in
+      match s.node with
+      | DeclVar2 d -> 
         let* bb = emptyBasicBlock loc  in
-        let* id = M.fresh_scoped_var >>| get_scoped_var id in
-        let+ () = M.declare_var loc id {ty;mut;id;loc} in
-        [{location=loc; mut; id; varType=ty}],bb
-
-      | DeclVar(mut, id, Some ty, Some e) -> 
-        let* id_ty = M.get_type_id ty in
-        let* expression = rexpr e in
-        let* id = M.fresh_scoped_var >>| get_scoped_var id in
-        let* () = M.declare_var loc id {ty;mut;id;loc} in
-        let target = AstHir.buildExp (loc,id_ty) (Variable id) in
-        let+ bn = assignBasicBlock loc {location=loc; target; expression }  in
-        [{location=loc; mut; id=id; varType=ty}],bn
-        (* ++ other statements *)
-
-      | DeclVar (_,name,None,_) -> failwith @@ "thir broken : variable declaration should have a type : " ^name
+        let* id = M.fresh_scoped_var >>| get_scoped_var d.id in
+        let+ () = M.declare_var loc id {ty=d.ty;mut=d.mut;id;loc} in
+        [{location=loc; mut=d.mut; id; varType=d.ty}],bb
 
       | Skip -> let+ bb = emptyBasicBlock loc in ([],  bb)
 
-      | Assign (e1, e2) -> 
-        let* expression = rexpr e2 and* target = lexpr e1 in
+      | Assign a -> 
+        let* expression = rexpr a.value and* target = lexpr a.path in
         let+ bb = assignBasicBlock loc {location=loc; target; expression} in [],bb
         
       | Seq (s1, s2) ->
@@ -97,16 +87,16 @@ struct
         (* let* () = M.set_env env in  *)
         let+ bb = buildSeq cfg1 cfg2 in d1@d2,bb
 
-      | If (e, s, None) -> 
-        let* e' = rexpr e in
-        let* d, cfg = aux s in
-        let+ ite = buildIfThen loc e' cfg in
+      | If ({else_=None;_} as if_) -> 
+        let* cond = rexpr if_.cond in
+        let* d, cfg = aux if_.then_ in
+        let+ ite = buildIfThen loc cond cfg in
         (d,ite) 
         
-      | If (e, s1, Some s2) -> 
-        let* e' = rexpr e in
-        let* d1,cfg1 = aux s1 and* d2,cfg2 = aux s2 in
-        let+ ite = buildIfThenElse loc e' cfg1 cfg2 in
+      | If ({else_=Some else_;_} as if_) -> 
+        let* cond = rexpr if_.cond in
+          let* d1,cfg1 = aux if_.then_ and* d2,cfg2 = aux else_ in
+        let+ ite = buildIfThenElse loc cond cfg1 cfg2 in
         (d1@d2, ite) 
 
       | Loop s ->  
@@ -120,12 +110,12 @@ struct
         let+ cfg = singleBlock bb in
         ([],cfg)
         
-      | Invoke i -> 
-        let* ((_,realname),_) = M.throw_if_none Logging.(make_msg loc @@ Fmt.str "Compiler Error : function '%s' must exist" (snd i.id)) 
-                                              (SailModule.DeclEnv.find_decl (snd i.id) (Specific (snd i.import,Method)) (snd env))
+      | Invoke2 i -> 
+        let* (realname,_) = M.throw_if_none Logging.(make_msg loc @@ Fmt.str "Compiler Error : function '%s' must exist" i.value.id.value) 
+                                              (SailModule.DeclEnv.find_decl i.value.id.value (Specific (i.import.value,Method)) (snd env))
         in
-        let* args = ListM.map rexpr i.args in
-        let+ invoke = buildInvoke loc i.import (fst i.id,realname) i.ret_var args in
+        let* args = ListM.map rexpr i.value.args in
+        let+ invoke = buildInvoke loc i.import (mk_locatable i.value.id.loc realname.value) i.value.ret_var args in
         ([], invoke)
 
       | Return e ->

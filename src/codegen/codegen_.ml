@@ -6,10 +6,10 @@ open IrMir
 open Monad.UseMonad(E)
 module L = Llvm
 module E = Logging.Logger
-let get_type (e:AstMir.expression) = snd e.info
+let get_type (e:MirAst.expression) = e.tag.ty
 
-let rec eval_l (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (x: AstMir.expression) : L.llvalue E.t = 
-  match x.exp with
+let rec eval_l (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (exp: MirAst.expression) : L.llvalue E.t = 
+  match exp.node with
   | Variable x -> 
     let+ _,v = match (SailEnv.get_var x venv) with 
       | Some (_,n) -> return n 
@@ -18,50 +18,57 @@ let rec eval_l (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (x: 
 
   | Deref x -> eval_r env llvm x
 
-  | ArrayRead (array_exp, index_exp) -> 
-    let* array_val = eval_l env llvm array_exp in
-    let+ index = eval_r env llvm index_exp in
+  | ArrayRead a -> 
+    let* array_val = eval_l env llvm a.array in
+    let+ index = eval_r env llvm a.idx in
     let llvm_array = L.build_in_bounds_gep array_val [|L.(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
     llvm_array
     
-  | StructRead ((_,mname),struct_exp,(_,field)) -> 
-    let* st = eval_l env llvm struct_exp in
-    let+ st_type_name = Env.TypeEnv.get_from_id struct_exp.info tenv >>= function  _,CompoundType c -> return (snd c.name) | _ -> E.throw Logging.(make_msg dummy_pos "problem with structure type") in 
-    let fields = (SailEnv.get_decl st_type_name (Specific (mname,Struct)) venv |> Option.get).defn.fields  in
-    let _,_,idx = List.assoc field fields in 
+  | StructRead2 s -> 
+    let* st = eval_l env llvm s.value.strct in
+    let* st_type_name = Env.TypeEnv.get_from_id (mk_locatable s.value.strct.tag.loc s.value.strct.tag.ty) tenv >>= function  
+      | {value=CompoundType c;_} -> return c.name.value
+      | _ -> E.throw Logging.(make_msg dummy_pos "problem with structure type") 
+    in 
+    let+ decl = (SailEnv.get_decl st_type_name (Specific (s.import.value,Struct)) venv 
+                |> E.throw_if_none Logging.(make_msg exp.tag.loc @@ Fmt.str "compiler error : no decl '%s' found" st_type_name)) in
+
+    let fields = decl.defn.fields in
+    let {value=_,idx;_} = List.assoc s.value.field.value fields in 
     L.build_struct_gep st idx "" llvm.b
   
-  | StructAlloc (_,(_,name),fields) -> 
-    let _,fieldlist = fields |> List.split in
-    let* strct_ty = match L.type_by_name llvm.m ("struct." ^ name) with
+  | StructAlloc2 s -> 
+    let _,fieldlist = s.value.fields |> List.split in
+    let* strct_ty = match L.type_by_name llvm.m ("struct." ^ s.value.name.value) with
     | Some s -> return s
     | None -> 
-      E.throw Logging.(make_msg (fst x.info)  @@ "unknown structure : " ^ ("struct." ^ name))
+      E.throw Logging.(make_msg exp.tag.loc  @@ "unknown structure : " ^ ("struct." ^ s.value.name.value))
     in
     let struct_v = L.build_alloca strct_ty "" llvm.b in 
-    let+ () = ListM.iteri ( fun i (_,f) ->
-      let+ v = eval_r env llvm f in
+    let+ () = ListM.iteri ( fun i f ->
+      let+ v = eval_r env llvm f.value in
       let v_f = L.build_struct_gep struct_v i "" llvm.b in
       L.build_store v v_f llvm.b |> ignore
       ) fieldlist in
     struct_v
 
-  | _ -> E.throw Logging.(make_msg (fst x.info) "unexpected rvalue for codegen")
+  | Literal _ | UnOp _ | BinOp _ |  Ref _ | ArrayStatic _  | EnumAlloc _ -> 
+    E.throw Logging.(make_msg exp.tag.loc "unexpected lvalue for codegen")
 
 
-and eval_r (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (x:AstMir.expression) : L.llvalue E.t = 
-  let* ty = Env.TypeEnv.get_from_id x.info tenv in
-  match x.exp with
-  | Variable _ | StructRead _ | ArrayRead _ | StructAlloc _ ->  let+ v = eval_l env llvm x in L.build_load v "" llvm.b
+and eval_r (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (exp:MirAst.expression) : L.llvalue E.t = 
+  let* ty = Env.TypeEnv.get_from_id (mk_locatable exp.tag.loc exp.tag.ty) tenv in
+  match exp.node with
+  | Variable _ | StructRead2 _ | ArrayRead _ | StructAlloc2 _ ->  let+ v = eval_l env llvm exp in L.build_load v "" llvm.b
 
   | Literal l -> return @@ getLLVMLiteral l llvm
 
-  | UnOp (op,e) -> let+ l = eval_r env llvm e in unary op (ty_of_alias ty (snd venv),l) llvm.b
+  | UnOp (op,e) -> let+ l = eval_r env llvm e in unary op (let ty = ty_of_alias ty (snd venv) in (ty.loc,ty.value),l) llvm.b
 
-  | BinOp (op,e1, e2) -> 
-      let+ l1 = eval_r env llvm e1
-      and* l2 = eval_r env llvm e2
-      in binary op (ty_of_alias ty (snd venv)) l1 l2 llvm.b  
+  | BinOp bop -> 
+      let+ l1 = eval_r env llvm bop.left
+      and* l2 = eval_r env llvm bop.right
+      in binary bop.op (ty_of_alias ty (snd venv)) l1 l2 llvm.b  
   | Ref (_,e) -> eval_l env llvm e
 
   | Deref e -> let+ v = eval_l env llvm e in L.build_load v "" llvm.b
@@ -80,32 +87,31 @@ and eval_r (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (x:AstMi
     L.build_load array "" llvm.b
     end
 
-  | EnumAlloc _ -> E.throw Logging.(make_msg (fst x.info) "enum allocation unimplemented") 
+  | EnumAlloc _ -> E.throw Logging.(make_msg exp.tag.loc "enum allocation unimplemented") 
 
-  | _ -> E.throw Logging.(make_msg (fst x.info) "problem with thir")
 
-and construct_call (name:string) ((loc,mname):l_str) (args:AstMir.expression list) (venv,tenv as env : SailEnv.t*Env.TypeEnv.t) (llvm:llvm_args) : L.llvalue E.t = 
-  let* args_type,llargs = ListM.map (fun arg -> let+ r = eval_r env llvm arg in arg.info,r) args >>| List.split
+and construct_call (name:string) (mname:l_str) (args:MirAst.expression list) (venv,tenv as env : SailEnv.t*Env.TypeEnv.t) (llvm:llvm_args) : L.llvalue E.t = 
+  let* args_type,llargs = ListM.map (fun arg -> let+ r = eval_r env llvm arg in arg.tag,r) args >>| List.split
   in
   (* let mname = mangle_method_name name origin.mname args_type in  *)
-  let mangled_name = "_" ^ mname ^ "_" ^ name in 
+  let mangled_name = "_" ^ mname.value ^ "_" ^ name in 
   Logs.debug (fun m -> m "constructing call to %s" name);
-  let* llval,ext = match SailEnv.get_decl mangled_name (Specific (mname,Method)) venv with 
+  let* llval,ext = match SailEnv.get_decl mangled_name (Specific (mname.value,Method)) venv with 
     | None ->   
       begin
-      match SailEnv.get_decl name (Specific (mname,Method)) venv with 
+      match SailEnv.get_decl name (Specific (mname.value,Method)) venv with 
       | Some {llval;extern;_} -> return (llval,extern)
-      | None -> E.throw Logging.(make_msg loc @@ Printf.sprintf "implementation of %s not found" mangled_name ) 
+      | None -> E.throw Logging.(make_msg mname.loc @@ Printf.sprintf "implementation of %s not found" mangled_name ) 
       end
     | Some {llval;extern;_} -> return (llval,extern)
   in
 
   let+ args = 
     if ext then 
-      ListM.map2 (fun t v ->
-      let+ t = Env.TypeEnv.get_from_id t tenv in  
+      ListM.map2 (fun (t:IrThir.ThirUtils.tag) v ->
+      let+ t = Env.TypeEnv.get_from_id (mk_locatable t.loc t.ty) tenv in  
       let builder =
-        match snd (ty_of_alias t (snd venv)) with
+        match (ty_of_alias t (snd venv)).value with
         | Bool | Int _ | Char -> L.build_zext
         | Float -> L.build_bitcast
         | CompoundType _ -> fun v _ _ _ -> v
@@ -118,16 +124,16 @@ and construct_call (name:string) ((loc,mname):l_str) (args:AstMir.expression lis
   in
   L.build_call llval (Array.of_list args) "" llvm.b
   
-open AstMir
+open MirAst
   
 let cfgToIR (proto:L.llvalue) (decls,cfg: mir_function) (llvm:llvm_args) (venv,tenv : SailEnv.t*Env.TypeEnv.t) : unit E.t = 
-  let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:AstMir.expression option) (venv : SailEnv.t) : SailEnv.t E.t =
+  let declare_var (mut:bool) (name:string) (ty:sailtype) (exp:MirAst.expression option) (venv : SailEnv.t) : SailEnv.t E.t =
     let _ = mut in (* todo manage mutable types *)
       let entry_b = L.(entry_block proto |> instr_begin |> builder_at llvm.c) in
       let* v =  
         match exp with
         | Some e -> 
-            let* t = Env.TypeEnv.get_from_id e.info tenv 
+            let* t = Env.TypeEnv.get_from_id (mk_locatable e.tag.loc e.tag.ty) tenv 
             and* v = eval_r (venv,tenv) llvm e in
             let+ ty = getLLVMType (snd venv) t llvm.c llvm.m in
             let x = L.build_alloca ty name entry_b in 
@@ -154,20 +160,21 @@ let cfgToIR (proto:L.llvalue) (decls,cfg: mir_function) (llvm:llvm_args) (venv,t
         let llvm_bbs = BlockMap.add lbl llvm_bb llvm_bbs in
         L.position_at_end llvm_bb llvm.b;
         let* () = ListM.iter (fun x -> assign_var x.target x.expression (venv,tenv)) bb.assignments in
-        match bb.terminator with
-        | Some (Return e) ->  
+        let* terminator = E.throw_if_none Logging.(make_msg bb.location "no terminator : mir is broken") bb.terminator in
+        match terminator with
+        | Return e ->  
             let+ ret = match e with
               | Some r ->  let+ v = eval_r (venv,tenv) llvm r in L.build_ret v
               | None ->  return L.build_ret_void
             in ret llvm.b |> ignore; llvm_bbs
 
-        | Some (Goto lbl) -> 
+        | Goto lbl -> 
           let+ llvm_bbs = aux lbl llvm_bbs venv in
           L.position_at_end llvm_bb llvm.b;
           let _ = L.build_br (BlockMap.find lbl llvm_bbs) llvm.b in
           llvm_bbs
 
-        | Some (Invoke f) ->  
+        | Invoke f ->  
           let* c = construct_call f.id f.origin f.params (venv,tenv) llvm  in
           begin
             match f.target with
@@ -179,7 +186,7 @@ let cfgToIR (proto:L.llvalue) (decls,cfg: mir_function) (llvm:llvm_args) (venv,t
           L.build_br (BlockMap.find f.next llvm_bbs) llvm.b |> ignore;
           llvm_bbs
 
-        | Some (SwitchInt si) -> 
+        | SwitchInt si -> 
             let* sw_val = eval_r (venv,tenv) llvm si.choice in
             let sw_val = L.build_intcast sw_val (L.i32_type llvm.c) "" llvm.b in (* for condition, expression val will be bool *)
             let* llvm_bbs = aux si.default llvm_bbs venv in
@@ -192,9 +199,7 @@ let cfgToIR (proto:L.llvalue) (decls,cfg: mir_function) (llvm:llvm_args) (venv,t
                 in L.add_case sw n (BlockMap.find lbl bm);
                 bm
             ) llvm_bbs si.paths
-
-        | None -> E.throw Logging.(make_msg bb.location "no terminator : mir is broken") 
-        | Some Break -> E.throw Logging.(make_msg bb.location "no break should be there") 
+        | Break -> E.throw Logging.(make_msg bb.location "no break should be there") 
       end
   in
   (

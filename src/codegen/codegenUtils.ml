@@ -20,16 +20,16 @@ let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
   | LChar c -> const_int (i8_type llvm.c) (Char.code c)
   | LString s -> build_global_stringptr  s ".str" llvm.b
 
-let ty_of_alias(t:sailtype) env : sailtype  =
-  match snd t with
-  | CompoundType  {origin=Some (_,mname); name=(_,name);decl_ty=Some T ();_} -> 
+let ty_of_alias(ty:sailtype) env : sailtype  =
+  match ty.value with
+  | CompoundType  {origin=Some mname; name;decl_ty=Some T ();_} -> 
     begin
-    match DeclEnv.find_decl name (Specific (mname,Type)) env with 
+    match DeclEnv.find_decl name.value (Specific (mname.value,Type)) env with 
     | Some {ty=Some t';_} -> t'
-    | Some {ty=None;_} -> t
-    | None -> failwith @@ Fmt.str "ty_of_alias :  '%s' not found in %s" (string_of_sailtype (Some t)) mname
+    | Some {ty=None;_} -> ty
+    | None -> failwith @@ Fmt.str "ty_of_alias :  '%s' not found in %s" (string_of_sailtype (Some ty)) mname.value
     end
-  | _ ->  t
+  | _ ->  ty
 
 let unary (op:unOp) (t,v) : llbuilder -> llvalue = 
   let f = 
@@ -37,7 +37,7 @@ let unary (op:unOp) (t,v) : llbuilder -> llvalue =
     | Float,Neg -> build_fneg
     | Int _,Neg -> build_neg
     | _,Not  -> build_not
-    | _ -> Printf.sprintf "bad unary operand type : '%s'. Only double and int are supported" (string_of_sailtype (Some t)) |> failwith
+    | _ -> Printf.sprintf "bad unary operand type : '%s'. Only double and int are supported" (string_of_sailtype (Some (mk_locatable (fst t) (snd t)))) |> failwith
   in f v ""
   
   
@@ -76,8 +76,8 @@ let binary (op:binOp) (t:sailtype) (l1:llvalue) (l2:llvalue) : llbuilder -> llva
   | And -> "and" | Or -> "or" | Le -> "le" | Lt -> "lt" | Ge -> "ge" | Gt -> "gt" | Mul -> "mul"
   | NEq -> "neq" | Div -> "div"
   in
-  let t = if snd t = Bool then fst t,Int 1 else t in (* thir will have checked for correctness *)
-  let l = operators (snd t) in
+  let t = if t.value = Bool then mk_locatable t.loc @@ Int 1 else t in (* thir will have checked for correctness *)
+  let l = operators t.value in
   let open Common.Monad.MonadOperator(Common.MonadOption.M) in
   match l >>| List.assoc_opt op |> Option.join with
   | Some oper -> oper l1 l2 ""

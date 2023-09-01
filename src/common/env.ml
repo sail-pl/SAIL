@@ -388,7 +388,7 @@ module TypeEnv = struct
   let empty = FieldMap.empty
   let get_id ty (te :t) : string * t = 
     let add_if_no_exists s = FieldMap.update s (Option.fold ~none:(Some ty) ~some:Option.some) in
-    let s = match snd ty with
+    let s = match ty.value with
     | Bool -> "bool"
     | Float -> "float"
     | Char -> "char"
@@ -396,12 +396,12 @@ module TypeEnv = struct
     | Int n -> "int" ^ string_of_int n
     | ArrayType _ ->  "array"
     | GenericType t -> t
-    | CompoundType t -> snd t.name
+    | CompoundType t -> t.name.value
     | Box _ -> "box"
     | RefType _ -> "ref"
   in s,add_if_no_exists s te
 
-  let get_from_id (lid,id:l_str) te : sailtype E.t  = E.throw_if_none Logging.(make_msg lid @@ Fmt.str "id '%s' not found" id) (FieldMap.find_opt id te)
+  let get_from_id (id:l_str) te : sailtype E.t  = E.throw_if_none Logging.(make_msg id.loc @@ Fmt.str "id '%s' not found" id.value) (FieldMap.find_opt id.value te)
 
 end
 

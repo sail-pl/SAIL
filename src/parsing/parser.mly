@@ -24,6 +24,7 @@
     open Common
     open TypesCommon
     open AstParser
+    module SailParser = struct end
 %}
 %token TYPE_BOOL TYPE_FLOAT TYPE_CHAR TYPE_STRING
 %token <int> TYPE_INT 
@@ -131,9 +132,10 @@ let process_body :=
     proc_init = midrule(P_PROC_INIT ; ":" ; ~ = list(located(proc_init)) ; <>)? ; 
     loop = midrule(P_LOOP ; ":" ; loop?)? ; 
     {
-        let init =  Option.(join init |> value ~default:($loc,Skip)) in
+
+        let init =  Option.(join init |> value ~default:(mk_locatable $loc Skip)) in
         let proc_init =  Option.value proc_init ~default:[] in
-        let loop = Option.join loop |> function  Some x -> x | None -> $loc,(Statement (($loc,Skip),None)) in
+        let loop = Option.join loop |> function  Some x -> x | None -> mk_locatable $loc (Statement (mk_locatable $loc Skip,None)) in
 
         {locals;init;proc_init;loop} 
     }
@@ -167,7 +169,7 @@ let generic := loption(delimited("<", separated_list(",", UID), ">"))
 
 let returnType := preceded(":", sailtype)? 
 
-let mutable_var(X) := (loc,id) = located(ID) ; ":" ; mut = mut ; ty =X ; { {id;mut;loc;ty} }
+let mutable_var(X) := id = located(ID) ; ":" ; mut = mut ; ty =X ; { {id=id.value;mut;loc=id.loc;ty} }
 
 let separated_nonempty_list_opt(separator, X) :=
 | x = X ; separator?  ; { [ x ] }
@@ -200,8 +202,10 @@ let expression :=
     | "*" ; ~ = expression ; %prec UNARY <Deref>
     | e1 = expression ; op =binOp ; e2 =expression ; { BinOp(op,e1,e2) }
     | ~ = delimited ("[", separated_list(",", expression), "]") ; <ArrayStatic>
-    | ~ = ioption(module_loc) ; ~ =located(ID) ; ~ = midrule(l = brace_del_sep_list(",", id_colon(expression)); 
-        {List.fold_left (fun l ((ly,y),z) -> (y,(ly,z))::l) [] l}) ; <StructAlloc>
+    | ~ = ioption(module_loc) ; ~ =located(ID) ; 
+        ~ = midrule(l = brace_del_sep_list(",", id_colon(expression)); 
+            { List.fold_left (fun accu (f,e) -> (f.value,mk_locatable f.loc e)::accu) [] l   }
+        ) ; <StructAlloc>
     | ~ = located(UID) ; ~ = loption(parenthesized (separated_list(",", expression))) ; <EnumAlloc>
     | ~ = ioption(module_loc) ; ~ = located(ID) ; ~ = parenthesized(separated_list (",", expression)) ; <MethodCall>
 )
@@ -244,15 +248,15 @@ let iterable_or_range :=
 |  rl = INT ; "," ; rr = INT ; {
     let rl = Z.to_int rl in 
     let rr = Z.to_int rr in 
-    ArrayStatic (List.init (rr - rl) (fun i -> dummy_pos,Literal (LInt {l=Z.of_int (i + rl); size=32})))
+    ArrayStatic (List.init (rr - rl) (fun i -> mk_locatable dummy_pos (Literal (LInt {l=Z.of_int (i + rl); size=32})) ) )
     }
-| e = expression ; {snd e}
+| e = expression ; {e.value}
 
 
 let single_statement := 
 | located (
     | vardecl
-    | l = expression ; "=" ; e = expression ; <Assign>
+    | path = expression ; "=" ; value = expression ; {Assign {path;value} }
     | CASE ; ~ = parenthesized(expression) ; ~ = brace_del_sep_list(",", case) ; <Case>
     | ~ = ioption(module_loc) ; ~ = located(ID) ; ~ = parenthesized(separated_list(",", expression)) ; <Invoke>
     | RETURN ; ~ = expression? ; <Return>
@@ -265,13 +269,15 @@ let vardecl := VAR ; ~ = mut ; ~ = ID ; ~ = preceded(":", sailtype)? ; ~ = prece
 
 let brace_del_sep_list(sep,x) := delimited("{", separated_nonempty_list(sep, x), "}") 
 
-let located(x) == ~ = x ; { ($loc,x) }
+let located(x) == ~ = x ; { mk_locatable $loc x }
 
 let case := separated_pair(pattern, ":", statement)
 
 let mut := boption(MUT)
 
-let module_loc :=  ~ = located(ID); "::" ; <> | x = located(SELF) ; "::" ; { (fst x),Constants.sail_module_self}
+let module_loc :=  
+    | ~ = located(ID); "::" ; <> 
+    | located(SELF) ; "::" ; { mk_locatable dummy_pos Constants.sail_module_self }
 
 let parenthesized(e) == delimited("(",e,")")
 

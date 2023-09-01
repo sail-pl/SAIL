@@ -3,7 +3,7 @@ open Monad
 open TypesCommon
 module E = Common.Logging
 open Monad.MonadSyntax (E.Logger)
-open IrMir.AstMir
+open IrMir.MirAst
 open MonomorphizationMonad
 module M = MonoMonad
 open MonomorphizationUtils
@@ -19,45 +19,45 @@ module Pass = Pass.Make (struct
 
   let mono_fun (f : sailor_function) (sm : in_body SailModule.t) : unit M.t =
     
-    let mono_exp (e : expression) (decls :declaration list) : sailtype M.t =
-      let rec aux (e : expression) : sailtype M.t =
-        match e.exp with
+    let mono_exp (exp : expression) (decls :declaration list) : sailtype M.t =
+      let rec aux (exp : expression) : sailtype M.t =
+        match exp.node with
         | Variable s -> 
           M.get_var s 
           <&> (function 
               | Some v -> Some (snd v).ty (* var is a function param *)
               | None -> Option.bind (List.find_opt (fun v -> v.id = s) decls) (fun decl -> Some decl.varType) (* var is function declaration *)
               ) 
-          >>= M.throw_if_none Logging.(make_msg (fst e.info) @@ Fmt.str "compiler error : var '%s' not found" s)
+          >>= M.throw_if_none Logging.(make_msg exp.tag.loc @@ Fmt.str "compiler error : var '%s' not found" s)
           
         | Literal l -> return (sailtype_of_literal l)
     
-        | ArrayRead (e, idx) -> 
+        | ArrayRead a -> 
           begin
-            let* l,t = aux e in
-            match t with
+            let* t = aux a.array in
+            match t.value with
             | ArrayType (t, _) ->
-                let+ idx_t = aux idx in
-                let _ = resolveType idx_t (l,Int 32) [] [] in
+                let+ idx_t = aux a.idx in
+                let _ = resolveType idx_t (mk_locatable t.loc @@ Int 32) [] [] in
                 t
             | _ -> failwith "cannot happen"
             end
         | UnOp (_, e) -> aux e
     
-        | BinOp (_, e1, e2) ->
-            let* t1 = aux e1 in
-            let+ t2 = aux e2 in
-            let _ = resolveType t1 t2 [] [] in
-            t1
+        | BinOp bop ->
+            let* left = aux bop.left in
+            let+ right = aux bop.right in
+            let _ = resolveType left right [] [] in
+            left
     
         | Ref (m, e) ->
             let+ t = aux e in
-            dummy_pos,RefType (t, m)
+            mk_locatable exp.tag.loc @@ RefType (t, m)
     
         | Deref e -> (
-            let+ l,t = aux e in
-            match t with
-            | RefType _ -> l,t
+            let+ t = aux e in
+            match t.value with
+            | RefType _ -> t
             | _ -> failwith "cannot happen"
           )
     
@@ -70,15 +70,14 @@ module Pass = Pass.Make (struct
                 next_t
               ) t h
           in
-          dummy_pos,ArrayType (t, List.length (e :: h))
+          mk_locatable exp.tag.loc @@ ArrayType (t, List.length (e :: h))
     
         | ArrayStatic [] -> failwith "error : empty array"
-        | StructAlloc (_, _, _) -> failwith "todo: struct alloc"
+        | StructAlloc2 _ -> failwith "todo: struct alloc"
         | EnumAlloc (_, _) -> failwith "todo: enum alloc"
-        | StructRead (_, _, _) -> failwith "todo: struct read"
-        | MethodCall _ -> failwith "no method call at this stage"
+        | StructRead2 _ -> failwith "todo: struct read"
       in
-      aux e
+      aux exp
     in
     
     let construct_call (calle : string) (el : expression list) decls : (string * sailtype option) M.t =
@@ -111,47 +110,47 @@ module Pass = Pass.Make (struct
         begin
           let* f = find_callable calle sm |> M.lift in
           match f with 
-          | None -> (*import *) return (mname,Some (dummy_pos,Int 32) (*fixme*))
+          | None -> (*import *) return (mname,Some (mk_locatable dummy_pos @@ Int 32) (*fixme*))
           | Some f -> 
-              begin
-            Logs.debug (fun m -> m "found call to %s, variadic : %b" f.m_proto.name f.m_proto.variadic );
-            match f.m_body with
-            | Right _ ->
-              (* process and method 
-      
-                we make sure they correspond to what the callable wants 
-                if the callable is generic we check all the generic types are present at least once 
-              
-                  we build a (string*sailtype) list of generic to type correspondance
-                  if the generic is not found in the list, we add it with the corresponding type
-                  if the generic already exists with the same type as the new one, we are good else we fail
-              *)
-              let* resolved_generics = check_args call_args f |> M.lift in
-              List.iter (fun (n, t) -> Logs.debug (fun m -> m "resolved %s to %s " n (string_of_sailtype (Some t)))) resolved_generics;
-      
-              let* () = M.push_monos calle resolved_generics in
-      
-              let* rtype =
-                match f.m_proto.rtype with
-                | Some t -> 
-                  (* Logs.warn (fun m -> m "TYPE BEFORE : %s" (string_of_sailtype (Some t)));  *)
-                  let+ t = (degenerifyType t resolved_generics|> M.lift) in 
-                (* Logs.warn (fun m -> m "TYPE AFTER : %s" (string_of_sailtype (Some t)));  *)
-                  Some t
-                | None -> return None
-              in
-              
-              let params = List.map2 (fun (p:param) ty -> {p with ty}) f.m_proto.params call_args in
-              let name = mname in
-              let methd = { f with m_proto = { f.m_proto with rtype ; params } } in 
-              let+ () = 
-                let* f = M.get_decl name (Self Method) in
-                if Option.is_none f  then   
-                  M.add_decl name ((dummy_pos,name),(defn_to_proto (Method methd))) Method
-                else return ()
-              in
-              mname,rtype
-            | Left _ -> (* external method *) return (calle,f.m_proto.rtype)
+            begin
+              Logs.debug (fun m -> m "found call to %s, variadic : %b" f.m_proto.name f.m_proto.variadic );
+              match f.m_body with
+              | Right _ ->
+                (* process and method 
+        
+                  we make sure they correspond to what the callable wants 
+                  if the callable is generic we check all the generic types are present at least once 
+                
+                    we build a (string*sailtype) list of generic to type correspondance
+                    if the generic is not found in the list, we add it with the corresponding type
+                    if the generic already exists with the same type as the new one, we are good else we fail
+                *)
+                let* resolved_generics = check_args call_args f |> M.lift in
+                List.iter (fun (n, t) -> Logs.debug (fun m -> m "resolved %s to %s " n (string_of_sailtype (Some t)))) resolved_generics;
+        
+                let* () = M.push_monos calle resolved_generics in
+        
+                let* rtype =
+                  match f.m_proto.rtype with
+                  | Some t -> 
+                    (* Logs.warn (fun m -> m "TYPE BEFORE : %s" (string_of_sailtype (Some t)));  *)
+                    let+ t = (degenerifyType t resolved_generics|> M.lift) in 
+                  (* Logs.warn (fun m -> m "TYPE AFTER : %s" (string_of_sailtype (Some t)));  *)
+                    Some t
+                  | None -> return None
+                in
+                
+                let params = List.map2 (fun (p:param) ty -> {p with ty}) f.m_proto.params call_args in
+                let name = mname in
+                let methd = { f with m_proto = { f.m_proto with rtype ; params } } in 
+                let+ () = 
+                  let* f = M.get_decl name (Self Method) in
+                  if Option.is_none f  then   
+                    M.add_decl name ((mk_locatable dummy_pos name),(defn_to_proto (Method methd))) Method
+                  else return ()
+                in
+                mname,rtype
+              | Left _ -> (* external method *) return (calle,f.m_proto.rtype)
             end
       end
     in

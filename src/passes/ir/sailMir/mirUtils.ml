@@ -1,9 +1,10 @@
-open AstMir
+open MirAst
 open Common 
 open TypesCommon
 open Monad
 open MirMonad
 open UseMonad(M)
+
 let assign_var (var_l,v:VE.variable) = 
   (var_l,v) |> M.E.pure
 
@@ -179,7 +180,7 @@ let buildInvoke (l : loc) (origin:l_str) (id : l_str) (target : string option) (
       forward_info = env;
       backward_info = (); 
       location=l; 
-      terminator = Some (Invoke {id = (snd id); origin; target; params = el; next = returnLbl})
+      terminator = Some (Invoke {id=id.value; origin; target; params = el; next = returnLbl})
   } in
   let returnBlock = {assignments = []; predecessors = LabelSet.singleton invokeLbl ; forward_info = env; backward_info = () ; location = dummy_pos; terminator = None} in 
   {
@@ -220,7 +221,8 @@ let find_scoped_var name : string M.t =
 
 
 let seqOfList (l : statement list) : statement = 
-  List.fold_left (fun s l : statement ->  {info=dummy_pos; stmt=Seq (s, l)}) {info=dummy_pos;stmt=Skip} l
+  let tag = IrThir.ThirUtils.empty_tag in
+  List.fold_left (fun s l : statement ->  {tag; node=Seq (s, l)}) {tag;node=Skip} l
 
 
 

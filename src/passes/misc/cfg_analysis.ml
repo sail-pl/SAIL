@@ -4,7 +4,7 @@ open Pass
 open IrMir
 open SailParser
 open IrHir
-open AstMir
+open MirAst
 open Monad
 
 
@@ -66,7 +66,7 @@ let check_returns  (proto : method_sig) (decls,cfg : mir_function) : mir_functio
 
 module Pass = Make(struct 
   let name = "analysis on mir"
-  type in_body = (AstMir.mir_function,(HirUtils.statement,HirUtils.expression) AstParser.process_body) SailModule.methods_processes
+  type in_body = (MirAst.mir_function,(HirUtils.statement,HirUtils.expression) AstParser.process_body) SailModule.methods_processes
   type out_body = in_body
 
   let transform (sm: in_body SailModule.t) : out_body SailModule.t E.t =

@@ -1,4 +1,4 @@
-open AstMir
+open MirAst
 open Common 
 
 module M = struct 
