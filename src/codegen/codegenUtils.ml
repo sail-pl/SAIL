@@ -18,7 +18,7 @@ let getLLVMLiteral (l:literal) (llvm:llvm_args) : llvalue =
   | LInt i -> const_int_of_string (integer_type llvm.c i.size) (Z.to_string i.l) 10
   | LFloat f -> const_float (double_type llvm.c) f
   | LChar c -> const_int (i8_type llvm.c) (Char.code c)
-  | LString s -> build_global_stringptr  s ".str" llvm.b
+  | LString s -> let s = build_global_stringptr  s ".str" llvm.b in build_pointercast s (pointer_type2 llvm.c) "" llvm.b
 
 let ty_of_alias(ty:sailtype) env : sailtype  =
   match ty.value with
@@ -93,7 +93,7 @@ let toLLVMArgs (args: param list ) (env:DeclEnv.t) (llvm:llvm_args) : (bool * sa
 
 
 let get_memcpy_intrinsic llvm = 
-  let args_type = [|i8_type llvm.c |> pointer_type; i8_type llvm.c |> pointer_type ; i64_type llvm.c; i1_type llvm.c|] in
+  let args_type = [|pointer_type2 llvm.c;  pointer_type2 llvm.c; i64_type llvm.c; i1_type llvm.c|] in
 
   let f = declare_function "llvm.memcpy.p0i8.p0i8.i64" (function_type (void_type llvm.c) args_type ) llvm.m in
   f

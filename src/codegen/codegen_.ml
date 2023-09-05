@@ -13,29 +13,36 @@ let rec eval_l (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (exp
   | Variable x -> 
     let+ _,v = match (SailEnv.get_var x venv) with 
       | Some (_,n) -> return n 
-      | None -> E.throw Logging.(make_msg dummy_pos @@ Fmt.str "var '%s' not found" x)
+      | None -> E.throw Logging.(make_msg exp.tag.loc @@ Fmt.str "var '%s' not found" x)
     in v
 
   | Deref x -> eval_r env llvm x
 
   | ArrayRead a -> 
     let* array_val = eval_l env llvm a.array in
+    let* llty = 
+      Env.TypeEnv.get_from_id (mk_locatable a.array.tag.loc  a.array.tag.ty) tenv >>= fun t -> 
+        getLLVMType (snd venv) t llvm.c llvm.m in 
     let+ index = eval_r env llvm a.idx in
-    let llvm_array = L.build_in_bounds_gep array_val [|L.(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
+    let llvm_array = L.build_in_bounds_gep2 llty array_val [|L.(const_int (i64_type llvm.c) 0 ); index|] "" llvm.b in 
     llvm_array
     
   | StructRead2 s -> 
     let* st = eval_l env llvm s.value.strct in
+    let* llty = 
+      Env.TypeEnv.get_from_id (mk_locatable s.value.strct.tag.loc  s.value.strct.tag.ty) tenv >>= fun t -> 
+        getLLVMType (snd venv) t llvm.c llvm.m in 
+        
     let* st_type_name = Env.TypeEnv.get_from_id (mk_locatable s.value.strct.tag.loc s.value.strct.tag.ty) tenv >>= function  
       | {value=CompoundType c;_} -> return c.name.value
-      | _ -> E.throw Logging.(make_msg dummy_pos "problem with structure type") 
+      | _ -> E.throw Logging.(make_msg exp.tag.loc "problem with structure type") 
     in 
     let+ decl = (SailEnv.get_decl st_type_name (Specific (s.import.value,Struct)) venv 
                 |> E.throw_if_none Logging.(make_msg exp.tag.loc @@ Fmt.str "compiler error : no decl '%s' found" st_type_name)) in
 
     let fields = decl.defn.fields in
     let {value=_,idx;_} = List.assoc s.value.field.value fields in 
-    L.build_struct_gep st idx "" llvm.b
+    L.build_struct_gep2 llty st idx "" llvm.b
   
   | StructAlloc2 s -> 
     let _,fieldlist = s.value.fields |> List.split in
@@ -47,7 +54,7 @@ let rec eval_l (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (exp
     let struct_v = L.build_alloca strct_ty "" llvm.b in 
     let+ () = ListM.iteri ( fun i f ->
       let+ v = eval_r env llvm f.value in
-      let v_f = L.build_struct_gep struct_v i "" llvm.b in
+      let v_f = L.build_struct_gep2 (L.pointer_type2 llvm.c) struct_v i "" llvm.b in
       L.build_store v v_f llvm.b |> ignore
       ) fieldlist in
     struct_v
@@ -58,8 +65,9 @@ let rec eval_l (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (exp
 
 and eval_r (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (exp:MirAst.expression) : L.llvalue E.t = 
   let* ty = Env.TypeEnv.get_from_id (mk_locatable exp.tag.loc exp.tag.ty) tenv in
+  let* llty = getLLVMType (snd venv) ty llvm.c llvm.m in 
   match exp.node with
-  | Variable _ | StructRead2 _ | ArrayRead _ | StructAlloc2 _ ->  let+ v = eval_l env llvm exp in L.build_load v "" llvm.b
+  | Variable _ | StructRead2 _ | ArrayRead _ | StructAlloc2 _ ->  let+ v = eval_l env llvm exp in L.build_load2 llty v "" llvm.b
 
   | Literal l -> return @@ getLLVMLiteral l llvm
 
@@ -71,7 +79,7 @@ and eval_r (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (exp:Mir
       in binary bop.op (ty_of_alias ty (snd venv)) l1 l2 llvm.b  
   | Ref (_,e) -> eval_l env llvm e
 
-  | Deref e -> let+ v = eval_l env llvm e in L.build_load v "" llvm.b
+  | Deref e -> let+ v = eval_l env llvm e in L.build_load2 llty v "" llvm.b
 
   | ArrayStatic elements -> 
     begin
@@ -84,7 +92,7 @@ and eval_r (venv,tenv as env:SailEnv.t* Env.TypeEnv.t) (llvm:llvm_args) (exp:Mir
     L.set_linkage L.Linkage.Private array;
     L.set_unnamed_addr true array;
     L.set_global_constant true array;
-    L.build_load array "" llvm.b
+    L.build_load2 llty array "" llvm.b
     end
 
   | EnumAlloc _ -> E.throw Logging.(make_msg exp.tag.loc "enum allocation unimplemented") 
@@ -96,14 +104,15 @@ and construct_call (name:string) (mname:l_str) (args:MirAst.expression list) (ve
   (* let mname = mangle_method_name name origin.mname args_type in  *)
   let mangled_name = "_" ^ mname.value ^ "_" ^ name in 
   Logs.debug (fun m -> m "constructing call to %s" name);
-  let* llval,ext = match SailEnv.get_decl mangled_name (Specific (mname.value,Method)) venv with 
+
+  let* llval,ext,llty = match SailEnv.get_decl mangled_name (Specific (mname.value,Method)) venv with 
     | None ->   
       begin
       match SailEnv.get_decl name (Specific (mname.value,Method)) venv with 
-      | Some {llval;extern;_} -> return (llval,extern)
+      | Some d -> return (d.llval,d.extern,d.llty)
       | None -> E.throw Logging.(make_msg mname.loc @@ Printf.sprintf "implementation of %s not found" mangled_name ) 
       end
-    | Some {llval;extern;_} -> return (llval,extern)
+    | Some d -> return (d.llval,d.extern,d.llty)
   in
 
   let+ args = 
@@ -122,7 +131,7 @@ and construct_call (name:string) (mname:l_str) (args:MirAst.expression list) (ve
     else 
       return llargs 
   in
-  L.build_call llval (Array.of_list args) "" llvm.b
+  L.build_call2 llty llval (Array.of_list args) "" llvm.b
   
 open MirAst
   
@@ -218,7 +227,7 @@ let methodToIR (llc:L.llcontext) (llm:L.llmodule) (decl:Declarations.method_decl
     Logs.info (fun m -> m "codegen of %s" name);
     let builder = L.builder llc in
     let llvm = {b=builder; c=llc ; m = llm; layout=Llvm_target.DataLayout.of_string (L.data_layout llm)} in
-    let* () = E.throw_if Logging.(make_msg dummy_pos @@ "redefinition of function " ^  name) (L.block_begin decl.llval <> At_end decl.llval) in
+    let* () = E.throw_if Logging.(make_msg decl.defn.m_proto.pos @@ "redefinition of function " ^  name) (L.block_begin decl.llval <> At_end decl.llval) in
     let bb = L.append_block llvm.c "" decl.llval in
     L.position_at_end bb llvm.b;
 

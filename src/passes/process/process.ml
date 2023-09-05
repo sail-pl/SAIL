@@ -89,7 +89,7 @@ module Pass = Pass.Make(struct
         let* m = M.throw_if_none Logging.(make_msg dummy_pos "need main process") 
                                   (List.find_opt (fun p -> p.p_name = Constants.main_process) procs) 
         in 
-        let (pi: _ proc_init) = {mloc=None; read = []; write = [] ; params = [] ; id = Constants.main_process ; proc = Constants.main_process} in
+        let (pi: _ proc_init) = {mloc=Some (mk_locatable dummy_pos Constants.sail_module_self); read = []; write = [] ; params = [] ; id = Constants.main_process ; proc = Constants.main_process} in
         let* body = compute_tree FieldSet.empty (dummy_pos,pi) in 
         let+ () = M.write_loop body in m
       ) |> M.run sm.declEnv >>| finalize
