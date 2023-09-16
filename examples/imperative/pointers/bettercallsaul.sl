@@ -24,5 +24,5 @@ Loop:
     print_string(" ");
     print_int(z);
     print_newline();
-    exit(0);
+    quit();
 }

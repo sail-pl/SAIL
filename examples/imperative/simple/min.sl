@@ -15,5 +15,5 @@ Run:
     x = min(5,3,6);
     print_int(x);
     print_newline();
-    exit(0);
+    quit();
 }

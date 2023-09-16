@@ -19,5 +19,5 @@ process Main {
 
 //      printf("%b\n", b);
 //	printf("%c\n", c);
-    exit(0);
+    quit();
 }

@@ -46,7 +46,6 @@ end
 module ErrorMonadEither = struct
 
   module Make (T : Type) : ErrorMonad with type 'a t = (T.t, 'a) Either.t and type error = T.t = struct 
-   
     include MonadEither.Make(T)
     
     type error = T.t

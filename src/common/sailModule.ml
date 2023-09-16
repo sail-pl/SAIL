@@ -1,5 +1,5 @@
 open TypesCommon
-module E = Error.Logger
+module E = Logging.Logger
 
 module Declarations = struct
   type process_decl = loc * process_proto
@@ -13,11 +13,13 @@ module DeclEnv = Env.DeclarationsEnv(Declarations)
 
 module SailEnv = Env.VariableDeclEnv(Declarations) 
 
+module TypeMap = Map.Make(struct type t = loc let compare = compare end)
 
 type ('m,'p) methods_processes  = {methods : 'm method_defn list ; processes : 'p process_defn list; }
 
 type 'a t =
 {
+  typeEnv: Env.TypeEnv.t; (* create functions for each type to create if not exist entry to map (otherwise gives same id )*)
   declEnv: DeclEnv.t;
   builtins : method_sig list ;
   body : 'a;
@@ -27,6 +29,7 @@ type 'a t =
 
 let emptyModule empty_content = 
 {
+  typeEnv = Env.TypeEnv.empty;
   declEnv = DeclEnv.empty;
   builtins = [];
   body = empty_content;
@@ -46,4 +49,4 @@ let method_decl_of_defn (d : 'a method_defn) : Declarations.method_decl =
   and args = d.m_proto.params 
   and generics = d.m_proto.generics 
   and variadic = d.m_proto.variadic in
-  ((pos,name),{ret;args;generics;variadic})
+  (mk_locatable pos name,{ret;args;generics;variadic})

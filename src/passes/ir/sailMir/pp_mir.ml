@@ -1,31 +1,30 @@
 open Common
 open PpCommon
 open Format
-open AstMir 
+open MirAst 
+open TypesCommon
 
-let rec ppPrintExpression (pf : Format.formatter) (e : AstMir.expression) : unit =
-  match e.exp with 
+let rec ppPrintExpression (pf : Format.formatter) (e : MirAst.expression) : unit =
+  match e.node with 
     | Variable s -> fprintf pf "%s" s
     | Deref e -> fprintf pf "*%a" ppPrintExpression e 
-    | StructRead (_,e, (_,s)) -> fprintf pf "%a.%s" ppPrintExpression e s
-    | ArrayRead (e1, e2) -> fprintf pf "%a[%a]" ppPrintExpression e1 ppPrintExpression e2
+    | StructRead2 s -> fprintf pf "%a.%s" ppPrintExpression s.value.strct s.value.field.value
+    | ArrayRead a -> fprintf pf "%a[%a]" ppPrintExpression a.array ppPrintExpression a.idx
     | Literal (l) -> fprintf pf "%a" PpCommon.pp_literal l 
     | UnOp (o, e) -> fprintf pf "%a %a" pp_unop o ppPrintExpression e
-    | BinOp ( o, e1, e2) -> fprintf pf "%a %a %a" ppPrintExpression e1 pp_binop o ppPrintExpression e2
+    | BinOp bop -> fprintf pf "%a %a %a" ppPrintExpression bop.left pp_binop bop.op ppPrintExpression bop.right
     | Ref (true,e) -> fprintf pf "&mut %a" ppPrintExpression e 
     | Ref (false,e) -> fprintf pf "&%a" ppPrintExpression e 
     | ArrayStatic el ->  
       Format.fprintf pf "[%a]"
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    |StructAlloc  (_,id, m) ->
-      let pp_field pf (x, y) = Format.fprintf pf "%s:%a" x ppPrintExpression y in
-      Format.fprintf pf "%s{%a}" (snd id)
-        (Format.pp_print_list ~pp_sep:pp_comma pp_field)
-        m
+    |StructAlloc2  s ->
+      let pp_field pf (x, (y: 'a locatable)) = Format.fprintf pf "%s:%a" x ppPrintExpression y.value in
+      Format.fprintf pf "%s{%a}" s.value.name.value
+        (Format.pp_print_list ~pp_sep:pp_comma pp_field) s.value.fields
     | EnumAlloc (id,el) ->  
-      Format.fprintf pf "[%s(%a)]" (snd id)
+      Format.fprintf pf "[%s(%a)]" id.value
         (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    | MethodCall _ -> ()
 
 let ppPrintPredecessors (pf : Format.formatter) (preds : LabelSet.t ) : unit = 
   if LabelSet.is_empty preds then fprintf pf "// no precedessors"
@@ -41,15 +40,19 @@ let ppPrintAssignement (pf : Format.formatter) (a : assignment) : unit =
 let ppPrintTerminator (pf : Format.formatter) (t : terminator) : unit = 
   match t with 
     | Goto lbl -> fprintf pf "\t\tgoto %d;" lbl 
-    | Invoke {id; params;next;origin=(_,mname);target} -> fprintf pf "\t\t%a%s(%a) -> %d" (Format.pp_print_option  (fun fmt id -> fprintf fmt "%s = %s::" id mname)) target id (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) params next
+    | Invoke {id; params;next;origin;target} -> fprintf pf "\t\t%a%s(%a) -> [return: bb%d]" 
+          (Format.pp_print_option  (fun fmt id -> fprintf fmt "%s = %s::" id origin.value)) target 
+          id 
+          (Format.pp_print_list ~pp_sep:pp_comma ppPrintExpression) params 
+          next
     | Return None -> fprintf pf "\t\treturn;"
     | Return (Some e) ->  fprintf pf "\t\treturn %a;" ppPrintExpression e 
-    | SwitchInt (e, cases, default) -> 
+    | SwitchInt si -> 
       let pp_case pf (x, y) = Format.fprintf pf "%d:%d" x y in
       fprintf pf "\t\tswitchInt(%a) [%a, otherwise: %d]" 
-        ppPrintExpression e 
-        (Format.pp_print_list ~pp_sep:pp_comma pp_case) cases
-        default
+        ppPrintExpression si.choice
+        (Format.pp_print_list ~pp_sep:pp_comma pp_case) si.paths
+        si.default
     | Break -> failwith "can't happen"
 
 let ppPrintFrame (pf : Format.formatter) (f : VE.frame) =
@@ -58,9 +61,9 @@ let ppPrintFrame (pf : Format.formatter) (f : VE.frame) =
   in
   Format.fprintf pf "[%a]" (Format.pp_print_list ~pp_sep:pp_comma print_var) (TypesCommon.FieldMap.bindings f)
 
-let ppPrintBasicBlock (pf : Format.formatter) (lbl : label) (bb : basicBlock) : unit = 
-  let pp_env pf bb = 
-    Format.fprintf pf "%a" (Format.pp_print_list ~pp_sep:pp_force_newline ppPrintFrame) bb.env.stack in
+let ppPrintBasicBlock (pf : Format.formatter) (lbl : label) (bb : (VE.t,unit) basicBlock) : unit = 
+  let _pp_env pf bb = 
+    Format.fprintf pf "%a" (Format.pp_print_list ~pp_sep:pp_force_newline ppPrintFrame) bb.forward_info in
 
   let pp_preds pf bb = 
     Format.fprintf pf "%a\n" ppPrintPredecessors bb.predecessors in
@@ -72,11 +75,12 @@ let ppPrintBasicBlock (pf : Format.formatter) (lbl : label) (bb : basicBlock) : 
       |Some t ->
       Format.fprintf pf "%a\n%a" (Format.pp_print_list ~pp_sep:pp_semicr ppPrintAssignement) bb.assignments  ppPrintTerminator t 
   in 
-  Format.fprintf pf "\tbb%d%a\t{\n\t\tenv [%a]%a\n\n\t}\n" lbl pp_preds bb pp_env bb pp_block bb 
+  Format.fprintf pf "\tbb%d%a\t{\n%a\n\n\t}\n" lbl pp_preds bb pp_block bb 
+  (* Format.fprintf pf "\tbb%d%a\t{\n\t\tenv [%a]%a\n\n\t}\n" lbl pp_preds bb pp_env bb pp_block bb  *)
 
 (* termination *)
 let ppPrintCfg (pf : Format.formatter) (cfg : cfg) : unit = 
-  let _ = Format.fprintf pf "\t//input block %d output block %d\n" cfg.input cfg.output in
+  Format.fprintf pf "\n\t//input block %d output block %d\n\n" cfg.input cfg.output;
   let check = ref [] in
   let rec aux (lbl : label) : unit =
     if List.mem lbl !check then () else 
@@ -92,9 +96,9 @@ let ppPrintCfg (pf : Format.formatter) (cfg : cfg) : unit =
         | Goto lbl -> aux lbl
         | Invoke i -> aux i.next
         | Return _ -> ()
-        | SwitchInt (_, cases, default) -> 
-          let _ = List.iter aux (List.map snd cases) in 
-          aux default
+        | SwitchInt si -> 
+          let _ = List.iter aux (List.map snd si.paths) in 
+          aux si.default
         | Break -> failwith "can't happen"
   in 
     aux cfg.input;

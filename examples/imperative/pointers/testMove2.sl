@@ -10,5 +10,5 @@ Loop:
     var x : box<int>;
     x = box(1);
     f(x,x);
-    exit(0);
+    quit();
 }

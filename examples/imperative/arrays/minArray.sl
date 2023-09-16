@@ -10,5 +10,5 @@ Run:
         cpt = cpt + 1
     }
     print_int (a[res]); print_newline();
-    exit(0);
+    quit();
 }

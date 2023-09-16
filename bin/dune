@@ -8,6 +8,9 @@
     fmt
     fmt.tty
     fmt.cli
+    ctypes.foreign
     logs.cli
     )
-  (public_name sailor))
+  (public_name sailor)
+  (modes byte exe)
+)

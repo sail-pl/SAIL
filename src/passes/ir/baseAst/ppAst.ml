@@ -1,12 +1,10 @@
 open Common
 open PpCommon
 open Format
-(* open HirAst *)
-open Hir
-open HirUtils
+open Ast
 open TypesCommon
 
-let rec ppPrintExpression (pf : Format.formatter) (e : expression) : unit = 
+let rec ppPrintExpression (pf : Format.formatter) (e : _) : unit = 
   let open Format in 
   match e.node with 
     | Variable s -> fprintf pf "%s" s
@@ -35,7 +33,7 @@ let rec ppPrintExpression (pf : Format.formatter) (e : expression) : unit =
       m.value.id.value
       (pp_print_list ~pp_sep:pp_comma ppPrintExpression) m.value.args 
 
-let rec ppPrintStatement (pf : Format.formatter) (s : statement) : unit = match s.node with
+let rec ppPrintStatement (pf : Format.formatter) (s : _) : unit = match s.node with
 | DeclVar d  -> fprintf pf "\nvar %s%a%a;" d.id 
       (pp_print_option (fun fmt -> fprintf fmt " : %a" pp_type)) d.ty
       (pp_print_option (fun fmt -> fprintf fmt " = %a" ppPrintExpression)) d.value
@@ -65,7 +63,7 @@ let ppPrintMethodSig (pf : Format.formatter) (s : TypesCommon.method_sig) : unit
 | Some t -> 
     fprintf pf "%s(%a) -> %a" s.name (pp_print_list ~pp_sep:pp_comma (pp_field pp_type)) s.params pp_type t
 
-let ppPrintMethod (pf : Format.formatter) (m: statement TypesCommon.method_defn) : unit = 
+let ppPrintMethod (pf : Format.formatter) (m: _ TypesCommon.method_defn) : unit = 
   match m.m_body with
   | Right s ->  fprintf pf  "fn %a{\n@[<hov 2>%a@]\n}\n"  ppPrintMethodSig m.m_proto ppPrintStatement s
   | Left _ -> fprintf pf "extern fn %a\n" ppPrintMethodSig m.m_proto
@@ -73,9 +71,3 @@ let ppPrintMethod (pf : Format.formatter) (m: statement TypesCommon.method_defn)
 
 (* let ppPrintProcess (pf : Format.formatter) (p : (declaration list * cfg) Common.TypesCommon.process_defn) : unit = 
   fprintf pf  "proc %s() {\n%a\n%a}\n" p.p_name (pp_print_list ~pp_sep:pp_semicr ppPrintDeclaration) (fst p.p_body) ppPrintCfg (snd p.p_body) *)
-
-
-let ppPrintModule (pf : Format.formatter) (m : Pass.out_body SailModule.t ) : unit = 
-  fprintf pf "// Sail HIR Representation: %s\n%a" m.md.name 
-  (pp_print_list ppPrintMethod) m.body.methods
-  (* (pp_print_list ~pp_sep:pp_comma ppPrintProcess) m.body.processes *)

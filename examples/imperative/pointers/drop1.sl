@@ -14,5 +14,5 @@ Loop:
      //print_int(*x); print_newline();
     // print_int(y); print_newline()
     x = box(3);
-    exit(0);
+    quit();
 }

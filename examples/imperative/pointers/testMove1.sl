@@ -11,5 +11,5 @@ Loop:
     //x = box(1);
     //y = x;
     //z = x;
-    exit(0);
+    quit();
 }

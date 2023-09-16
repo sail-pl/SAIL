@@ -16,10 +16,10 @@ jobs:
       - uses: actions/checkout@v3
 
 
-      - name: setup llvm 14 repo 
+      - name: setup llvm 15 repo 
         run: |
-          echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main" | sudo tee -a /etc/apt/sources.list
-          echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-14 main"  | sudo tee -a /etc/apt/sources.list
+          echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-15 main" | sudo tee -a /etc/apt/sources.list
+          echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-15 main"  | sudo tee -a /etc/apt/sources.list
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
           sudo apt update
 
@@ -29,19 +29,18 @@ jobs:
         # uses: ocaml/setup-ocaml@6d924c1a7769aa5cdd74bdd901f6e24eb05024b1
         uses: ocaml/setup-ocaml@v2
         with:
-          ocaml-compiler: 4.14.X
+          ocaml-compiler: 5.1.X
 
 
       - run: opam install . --deps-only
 
       - run: opam exec -- dune build
 
-      - name: Archive saili and sailor
+      - name: Archive sailor
         uses: actions/upload-artifact@v3
         with:
-          name: saili and sailor for ${{ steps.system-info.outputs.release }}
+          name: sailor for ${{ steps.system-info.outputs.release }}
           path: |
-            _build/install/default/bin/saili
             _build/install/default/bin/sailor
           if-no-files-found: error
           

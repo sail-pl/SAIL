@@ -1,5 +1,5 @@
 open TypesCommon
-module E = Error.Logger
+module E = Logging.Logger
 open Monad
 open MonadSyntax(E)
 open MonadOperator(E)
@@ -178,13 +178,13 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
   let overwrite_decls (type d) (field: d container) = update_decls (fun _ -> field) 
 
   let add_decl (type d) id (decl:d) (ty: d decl_ty) (env:t) : t E.t = 
-    E.throw_if (Error.make dummy_pos @@ Fmt.str "duplicate declarations for '%s'" id) (FieldMap.mem id (get_decls  ty env.self))
+    E.throw_if Logging.(make_msg dummy_pos @@ Fmt.str "duplicate declarations for '%s'" id) (FieldMap.mem id (get_decls  ty env.self))
     >>= fun () -> return {env with self=update_decls (FieldMap.add id decl) ty env.self}
 
   let remove_decl id (ty:'a decl_ty) t = 
     let new_env = update_decls (FieldMap.remove id) ty t.self in
     let+ () = E.throw_if 
-      (Error.make dummy_pos @@ Fmt.str "attempting to remove unknown declaration '%s'" id) 
+      Logging.(make_msg dummy_pos @@ Fmt.str "attempting to remove unknown declaration '%s'" id) 
       (new_env <> t.self)
     in {t with self=new_env}
 
@@ -245,7 +245,7 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
     if m = env.name  then
       return (FieldMap.iter f (get_decls d env.self))
     else
-    let+ env = E.throw_if_none (Error.make dummy_pos "can't happen")
+    let+ env = E.throw_if_none Logging.(make_msg dummy_pos "can't happen")
                               (List.find_opt (fun ({mname;_},_) -> mname = m) env.imports)
                                 in
           FieldMap.iter f (get_decls d (snd env) )
@@ -259,7 +259,7 @@ module DeclarationsEnv : DeclEnvType  = functor (D:Declarations) -> struct
 
   let find_closest name env : string list =
     if String.length name > 3 then
-      let check = (fun n  _  l -> if Error.levenshtein_distance n name < 3 then n::l else l) in
+      let check = (fun n  _  l -> if Logging.levenshtein_distance n name < 3 then n::l else l) in
       FieldMap.fold check env.self.methods []
       |> fun l -> FieldMap.fold check env.self.processes l
       |> fun l -> FieldMap.fold check env.self.structs l
@@ -355,12 +355,12 @@ module VariableEnv : VariableEnvType = functor (V : Variable) -> struct
       let upd_frame = FieldMap.add name v current in
       let stack = push_frame stack upd_frame in {stack} |> E.pure
     | Some _ -> 
-      E.throw (Error.make l @@ Printf.sprintf "variable %s already declared in current frame!" name) 
+      E.throw Logging.(make_msg l @@ Printf.sprintf "variable %s already declared in current frame!" name) 
       >>| fun () -> e
 
 
     let init_env (args:param list) : t E.t =
-      let open Monad.MonadFunctions(Error.Logger) in
+      let open Monad.MonadFunctions(Logging.Logger) in
       let env = empty |> new_frame in
         ListM.fold_right (fun (p:param) ->
         let v = V.param_to_var p  in 
@@ -373,13 +373,35 @@ module VariableEnv : VariableEnvType = functor (V : Variable) -> struct
         let current,stack = current_frame stack in
         match FieldMap.find_opt name current with 
         | Some v -> let+ v' = f v in FieldMap.add name v' current :: stack
-        | None  when stack = [] -> E.throw (Error.make l @@ Printf.sprintf "variable %s not found" name) 
+        | None  when stack = [] -> E.throw Logging.(make_msg l @@ Printf.sprintf "variable %s not found" name) 
           >>| fun () -> e.stack
         | _ -> let+ e = aux stack in current :: e
       in 
       let+ stack = aux (e.stack) in 
       {stack}
   
+
+end
+
+module TypeEnv = struct
+  type t = sailtype FieldMap.t
+  let empty = FieldMap.empty
+  let get_id ty (te :t) : string * t = 
+    let add_if_no_exists s = FieldMap.update s (Option.fold ~none:(Some ty) ~some:Option.some) in
+    let s = match ty.value with
+    | Bool -> "bool"
+    | Float -> "float"
+    | Char -> "char"
+    | String -> "string"
+    | Int n -> "int" ^ string_of_int n
+    | ArrayType _ ->  "array"
+    | GenericType t -> t
+    | CompoundType t -> t.name.value
+    | Box _ -> "box"
+    | RefType _ -> "ref"
+  in s,add_if_no_exists s te
+
+  let get_from_id (id:l_str) te : sailtype E.t  = E.throw_if_none Logging.(make_msg id.loc @@ Fmt.str "id '%s' not found" id.value) (FieldMap.find_opt id.value te)
 
 end
 
@@ -391,18 +413,18 @@ module VariableDeclEnv = functor (D:Declarations) (V:Variable) -> struct
 
   let get_decl name ty (_,g) = D.find_decl name ty g 
 
-  let add_decl name d ty (v,g) = let+ g = D.add_decl name d ty g in v,g
+  let add_decl name d ty (v,g) : t E.t = let+ g = D.add_decl name d ty g in v,g
 
   let get_imports (_,g) = D.get_imports g
 
   let get_closest name (_,g)  = D.find_closest name g
   let get_var id (env,_) = VE.get_var id env
-  let declare_var id v (env,g) = let+ env = VE.declare_var id v env  in env,g
+  let declare_var id v (env,g) : t E.t = let+ env = VE.declare_var id v env  in env,g
 
-  let update_var l v id (env,g) = let+ env = VE.update_var l v id env in env,g
-  let new_frame (env,g) = VE.new_frame env,g
-  let pop_frame (env,g) = VE.pop_frame env,g
-  let get_env (env,_) = env
+  let update_var l v id (env,g) : t E.t = let+ env = VE.update_var l v id env in env,g
+  let new_frame (env,g) : t = VE.new_frame env,g
+  let pop_frame (env,g) : t = VE.pop_frame env,g
+  let get_env (env,_,_) = env
 
   let empty g : t = VE.empty,g
 

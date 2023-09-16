@@ -12,5 +12,5 @@ Init:
 Loop:
 
     print_int(f(g(1), 2, 2.1));    ;
-    exit(0);
+    quit();
 }
