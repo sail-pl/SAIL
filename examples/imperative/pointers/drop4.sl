@@ -15,5 +15,5 @@ Loop:
     // Error x is points to the box which has been freed
     // print_int(*x); print_newline();
     // x = box(5) // needed otherwise we will try to drop the box a second time;
-    exit(0);
+    quit();
 }

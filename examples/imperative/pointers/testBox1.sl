@@ -30,5 +30,5 @@ Loop:
     var a : t = t { x: box(1)};
     *(a.x) = 18;
     print_int(*(a.x));
-    exit(0);
+    quit();
 }

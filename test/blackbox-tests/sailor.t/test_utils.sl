@@ -15,3 +15,7 @@ method print_string(v : string) {
 method print_newline() {
 	printf("\n")
 }
+
+method quit() {
+	exit(0);
+}

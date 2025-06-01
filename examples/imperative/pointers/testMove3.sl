@@ -12,5 +12,5 @@ Loop:
     x = box(1);
     f(x);
     y = x;
-    exit(0);
+    quit();
 }

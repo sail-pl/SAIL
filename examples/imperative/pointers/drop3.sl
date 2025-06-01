@@ -13,5 +13,5 @@ Loop:
     // Error x is not initialized as we don't enter the loop
     // print_int(*x); print_newline()
 ;
-    exit(0);
+    quit();
 }

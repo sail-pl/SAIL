@@ -5,7 +5,7 @@ open IrMir
 open IrHir
 open SailParser
 
-module E = Common.Error.Logger
+module E = Common.Logging.Logger
 module Env = SailModule.DeclEnv
 open Monad.UseMonad(E)
 

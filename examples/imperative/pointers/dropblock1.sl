@@ -9,5 +9,5 @@ Loop:
             print_string("done\n")
     }
     print_string("done\n");
-    exit(0);
+    quit();
 }

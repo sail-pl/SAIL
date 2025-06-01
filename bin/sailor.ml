@@ -1,13 +1,14 @@
 open Common
 open TypesCommon
 open SailParser
-module E = Error.Logger
+module E = Logging.Logger
 module Const  = Constants
 module C = Codegen
 
 (* llvm *)
 module L = Llvm
 module T = Llvm_target
+module P = Llvm_passbuilder
 
 
 (* passes *)
@@ -17,15 +18,25 @@ module Thir = IrThir.Thir.Pass
 module Mir = IrMir.Mir.Pass
 module MirChecks = Misc.Cfg_analysis.Pass
 module Imports = Misc.Imports.Pass
-module MCall = Misc.MethodCall.Pass
 module Mono = Mono.Monomorphization.Pass
 
 (* error handling *)
 open Monad.UseMonad(E)
 
 let apply_passes (sail_module : Hir.in_body SailModule.t) (comp_mode : Cli.comp_mode) (dump_ir : bool): Mono.out_body SailModule.t E.t =
-  let hir_debug =  fun m -> let+ m in Out_channel.with_open_text (sail_module.md.name ^ ".hir.debug") (fun f -> Format.(fprintf (formatter_of_out_channel f)) "%a" IrHir.Pp_hir.ppPrintModule m); m in
-  let mir_debug =  fun m -> let+ m in Out_channel.with_open_text (sail_module.md.name ^ ".mir.debug") (fun f -> Format.(fprintf (formatter_of_out_channel f)) "%a" IrMir.Pp_mir.ppPrintModule m); m in
+  let hir_debug =  fun m -> let+ m in Out_channel.with_open_text 
+    (sail_module.md.name ^ ".hir.debug") 
+    (fun f -> IrHir.Pp_hir.ppPrintModule (Format.formatter_of_out_channel f) m); m 
+  in
+  let mir_debug =  fun m -> let+ m in Out_channel.with_open_text 
+    (sail_module.md.name ^ ".mir.debug") 
+    (fun f -> IrMir.Pp_mir.ppPrintModule (Format.formatter_of_out_channel f) m); m 
+  in
+
+  let mir_mono_debug =  fun (m: Mono.out_body SailModule.t E.t) -> let+ m in 
+    Out_channel.with_open_text 
+    (sail_module.md.name ^ ".mir_mono.debug") 
+    Format.(fun f -> (pp_print_list IrMir.Pp_mir.ppPrintMethod) (formatter_of_out_channel f) m.body.monomorphics); m in
 
   let open Pass.Progression in 
   let active_if cond p = if cond then p else Fun.id in 
@@ -35,11 +46,11 @@ let apply_passes (sail_module : Hir.in_body SailModule.t) (comp_mode : Cli.comp_
     @> active_if dump_ir hir_debug
     @> Thir.transform 
     @> Imports.transform 
-    @> MCall.transform 
     @> Mir.transform
     @> MirChecks.transform
     @> active_if dump_ir mir_debug
     @> Mono.transform
+    @> active_if dump_ir mir_mono_debug
     @> finish 
   in run passes (return sail_module)
     
@@ -50,24 +61,6 @@ let set_target (llm : Llvm.llmodule) (triple:string) : Llvm_target.Target.t * Ll
   L.set_target_triple triple llm;  let machine = T.TargetMachine.create ~triple target ~reloc_mode:PIC in
   L.set_data_layout (T.TargetMachine.data_layout machine |> T.DataLayout.as_string) llm;
   (target,machine)
-
-
-let add_opt_passes (pm : [`Module] Llvm.PassManager.t) : unit  = 
-  (* seems to be deprecated
-    TargetMachine.add_analysis_passes pm machine; *)
-
-  (* base needed for other passes *)
-  Llvm_scalar_opts.add_memory_to_register_promotion pm;
-  (* eleminates redundant values and loads *)
-  Llvm_scalar_opts.add_gvn pm;
-  (* reassociate binary expressions *)
-  Llvm_scalar_opts.add_reassociation pm;
-  (* dead code elimination, basic block merging and more *)
-  Llvm_scalar_opts.add_cfg_simplification pm;
-  
-  Llvm_ipo.add_global_optimizer pm;
-  Llvm_ipo.add_constant_merge pm;
-  Llvm_ipo.add_function_inlining pm
 
 
 let link ?(is_lib = false) (llm:Llvm.llmodule) (module_name : string) (basepath:string) (imports: string list) (libs : string list) (target, machine) clang_args : int =
@@ -146,21 +139,23 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
 
   let compile sail_module basepath (comp_mode : Cli.comp_mode) : unit E.t =
     let* m = apply_passes sail_module comp_mode dump_ir in    
-    let+ llm = C.Codegen_.moduleToIR m verify_ir in
+    let* llm = C.Codegen_.moduleToIR m verify_ir in
 
     (* only generate mir file if codegen succeeds *)
     marshal_sm Filename.(concat basepath m.md.name ^ Const.mir_file_ext) m;
 
     let tm = set_target llm target_triple in
 
-    if not noopt && comp_mode <> Library then 
-        L.PassManager.(
-          let pm = create () in add_opt_passes pm;
-          let res = run_module llm pm in
-          Logs.debug (fun m -> m "pass manager executed, module modified : %b" res);
-          dispose pm
+    let+ () = if not noopt && comp_mode <> Library then 
+        P.(
+          let options = create_passbuilder_options () in
+          Logs.debug (fun m -> m "LLVM: running passes");
+          let res = run_passes llm "default<O3>" (snd tm) options in
+          dispose_passbuilder_options options;
+          E.throw_if_result Logging.(fun m -> make_msg dummy_pos m) res
         )
-    ;
+      else E.pure ()
+    in
 
     if intermediate then L.print_module Filename.(concat basepath m.md.name ^ Const.llvm_ir_ext) llm;
 
@@ -218,7 +213,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
                 "a module cannot import itself" 
               else 
               "dependency cycle : "  ^ (String.concat " -> " ((List.split compiling |> fst |> List.rev) @ [slmd.md.name;i.mname]))
-              in Error.make i.loc msg
+              in Logging.make_msg i.loc msg
             )  (List.mem_assoc i.mname compiling) in         
             let mir_name = i.mname ^ Const.mir_file_ext in
             let source = i.mname ^ Const.sail_file_ext in
@@ -226,19 +221,21 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
             let import = fun m -> {i with dir=Filename.(dirname m ^ dir_sep); proc_order=(List.length compiling)} in 
 
             match find_file_opt source ~paths:(Filename.current_dir_name::paths),find_file_opt mir_name with
-            | Some s,Some m when let mir = unmarshal_sm m in 
+            | Some s,Some m when List.length force_comp < 2  && let mir = unmarshal_sm m in 
                                     Digest.(equal mir.md.hash @@ file s) && 
-                                    List.length force_comp < 2 && 
                                     mir.md.version = Const.sailor_version -> (* mir up-to-date with source -> use mir *)
               return (treated,import m)
             | None, Some m -> (* mir but no source -> use mir *)
+              let* () = E.throw_if Logging.(make_msg dummy_pos 
+                @@ Printf.sprintf "module '%s' has no source but forceful rebuild requested, aborting..." source) (List.length force_comp = 2) 
+              in
               let mir = unmarshal_sm m in
               E.throw_if 
-              (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version Const.sailor_version)
+              Logging.(make_msg dummy_pos @@ Printf.sprintf "module '%s' was compiled with sailor %s, current is %s" mir.md.name mir.md.version Const.sailor_version)
               (mir.md.version <> Const.sailor_version) 
               >>| fun () -> treated,import m
             | None,None -> (* nothing to work with *)
-              E.throw @@ Error.make i.loc "import not found"
+              E.throw Logging.(make_msg i.loc "import not found")
             | Some s, _ -> (* source but no mir or mir not up-to-date -> compile *)
               begin
               let+ treated = process_file s treated ((slmd.md.name,i.loc)::compiling) Cli.Library
@@ -257,7 +254,7 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       (* if mir file exists, check hash, if same hash, no need to compile *)
       if Sys.file_exists mir_file && (List.length force_comp = 0) then
         let mir = unmarshal_sm mir_file in
-        let* () = E.throw_if (Error.make dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version Const.sailor_version)
+        let* () = E.throw_if Logging.(make_msg dummy_pos @@ Printf.sprintf "module %s was compiled with sailor %s, current is %s" mir.md.name mir.md.version Const.sailor_version)
                   (mir.md.version <> Const.sailor_version) 
         in
         if not @@ Digest.equal mir.md.hash slmd.md.hash then
@@ -272,10 +269,13 @@ let sailor (files: string list) (intermediate:bool) (jit:bool) (noopt:bool) (dum
       in 
 
   try
-    match ListM.fold_left (fun t f -> let+ t = process_file f t [] comp_mode in f::t) [] files with
-    | Ok treated,_ -> Logs.debug (fun m -> m "files processed : %s " @@ String.concat " " treated) ; `Ok ()
-    | Error e,errs -> 
-      Error.print_errors (e::errs);
+    let process_files = ListM.fold_left (fun t f -> let+ t = process_file f t [] comp_mode in f::t) [] in
+    match process_files files with
+    | Ok treated,l -> 
+      Logging.print_log l;
+      Logs.debug (fun m -> m "files processed : %s " @@ String.concat " " treated) ; `Ok ()
+    | Error e,l -> 
+      Logging.print_log {l with errors=e::l.errors};
       `Error(false, "compilation aborted") 
   with
   | e ->

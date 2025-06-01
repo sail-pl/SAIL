@@ -27,5 +27,5 @@ Loop:
 
 	printf("%i\n", getMin(a));
 	printf("%f\n", getMin(c));
-    exit(0);
+    quit();
 }

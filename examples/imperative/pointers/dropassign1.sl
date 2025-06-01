@@ -8,5 +8,5 @@ Loop:
   x = box(3);
   x = box(1);
   print_string("done\n");
-    exit(0);
+    quit();
 }

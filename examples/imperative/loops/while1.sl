@@ -9,5 +9,5 @@ Run:
     }
     print_int(x);
     print_string(" Worlds\n");
-    exit(0);
+    quit();
 }

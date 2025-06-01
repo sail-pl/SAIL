@@ -11,5 +11,5 @@ Loop:
         // Ok, the content of y was tagged as moved, no free here
     }
     // OK, the pointer is freed once here;
-    exit(0);
+    quit();
 }

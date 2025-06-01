@@ -43,11 +43,25 @@ module type Functor = sig
   val fmap : ('a -> 'b) -> 'a t  -> 'b t
 end
 
+module FunctorOperator(F : Functor) = struct
+  let (<$>) = F.fmap
+  let (<&>) = fun x f -> F.fmap f x
+  let (<$) (type a b) : a -> b F.t -> a F.t = fun x y -> F.fmap (fun _ -> x) y
+  let ($>) = fun x y -> (<$) y x
+  let void = fun x -> () <$ x
+end
+
 module type Applicative = sig
 include Functor
   val pure : 'a -> 'a t  
   val apply : ('a -> 'b ) t -> 'a t -> 'b t
 end 
+
+module ApplicativeOperator (A : Applicative) = struct
+  include FunctorOperator(A)
+  let (<*>) : ('a -> 'b) A.t -> 'a A.t -> 'b A.t = A.apply
+  let ( *>) : 'a A.t -> 'b A.t -> 'b A.t = fun x y -> (Fun.id <$ x) <*> y
+end
 
 module type Monad = sig
   include Applicative
@@ -69,11 +83,14 @@ module MonadIdentity : Monad with type 'a t = 'a = struct
 end
 
 module MonadOperator (M : Monad) = struct
-  let (<*>) = M.apply
-  let (<$>) = M.fmap
-  let (<&>) = fun x f -> M.fmap f x
+  include ApplicativeOperator(M)
   let (>>=) = M.bind
+  let (=<<) = fun x y -> M.bind y x
   let (>>|) x f = x >>= fun x -> f x |> M.pure
+  let (>=>) : ('a -> 'b M.t) -> ('b -> 'c M.t) -> 'a -> 'c M.t = fun f1 f2 x -> f1 x >>= f2
+  let (<=<)  : 'a -> ('a -> 'b M.t) -> ('b -> 'c M.t) -> 'c M.t = fun x f1 f2 -> (f1 >=> f2) x
+
+  let ap : ('a -> 'b) M.t -> 'a M.t -> 'b M.t = fun f x -> f >>= fun f -> f <$> x
 end
 
 module MonadSyntax (M : Monad ) = struct 
@@ -193,7 +210,7 @@ module MonadFunctions (M : Monad) = struct
       | h::t -> let+ u = (f h) and* t = map f t in u::t
           
 
-    let rec map2 (f : 'a -> 'a -> 'b M.t) (l1 : 'a list) (l2 : 'a list): ('b list) M.t =
+    let rec map2 (f : 'a -> 'b -> 'c M.t) (l1 : 'a list) (l2 : 'b list): ('c list) M.t =
       match l1,l2 with 
       | [],[] -> return []
       | h1::t1,h2::t2 -> let+ u = (f h1 h2) and* t = map2 f t1 t2 in u::t
@@ -203,6 +220,12 @@ module MonadFunctions (M : Monad) = struct
         match l with 
         | [] -> return ()
         | h::t -> f h >>= (fun () -> iter f t)
+    let  iteri (f : int -> 'a -> unit M.t)  (l : 'a list) : unit M.t = 
+      let rec aux i l = 
+      match l with 
+      | [] -> return ()
+      | h::t -> f i h >>= (fun () -> aux (i+1) t)
+      in aux 0 l
 
     let rec iter2 f l1 l2 =
       match (l1, l2) with

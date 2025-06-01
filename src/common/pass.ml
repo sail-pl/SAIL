@@ -1,4 +1,4 @@
-open Error
+open Logging
 open Monad
 open TypesCommon
 
@@ -79,10 +79,10 @@ module MakeFunctionPass
     type p_out
     
     
-    val lower_method : m_in * method_sig -> SailModule.SailEnv(V).t -> (m_in,p_in) SailModule.methods_processes SailModule.t -> (m_out * SailModule.SailEnv(V).D.t) Logger.t 
+    val lower_method : m_in * method_sig -> (SailModule.SailEnv(V).t * Env.TypeEnv.t) -> (m_in,p_in) SailModule.methods_processes SailModule.t -> (m_out * SailModule.SailEnv(V).D.t * Env.TypeEnv.t) Logger.t 
 
 
-    val lower_process : p_in process_defn -> SailModule.SailEnv(V).t -> (m_in,p_in) SailModule.methods_processes SailModule.t -> (p_out * SailModule.SailEnv(V).D.t) Logger.t 
+    val lower_process : p_in process_defn -> (SailModule.SailEnv(V).t  * Env.TypeEnv.t)-> (m_in,p_in) SailModule.methods_processes SailModule.t -> (p_out * SailModule.SailEnv(V).D.t * Env.TypeEnv.t) Logger.t 
 
     val preprocess : (m_in,p_in) SailModule.methods_processes SailModule.t -> (m_in,p_in) SailModule.methods_processes SailModule.t Logger.t
     end)  
@@ -95,20 +95,19 @@ struct
 
   module VEnv = SailModule.SailEnv(V)
 
-  let lower_method (m:T.m_in method_defn) (sm : (T.m_in,T.p_in) SailModule.methods_processes SailModule.t) : (VEnv.D.t  * T.m_out method_defn) Logger.t = 
+  let lower_method (m:T.m_in method_defn) (sm : (T.m_in,T.p_in) SailModule.methods_processes SailModule.t) : ((VEnv.D.t * Env.TypeEnv.t) * T.m_out method_defn) Logger.t = 
     match m.m_body with
     | Right f -> 
       let* ve = VEnv.get_start_env sm.declEnv m.m_proto.params in
-      let+ b,d = T.lower_method (f,m.m_proto) ve sm in 
-      d,{ m with m_body=Either.right b }
-    | Left x ->  Logger.pure (sm.declEnv,{ m with m_body = Left x}) (* nothing to do for externals *)
+      let+ b,d,t = T.lower_method (f,m.m_proto) (ve,sm.typeEnv) sm in 
+      (d,t),{ m with m_body=Either.right b }
+    | Left x ->  Logger.pure ((sm.declEnv,sm.typeEnv),{ m with m_body = Left x}) (* nothing to do for externals *)
 
 
-  let lower_process (p: T.p_in process_defn) (sm : (T.m_in,T.p_in) SailModule.methods_processes SailModule.t) : (VEnv.D.t * T.p_out process_defn ) Logger.t  = 
-    let start_env = VEnv.get_start_env sm.declEnv p.p_interface.p_params in
-    let* ve = start_env in
-    let+ p_body,d = T.lower_process p ve sm in
-    d,{ p with p_body}
+  let lower_process (p: T.p_in process_defn) (sm : (T.m_in,T.p_in) SailModule.methods_processes SailModule.t) : ((VEnv.D.t * Env.TypeEnv.t) * T.p_out process_defn ) Logger.t  = 
+    let* ve = VEnv.get_start_env sm.declEnv p.p_interface.p_params in
+    let+ p_body,d,t = T.lower_process p (ve,sm.typeEnv) sm in
+    (d,t),{ p with p_body}
 
 
 
@@ -116,15 +115,15 @@ struct
     let* sm = sm >>= T.preprocess in
     Logs.info (fun m -> m "Lowering module '%s' to '%s'" sm.md.name name);
     (
-    let* declEnv,methods = ListM.fold_left_map 
-                          (fun declEnv methd -> lower_method methd {sm with declEnv}) 
-                          sm.declEnv sm.body.methods |> Logger.recover (sm.declEnv,[]) 
+    let* (declEnv,typeEnv),methods = ListM.fold_left_map 
+                          (fun (declEnv,typeEnv) methd -> lower_method methd {sm with declEnv ; typeEnv}) 
+                          (sm.declEnv,sm.typeEnv) sm.body.methods |> Logger.recover ((sm.declEnv,sm.typeEnv),[]) 
     in
-    let+ declEnv,processes = ListM.fold_left_map 
-                              (fun declEnv proccess -> lower_process proccess {sm with declEnv}) 
-                              declEnv sm.body.processes |> Logger.recover (sm.declEnv,[]) in
+    let+ (declEnv,typeEnv),processes = ListM.fold_left_map 
+                              (fun (declEnv,typeEnv) proccess -> lower_process proccess {sm with declEnv ; typeEnv}) 
+                              (declEnv,typeEnv) sm.body.processes |> Logger.recover ((declEnv,typeEnv),[]) in
 
-    { sm with body=SailModule.{processes; methods} ; declEnv }
+    { sm with body=SailModule.{processes; methods} ; declEnv; typeEnv }
 
     ) |> Logger.fail
 end

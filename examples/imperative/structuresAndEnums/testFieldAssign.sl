@@ -18,5 +18,5 @@ process Main {
     var c : pointBis = pointBis{z:b};
     (*c.z).x = 2;
     print_int(a.x);
-    exit(0);
+    quit();
 }

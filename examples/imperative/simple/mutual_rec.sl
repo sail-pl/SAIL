@@ -16,5 +16,5 @@ method b(x : int) : int {
 process Main {
 	Run:
         print_int(a(12)); print_newline();
-        exit(0);
+        quit();
 }

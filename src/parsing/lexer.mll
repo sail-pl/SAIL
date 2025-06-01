@@ -89,8 +89,12 @@ rule read_token = parse
   | "with" { WITH }
   | "reads" { READS }
   | "writes" { WRITES }
-  | "Par" { PAR }
-  | "Seq" { SEQ }
+  (* | "Par" { PAR }
+  | "Seq" { SEQ } *)
+  | "{{" { LPARC }
+  | "}}" { RPARC }
+  | "[[" { LSEQC }
+  | "]]" { RSEQC }
   (* | "((" {P_LPAREN}
   | "))" {P_RPAREN} *)
   | "!" { NOT }

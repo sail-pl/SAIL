@@ -6,5 +6,5 @@ method f(x : int) : int{
 process Main {
 Run:
     print_int(f(1));
-    exit(0);
+    quit();
 }

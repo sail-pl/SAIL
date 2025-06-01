@@ -1,57 +1,59 @@
 open Common
 open PpCommon
 open Format
-open AstHir
+(* open HirAst *)
 open Hir
+open HirUtils
+open TypesCommon
 
-
-let rec ppPrintExpression (pf : Format.formatter) (e : expression) : unit =
+let rec ppPrintExpression (pf : Format.formatter) (e : expression) : unit = 
   let open Format in 
-  match e.exp with 
+  match e.node with 
     | Variable s -> fprintf pf "%s" s
-    | Deref e -> fprintf pf "*%a" ppPrintExpression e 
-    | StructRead (_,e, (_,s)) -> fprintf pf "%a.%s" ppPrintExpression e s
-    | ArrayRead (e1, e2) -> fprintf pf "%a[%a]" ppPrintExpression e1 ppPrintExpression e2
+    | Deref e -> fprintf pf "*%a" ppPrintExpression e
+    | StructRead st -> fprintf pf "%a.%s" ppPrintExpression st.value.strct st.value.field.value  
+    | ArrayRead ar -> fprintf pf "%a[%a]" ppPrintExpression ar.array ppPrintExpression ar.idx
     | Literal (l) -> fprintf pf "%a" PpCommon.pp_literal l 
     | UnOp (o, e) -> fprintf pf "%a %a" pp_unop o ppPrintExpression e
-    | BinOp ( o, e1, e2) -> fprintf pf "%a %a %a" ppPrintExpression e1 pp_binop o ppPrintExpression e2
+    | BinOp bop -> fprintf pf "%a %a %a" ppPrintExpression bop.left pp_binop bop.op ppPrintExpression bop.right
     | Ref (true,e) -> fprintf pf "&mut %a" ppPrintExpression e 
     | Ref (false,e) -> fprintf pf "&%a" ppPrintExpression e 
     | ArrayStatic el ->  
       fprintf pf "[%a]"
         (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    |StructAlloc  (_,id, m) ->
-      let pp_field pf (x, y) = fprintf pf "%s:%a" x ppPrintExpression y in
-      fprintf pf "%s{%a}" (snd id)
+    | StructAlloc  st  ->
+      let pp_field pf (x, (y: _ locatable)) = fprintf pf "%s:%a" x ppPrintExpression y.value in
+      fprintf pf "%s{%a}" st.value.name.value
         (pp_print_list ~pp_sep:pp_comma pp_field)
-        m
+        st.value.fields
     | EnumAlloc (id,el) ->  
-      fprintf pf "[%s(%a)]" (snd id)
+      fprintf pf "[%s(%a)]" id.value
         (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
-    | MethodCall ((_,id),mod_loc,el) -> 
+    | MethodCall m -> 
       fprintf pf "%a%s(%a)" 
-      (pp_print_option  (fun fmt (_,ml) -> fprintf fmt "%s::" ml)) mod_loc
-      id 
-      (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
+      (pp_print_option  (fun fmt ml -> fprintf fmt "%s::" ml.value)) m.import
+      m.value.id.value
+      (pp_print_list ~pp_sep:pp_comma ppPrintExpression) m.value.args 
 
-let rec ppPrintStatement (pf : Format.formatter) (s : statement) : unit = match s.stmt with
-| DeclVar (_mut, id, opt_t,opt_exp) -> fprintf pf "\nvar %s%a%a;" id 
-      (pp_print_option (fun fmt -> fprintf fmt " : %a" pp_type)) opt_t
-      (pp_print_option (fun fmt -> fprintf fmt " = %a" ppPrintExpression)) opt_exp
-| Assign(e1, e2) -> fprintf pf "\n%a = %a;" ppPrintExpression e1 ppPrintExpression e2
+let rec ppPrintStatement (pf : Format.formatter) (s : statement) : unit = match s.node with
+| DeclVar d  -> fprintf pf "\nvar %s%a%a;" d.id 
+      (pp_print_option (fun fmt -> fprintf fmt " : %a" pp_type)) d.ty
+      (pp_print_option (fun fmt -> fprintf fmt " = %a" ppPrintExpression)) d.value
+
+| Assign a -> fprintf pf "\n%a = %a;" ppPrintExpression a.path ppPrintExpression a.value
 | Seq(c1, c2) -> fprintf pf "%a%a" ppPrintStatement c1 ppPrintStatement c2
-| If(cond_exp, then_s,else_s) -> fprintf pf "\nif (%a) {\n%a\n}\n%a" 
-  ppPrintExpression cond_exp 
-  ppPrintStatement then_s
-  (pp_print_option (fun pf -> fprintf pf "else {%a\n}" ppPrintStatement)) else_s
+| If if_ -> fprintf pf "\nif (%a) {\n%a\n}\n%a" 
+  ppPrintExpression if_.cond 
+  ppPrintStatement if_.then_
+  (pp_print_option (fun pf -> fprintf pf "else {%a\n}" ppPrintStatement)) if_.else_
 | Loop c -> fprintf pf "\nloop {%a\n}" ppPrintStatement c
 | Break -> fprintf pf "break;"
-| Case(_e, _cases) -> ()
-| Invoke (var, mod_loc, (_,id), el) -> fprintf pf "\n%a%a%s(%a);" 
-    (pp_print_option  (fun fmt v -> fprintf fmt "%s = " v)) var 
-    (pp_print_option  (fun fmt (_,ml) -> fprintf fmt "%s::" ml)) mod_loc
-    id 
-    (pp_print_list ~pp_sep:pp_comma ppPrintExpression) el
+| Case _ -> ()
+| Invoke i -> fprintf pf "\n%a%a%s(%a);" 
+    (pp_print_option  (fun fmt v -> fprintf fmt "%s = " v)) i.value.ret_var
+    (pp_print_option  (fun fmt ml -> fprintf fmt "%s::" ml.value)) i.import
+    i.value.id.value
+    (pp_print_list ~pp_sep:pp_comma ppPrintExpression) i.value.args
 | Return e -> fprintf pf "\nreturn %a;" (pp_print_option  ppPrintExpression) e
 | Block c -> fprintf pf "\n{\n@[ %a @]\n}" ppPrintStatement c
 | Skip -> ()

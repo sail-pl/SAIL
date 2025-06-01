@@ -12,5 +12,5 @@ Init:
 Loop:
 
     f(1);
-    exit(0);
+    quit();
 }

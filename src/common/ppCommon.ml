@@ -41,15 +41,15 @@ let pp_binop pf b =
   
 
   let rec pp_type (pf : formatter) (t : sailtype) : unit =
-    match t with 
+    match t.value with 
         Bool -> pp_print_string pf "bool"
       | Int n ->  Format.fprintf pf "i%i" n
       | Float -> pp_print_string pf "float"
       | Char -> pp_print_string pf "char"
       | String -> pp_print_string pf "string"
       | ArrayType (t,s) -> Format.fprintf pf "array<%a;%d>" pp_type t s
-      | CompoundType {name=(_,x); generic_instances;_} -> 
-          Format.fprintf pf "%s<%a>" x (pp_print_list ~pp_sep:pp_comma pp_type) generic_instances
+      | CompoundType {name; generic_instances;_} -> 
+          Format.fprintf pf "%s<%a>" name.value (pp_print_list ~pp_sep:pp_comma pp_type) generic_instances
       | Box(t) -> Format.fprintf pf "ref<%a>" pp_type t
       | RefType (t,b) -> 
           if b then Format.fprintf pf "&mut %a" pp_type t

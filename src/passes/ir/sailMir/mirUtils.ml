@@ -1,9 +1,10 @@
-open AstMir
+open MirAst
 open Common 
 open TypesCommon
 open Monad
 open MirMonad
 open UseMonad(M)
+
 let assign_var (var_l,v:VE.variable) = 
   (var_l,v) |> M.E.pure
 
@@ -16,7 +17,7 @@ let rename (src : label) (tgt : label) (t : terminator) : terminator =
     | _ -> t
 
 let emptyBasicBlock (location:loc) : cfg M.t = 
-  let+ lbl = M.fresh_block and* env = M.get_env in
+  let+ lbl = M.fresh_block and* env,_ = M.get_env in
   {
     input = lbl;
     output = lbl;
@@ -32,7 +33,7 @@ let singleBlock (bb : _ basicBlock) : cfg M.t =
   }
 
 let assignBasicBlock (location : loc) (a : assignment) : cfg M.t = 
-  let* env = M.get_env in
+  let* env,_ = M.get_env in
   let bb = {assignments = [a]; predecessors =  LabelSet.empty; forward_info=env; backward_info = (); location; terminator=None}  in 
   let+ lbl = M.fresh_block in
   {
@@ -51,7 +52,7 @@ let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg M.t =
   and right = BlockMap.find cfg2.input cfg2.blocks 
   in 
   match left.terminator with 
-  | Some (Invoke _) -> let+ () = M.error @@ Error.make left.location "invalid output node" in cfg1
+  | Some (Invoke _) -> let+ () = M.error Logging.(make_msg left.location "invalid output node") in cfg1
   | Some _ ->
     {
       input = cfg1.input;
@@ -59,7 +60,7 @@ let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg M.t =
       blocks = BlockMap.union assert_disjoint cfg1.blocks cfg2.blocks
     } |> M.ok
   | None -> 
-    let+ env = M.get_env in 
+    let+ env,_ = M.get_env in 
     let bb = {assignments = left.assignments@right.assignments; predecessors = left.predecessors; forward_info=env; backward_info = (); location= right.location; terminator = right.terminator} in
     {
       input = cfg1.input;
@@ -79,7 +80,7 @@ let buildSeq (cfg1 : cfg) (cfg2 : cfg) : cfg M.t =
     }
 
 let addGoto  (lbl : label) (cfg : cfg) : cfg M.t = 
-  let* env = M.get_env in 
+  let* env,_ = M.get_env in 
   let bb = {assignments=[]; predecessors=LabelSet.empty; forward_info=env; backward_info = (); location = dummy_pos; terminator=Some (Goto lbl)} in
   let* cfg' = singleBlock bb in 
   buildSeq cfg cfg'
@@ -97,7 +98,7 @@ let addPredecessors (lbls : label list) (cfg : cfg) : cfg =
 let buildIfThen (location : loc) (e : expression) (cfg : cfg) : cfg M.t =
   let* outputLbl = M.fresh_block and* inputLbl = M.fresh_block in 
   let* goto = addGoto outputLbl cfg >>| addPredecessors [inputLbl] in
-  let+ env = M.get_env in 
+  let+ env,_ = M.get_env in 
   let inputBlock = {assignments = []; predecessors = LabelSet.empty ; forward_info=env; backward_info = (); location; terminator = Some (SwitchInt {choice=e; paths=[(0,outputLbl)]; default=cfg.input})} in
   let outputBlock = {assignments = []; predecessors = LabelSet.of_list [inputLbl;cfg.input] ; forward_info=env; backward_info = (); location; terminator = None} in
   {
@@ -114,7 +115,7 @@ let buildIfThenElse (location : loc) (e : expression) (cfgTrue : cfg) (cfgFalse 
   let* gotoF = addGoto outputLbl cfgFalse >>| addPredecessors [inputLbl]
   and* gotoT = addGoto outputLbl cfgTrue  >>| addPredecessors [inputLbl] in
   
-  let+ env = M.get_env in 
+  let+ env,_ = M.get_env in 
   let inputBlock = {assignments = [];  predecessors = LabelSet.empty ; forward_info=env; backward_info = (); location; terminator = Some (SwitchInt {choice=e; paths=[(0,cfgFalse.input)]; default=cfgTrue.input})}
   and outputBlock = {assignments = []; forward_info=env; backward_info = (); predecessors = LabelSet.of_list [cfgTrue.output;cfgFalse.output] ; location; terminator = None} in
 
@@ -129,7 +130,7 @@ let buildIfThenElse (location : loc) (e : expression) (cfgTrue : cfg) (cfgFalse 
 
 
 let buildSwitch (choice : expression) (blocks : (int * cfg) list) (cfg : cfg): cfg M.t = 
-  let* env = M.get_env in 
+  let* env,_ = M.get_env in 
   let paths = List.map (fun (value, cfg) -> (value, cfg.input)) blocks in 
   let bb1 = {assignments = []; predecessors = LabelSet.empty ; forward_info=env; backward_info = (); location = dummy_pos; terminator = Some (SwitchInt {choice ; paths; default=cfg.input})}
   and bb2 = {assignments = []; predecessors = LabelSet.empty ; forward_info=env; backward_info = (); location = dummy_pos; terminator = None} in
@@ -146,7 +147,7 @@ let buildSwitch (choice : expression) (blocks : (int * cfg) list) (cfg : cfg): c
   }
 
 let buildLoop (location : loc) (cfg : cfg) : cfg M.t = 
-  let* env =  M.get_env in 
+  let* env,_ =  M.get_env in 
   let* inputLbl = M.fresh_block and* outputLbl = M.fresh_block in 
   
   (* all break terminators within the body go to outputLbl *)
@@ -167,7 +168,7 @@ let buildLoop (location : loc) (cfg : cfg) : cfg M.t =
   }
 
 let buildInvoke (l : loc) (origin:l_str) (id : l_str) (target : string option) (el : expression list) : cfg M.t =
-  let* env = match target with 
+  let* env,_ = match target with 
   | None -> M.get_env 
   | Some tid -> M.update_var l tid assign_var >>= fun () -> M.get_env
   in 
@@ -179,7 +180,7 @@ let buildInvoke (l : loc) (origin:l_str) (id : l_str) (target : string option) (
       forward_info = env;
       backward_info = (); 
       location=l; 
-      terminator = Some (Invoke {id = (snd id); origin; target; params = el; next = returnLbl})
+      terminator = Some (Invoke {id=id.value; origin; target; params = el; next = returnLbl})
   } in
   let returnBlock = {assignments = []; predecessors = LabelSet.singleton invokeLbl ; forward_info = env; backward_info = () ; location = dummy_pos; terminator = None} in 
   {
@@ -190,7 +191,7 @@ let buildInvoke (l : loc) (origin:l_str) (id : l_str) (target : string option) (
 
 let buildReturn (location : loc) (e : expression option) : cfg M.t =
 
-  let* env = M.get_env in 
+  let* env,_ = M.get_env in 
   let returnBlock = {assignments=[]; predecessors = LabelSet.empty ; forward_info=env; backward_info = (); location; terminator= Some (Return e)} in 
   let+ returnLbl = M.fresh_block in
   {
@@ -220,7 +221,8 @@ let find_scoped_var name : string M.t =
 
 
 let seqOfList (l : statement list) : statement = 
-  List.fold_left (fun s l : statement ->  {info=dummy_pos; stmt=Seq (s, l)}) {info=dummy_pos;stmt=Skip} l
+  let tag = IrThir.ThirUtils.empty_tag in
+  List.fold_left (fun s l : statement ->  {tag; node=Seq (s, l)}) {tag;node=Skip} l
 
 
 
@@ -258,6 +260,5 @@ module Traversal(M : Monad) = struct
   in
   let+ res = aux lbl blocks in BlockMap.of_seq res
 end
-
 
 

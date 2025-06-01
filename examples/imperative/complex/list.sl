@@ -49,5 +49,5 @@ Loop:
     var u : int = length(l);
     print_int(u);print_newline();
     print_int(length(l));print_newline();
-    exit(0);
+    quit();
 }

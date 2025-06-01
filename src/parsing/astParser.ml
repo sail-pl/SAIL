@@ -24,7 +24,7 @@ open Common
 open TypesCommon
 
 (* expressions are control free *)
-type expression = loc * expression_ and expression_ = 
+type expression = expression_ locatable and expression_ = 
   Variable of string 
   | Deref of expression 
   | StructRead of expression * l_str
@@ -34,19 +34,19 @@ type expression = loc * expression_ and expression_ =
   | BinOp of binOp * expression * expression
   | Ref of bool * expression
   | ArrayStatic of expression list
-  | StructAlloc of l_str option * l_str * expression dict
+  | StructAlloc of l_str option * l_str * expression locatable dict
   | EnumAlloc of l_str * expression list 
   | MethodCall of l_str option *  l_str * expression list
 
   
-  type pattern =
-  | PVar of string
-  | PCons of string * pattern list   
+type pattern =
+| PVar of string
+| PCons of string * pattern list   
 
-type statement = loc * statement_ and statement_ = 
-  | DeclVar of bool * string * sailtype option * expression option 
+type statement = statement_ locatable and statement_ = 
+  | DeclVar of bool * string * sailtype option * expression option
   | Skip
-  | Assign of expression * expression
+  | Assign of {path:expression; value:expression}
   | Seq of statement * statement
   | If of expression * statement * statement option
   | While of expression * statement
@@ -61,15 +61,15 @@ type statement = loc * statement_ and statement_ =
   
 type pgroup_ty = Sequence | Parallel
 
-type ('s,'e) p_statement = loc * ('s,'e) p_statement_ and ('s,'e) p_statement_ = 
+type ('s,'e) p_statement = ('s,'e) p_statement_ locatable and ('s,'e) p_statement_ = 
   | Run of l_str * 'e option
   | Statement of 's * 'e option
   | PGroup of {p_ty : pgroup_ty  ; cond : 'e option ; children :  ('s,'e) p_statement list}
 
 type ('s,'e) process_body = {
-    locals : (loc * (string * (loc*sailtype))) list;
+    locals : (l_str * sailtype) list;
     init : 's;
-    proc_init : (loc * 'e proc_init) list;
+    proc_init : ('e proc_init locatable) list;
     loop : ('s,'e) p_statement;
 }
 
@@ -80,7 +80,7 @@ type 'a defn =
   | Method of statement method_defn list
   | Process of 'a process_defn
   
-module E = Error.Logger
+module E = Logging.Logger
 
 let mk_program  (md:metadata) (imports: ImportSet.t)  l : (statement, (statement,expression) process_body) SailModule.methods_processes SailModule.t E.t =
   let open SailModule in
@@ -100,8 +100,8 @@ let mk_program  (md:metadata) (imports: ImportSet.t)  l : (statement, (statement
             in (env,m,p)
 
           | Struct d -> 
-            let s_fields = List.sort_uniq (fun (s1,_) (s2,_) -> String.compare s1 s2) d.s_fields in
-            E.throw_if (Error.make d.s_pos "duplicate fields" )
+            let s_fields = List.sort_uniq (fun (s1,_) (s2,_) -> String.compare s1.value s2.value) d.s_fields in
+            E.throw_if Logging.(make_msg d.s_pos "duplicate fields" )
             (List.(length s_fields <> length d.s_fields)) >>= fun () -> 
             let+ env = DeclEnv.add_decl d.s_name (d.s_pos, defn_to_proto (Struct {d with s_fields})) Struct e |> rethrow d.s_pos
             in (env,m,p)
@@ -114,9 +114,9 @@ let mk_program  (md:metadata) (imports: ImportSet.t)  l : (statement, (statement
             
             let+ env,funs = 
             ListM.fold_left (fun (e,f) d ->
-              let* () = E.throw_if Error.(make d.m_proto.pos "calling a method 'main' is not allowed") (d.m_proto.name = "main") in
+              let* () = E.throw_if Logging.(make_msg d.m_proto.pos "calling a method 'main' is not allowed") (d.m_proto.name = "main") in
               let true_name = (match d.m_body with Left (sname,_) -> sname | Right _ -> d.m_proto.name) in
-              let+ env =  DeclEnv.add_decl d.m_proto.name ((d.m_proto.pos,true_name),defn_to_proto (Method d)) Method e
+              let+ env =  DeclEnv.add_decl d.m_proto.name (mk_locatable d.m_proto.pos true_name,defn_to_proto (Method d)) Method e
               in (env,d::f)
               ) (e,m) d in (env,funs,p)
 
@@ -126,5 +126,5 @@ let mk_program  (md:metadata) (imports: ImportSet.t)  l : (statement, (statement
   in 
   let+ declEnv,methods,processes = aux l in 
   let builtins = Builtins.get_builtins () in
-  {md; imports; declEnv ; body={methods;processes};builtins}
+  {typeEnv=Env.TypeEnv.empty; md; imports; declEnv ; body={methods;processes};builtins}
 
